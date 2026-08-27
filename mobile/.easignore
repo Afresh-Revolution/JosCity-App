@@ -1,0 +1,55 @@
+# Used if EAS_NO_VCS=1 or EAS_PROJECT_ROOT points at mobile/.
+# Default `eas build` uses the git-root .easignore instead.
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+.tmp-bundle/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# macOS / IDE
+.DS_Store
+*.pem
+.idea/
+.vscode/
+
+# local env files
+.env
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders (EAS prebuild recreates these)
+/ios
+/android
+
+# docs and agent files — not required to compile
+AGENTS.md
+CLAUDE.md
+README.md
+.claude/
+.env.example
+.gitignore

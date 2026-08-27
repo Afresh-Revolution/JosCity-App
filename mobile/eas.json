@@ -1,0 +1,57 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "environment": "development",
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": true
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "environment": "preview",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "environment": "production",
+      "autoIncrement": true,
+      "credentialsSource": "remote",
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "resourceClass": "medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://api-joscity-com-phqud.ondigitalocean.app/api"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "applicationId": "com.joscity.app",
+        "track": "internal",
+        "releaseStatus": "draft"
+      },
+      "ios": {
+        "bundleIdentifier": "com.joscity.app",
+        "appName": "JosCity",
+        "sku": "com.joscity.app",
+        "language": "en-US",
+        "ascAppId": "6805214004"
+      }
+    }
+  }
+}
