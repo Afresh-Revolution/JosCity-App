@@ -23,12 +23,14 @@ import ReportSheet from "../components/ReportSheet";
 import { createDirectConversation } from "../api/chat";
 import { type FeedPost } from "../api/feed";
 import { blockUser, getPersonalPage, type PersonalPage } from "../api/social";
+import { showNotice } from "../components/AppNotice";
 import { useI18n } from "../i18n/I18nProvider";
 import { getAccountType, getUser, hasSession, isBusinessAccountType } from "../storage/session";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { absoluteUrl, handleFromName } from "../utils/format";
 import { openMemberProfile } from "../utils/openProfile";
+import { accountStatusKind, accountStatusLabel } from "../utils/accountStatus";
 
 type TabKey = "posts" | "photos" | "reels" | "about";
 
@@ -187,6 +189,7 @@ export default function MemberProfileScreen() {
 
   const profile = data?.profile;
   const owner = Boolean(profile?.is_owner);
+  const deactivated = accountStatusKind(profile) === "deactivated";
 
   const onShare = () => {
     const name = profile?.name || "JosCity member";
@@ -199,15 +202,35 @@ export default function MemberProfileScreen() {
   const onMessage = async () => {
     const userId = Number(profile?.user_id || 0);
     if (!userId || messageBusy) return;
+    if (deactivated) {
+      showNotice({
+        title: t("member.messageDeactivated"),
+        message: t("member.messageDeactivatedBody"),
+        tone: "info",
+      });
+      return;
+    }
     setMessageBusy(true);
     try {
       const result = await createDirectConversation(userId);
       if (result && "pending" in result && result.pending) {
-        Alert.alert(t("member.messageRequestedTitle"), result.message || t("member.messageRequestedBody", { name: profile?.name || "" }));
+        showNotice({
+          title: t("member.messageRequestedTitle"),
+          message: result.message || t("member.messageRequestedBody", { name: profile?.name || "" }),
+          tone: "success",
+        });
+        return;
+      }
+      if (result && "failed" in result && result.failed) {
+        showNotice({
+          title: t("member.messageFailed"),
+          message: result.message || t("member.messageDeactivatedBody"),
+          tone: "error",
+        });
         return;
       }
       if (!result || !("conversationId" in result)) {
-        Alert.alert(t("member.messageFailed"));
+        showNotice({ title: t("member.messageFailed"), tone: "error" });
         return;
       }
       router.push({
@@ -344,7 +367,7 @@ export default function MemberProfileScreen() {
             <>
               <FadeIn delay={40}>
                 <View style={styles.hero}>
-                  <AvatarCircle name={profile.name} uri={profile.picture} size={96} />
+                  <AvatarCircle name={profile.name} uri={profile.picture} size={96} preview />
                 </View>
                 <View style={styles.identity}>
                   <View style={styles.nameRow}>
@@ -369,11 +392,20 @@ export default function MemberProfileScreen() {
                         }`
                       : ""}
                   </Text>
-                  {profile.membership_label ? (
+                  {deactivated || profile.membership_label ? (
                     <View style={styles.badges}>
-                      <View style={[styles.badge, styles.badgeGold]}>
-                        <Text style={styles.badgeGoldText}>{profile.membership_label}</Text>
-                      </View>
+                      {deactivated ? (
+                        <View style={[styles.badge, styles.badgeDeactivated]}>
+                          <Text style={styles.badgeDeactivatedText}>
+                            {accountStatusLabel("deactivated", t)}
+                          </Text>
+                        </View>
+                      ) : null}
+                      {profile.membership_label ? (
+                        <View style={[styles.badge, styles.badgeGold]}>
+                          <Text style={styles.badgeGoldText}>{profile.membership_label}</Text>
+                        </View>
+                      ) : null}
                     </View>
                   ) : null}
                 </View>
@@ -400,8 +432,12 @@ export default function MemberProfileScreen() {
                       <FriendActionButton userId={profile.user_id} name={profile.name} layout="bar" />
                       <Pressable
                         onPress={() => void onMessage()}
-                        disabled={messageBusy}
-                        style={[styles.actionSecondary, styles.actionGrow]}
+                        disabled={messageBusy || deactivated}
+                        style={[
+                          styles.actionSecondary,
+                          styles.actionGrow,
+                          deactivated && styles.actionDisabled,
+                        ]}
                       >
                         {messageBusy ? (
                           <ActivityIndicator color={colors.primary} size="small" />
@@ -690,6 +726,18 @@ function makeStyles(colors: Palette) {
       fontSize: 10,
       letterSpacing: 0.4,
       color: colors.text,
+    },
+    badgeDeactivated: {
+      backgroundColor: "rgba(180, 35, 24, 0.12)",
+    },
+    badgeDeactivatedText: {
+      fontFamily: "Montserrat_700Bold",
+      fontSize: 10,
+      letterSpacing: 0.4,
+      color: colors.error,
+    },
+    actionDisabled: {
+      opacity: 0.45,
     },
     actions: {
       flexDirection: "row",

@@ -1,0 +1,51 @@
+# EAS CLI reads this file at the git root and ignores .gitignore.
+# Keep store builds small: only the Expo app, not the website, docs, or API.
+
+# --- rest of this repo ---
+/JOSCITY/
+/New_Joscity/
+/.cursor/
+COMPLIANCE_REPORT.md
+IOS_APP_STORE.md
+PLAY_CONSOLE_README.md
+req.md
+scalability.md
+LICENSE
+
+# --- mobile: same as mobile/.gitignore ---
+/mobile/node_modules/
+/mobile/.expo/
+/mobile/dist/
+/mobile/web-build/
+/mobile/.tmp-bundle/
+/mobile/expo-env.d.ts
+/mobile/.kotlin/
+/mobile/*.orig.*
+/mobile/*.jks
+/mobile/*.p8
+/mobile/*.p12
+/mobile/*.key
+/mobile/*.mobileprovision
+/mobile/.metro-health-check*
+/mobile/npm-debug.*
+/mobile/yarn-debug.*
+/mobile/yarn-error.*
+/mobile/.DS_Store
+/mobile/*.pem
+/mobile/.env
+/mobile/.env*.local
+/mobile/*.tsbuildinfo
+/mobile/ios/
+/mobile/android/
+
+# --- mobile: not required to compile the binary ---
+/mobile/AGENTS.md
+/mobile/CLAUDE.md
+/mobile/README.md
+/mobile/.claude/
+/mobile/.env.example
+/mobile/.gitignore
+**/.DS_Store
+**/*.log
+**/.idea/
+**/.vscode/

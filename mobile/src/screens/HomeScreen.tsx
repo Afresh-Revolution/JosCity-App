@@ -415,7 +415,11 @@ export default function HomeScreen() {
             </View>
           </FadeIn>
 
-          {error ? <ErrorBanner message={error} /> : null}
+          {error ? (
+            <View style={{ marginHorizontal: 16 }}>
+              <ErrorBanner message={error} />
+            </View>
+          ) : null}
 
           {posts.length === 0 && !error ? (
             <Text style={styles.empty}>{t("home.empty")}</Text>

@@ -92,12 +92,11 @@ export function NoticeHost() {
 function makeBannerStyles(colors: Palette) {
   return StyleSheet.create({
     banner: {
-      marginHorizontal: 16,
       marginBottom: 12,
       borderRadius: 14,
-      backgroundColor: colors.iconSoft,
+      backgroundColor: "rgba(180, 35, 24, 0.08)",
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: colors.error,
       paddingVertical: 12,
       paddingHorizontal: 14,
       flexDirection: "row",
@@ -109,7 +108,7 @@ function makeBannerStyles(colors: Palette) {
       fontFamily: "Montserrat_500Medium",
       fontSize: 13,
       lineHeight: 19,
-      color: colors.text,
+      color: colors.error,
     },
   });
 }

@@ -15,6 +15,7 @@ import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import PresenceAvatar from "../components/messages/PresenceAvatar";
+import { ErrorBanner } from "../components/AppNotice";
 import {
   getChatPresence,
   getConversation,
@@ -52,6 +53,7 @@ export default function ChatThreadScreen() {
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [report, setReport] = useState<{
     type: "conversation" | "message";
     id: number;
@@ -118,21 +120,24 @@ export default function ChatThreadScreen() {
     if (!text || !conversationId || sending) return;
     setSending(true);
     setDraft("");
+    setSendError(null);
     try {
-      const sent = await sendChatMessage(conversationId, text);
-      if (sent) {
-        setMessages((current) => [...current, { ...sent, senderId: sent.senderId || myId }]);
+      const result = await sendChatMessage(conversationId, text);
+      if (result.message) {
+        setMessages((current) => [...current, { ...result.message!, senderId: result.message!.senderId || myId }]);
         void markConversationRead(conversationId);
         requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
       } else {
         setDraft(text);
+        setSendError(result.error || t("messages.sendFailed"));
       }
     } catch {
       setDraft(text);
+      setSendError(t("messages.sendFailed"));
     } finally {
       setSending(false);
     }
-  }, [conversationId, draft, sending, myId]);
+  }, [conversationId, draft, sending, myId, t]);
 
   const canSend = Boolean(draft.trim()) && !sending;
 
@@ -245,9 +250,18 @@ export default function ChatThreadScreen() {
         )}
 
         <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          {sendError ? (
+            <View style={styles.sendError}>
+              <ErrorBanner message={sendError} />
+            </View>
+          ) : null}
+          <View style={styles.composerRow}>
           <TextInput
             value={draft}
-            onChangeText={setDraft}
+            onChangeText={(value) => {
+              setDraft(value);
+              if (sendError) setSendError(null);
+            }}
             placeholder="Write a message"
             placeholderTextColor={colors.textMuted}
             style={styles.input}
@@ -262,6 +276,7 @@ export default function ChatThreadScreen() {
           >
             <Ionicons name="send" size={16} color={colors.white} />
           </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
       <ReportSheet
@@ -384,14 +399,19 @@ function makeStyles(colors: Palette) {
     color: colors.textMuted,
   },
   composer: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
     paddingHorizontal: 12,
     paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     backgroundColor: colors.background,
+  },
+  sendError: {
+    marginBottom: 4,
+  },
+  composerRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
   },
   input: {
     flex: 1,

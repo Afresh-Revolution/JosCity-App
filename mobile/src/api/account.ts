@@ -7,10 +7,16 @@ type Envelope<T> = {
   data?: T;
 };
 
-async function readAccount<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<{
+async function readAccount<T>(
+  path: string,
+  init: RequestInit & { timeoutMs?: number; skipUnauthorized?: boolean } = {}
+): Promise<{
   success: boolean;
   message?: string;
   data?: T;
+  status?: number;
+  timeout?: boolean;
+  network?: boolean;
 }> {
   try {
     const response = await apiFetch(path, { auth: true, timeoutMs: 20000, ...init });
@@ -18,12 +24,19 @@ async function readAccount<T>(path: string, init: RequestInit & { timeoutMs?: nu
     if (!response.ok) {
       return {
         success: false,
+        status: response.status,
         message: friendlyError(payload.message || "Request failed"),
       };
     }
-    return { success: true, message: payload.message, data: payload.data };
-  } catch {
-    return { success: false, message: friendlyError("offline") };
+    return { success: true, status: response.status, message: payload.message, data: payload.data };
+  } catch (error) {
+    const timeout = error instanceof Error && (error.name === "AbortError" || /timeout|aborted/i.test(error.message));
+    return {
+      success: false,
+      timeout,
+      network: true,
+      message: friendlyError(timeout ? "timeout" : "offline"),
+    };
   }
 }
 
@@ -390,6 +403,8 @@ export const deleteAccount = (password: string) =>
   readAccount("/account/delete", {
     method: "POST",
     body: JSON.stringify({ password }),
+    timeoutMs: 60000,
+    skipUnauthorized: true,
   });
 
 export const getSupportMessages = () => readAccount<SupportMessage[]>("/account/support");

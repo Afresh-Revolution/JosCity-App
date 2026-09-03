@@ -19,7 +19,7 @@ import BusinessRow from "../components/explore/BusinessRow";
 import NewsArticleRow from "../components/explore/NewsArticleRow";
 import ForumThreadRow from "../components/explore/ForumThreadRow";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
-import PeopleRow, { personName } from "../components/feed/PeopleRow";
+import PeopleRow from "../components/feed/PeopleRow";
 import {
   eventListKey,
   eventLocation,
@@ -87,6 +87,7 @@ export default function ExploreScreen() {
   const [people, setPeople] = useState<DirectoryUser[]>([]);
   const [matchedPeople, setMatchedPeople] = useState<DirectoryUser[]>([]);
   const [businesses, setBusinesses] = useState<DirectoryUser[]>([]);
+  const [matchedBusinesses, setMatchedBusinesses] = useState<DirectoryUser[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [events, setEvents] = useState<ExploreEvent[]>(() => getCachedExploreEvents().slice(0, 6));
   const [forumThreads, setForumThreads] = useState<ForumThread[]>([]);
@@ -151,18 +152,20 @@ export default function ExploreScreen() {
   useEffect(() => {
     if (!allowed) return;
     const search = query.trim();
-    if (search.length < 2) {
+    if (!search) {
       setMatchedPeople([]);
+      setMatchedBusinesses([]);
       return;
     }
     let cancelled = false;
     const timer = setTimeout(() => {
-      void getApprovedUsers({
-        limit: 40,
-        accountType: "personal",
-        q: search,
-      }).then((rows) => {
-        if (!cancelled) setMatchedPeople(rows);
+      void Promise.all([
+        getApprovedUsers({ limit: 40, accountType: "personal", q: search }),
+        getApprovedUsers({ limit: 40, accountType: "business", q: search }),
+      ]).then(([members, shops]) => {
+        if (cancelled) return;
+        setMatchedPeople(members);
+        setMatchedBusinesses(shops);
       });
     }, 250);
     return () => {
@@ -180,28 +183,12 @@ export default function ExploreScreen() {
     [hashtags, q]
   );
   const filteredPeople = useMemo(
-    () =>
-      q
-        ? (matchedPeople.length ? matchedPeople : people).filter((person) =>
-            matchesQuery(
-              `${personName(person)} ${person.address || ""} ${person.user_name || ""} ${person.display_name || ""}`,
-              q
-            )
-          )
-        : people,
+    () => (q ? matchedPeople : people),
     [matchedPeople, people, q]
   );
   const filteredBusinesses = useMemo(
-    () =>
-      q
-        ? businesses.filter((shop) =>
-            matchesQuery(
-              `${personName(shop)} ${shop.business_type || ""} ${shop.address || ""} ${shop.business_location || ""}`,
-              q
-            )
-          )
-        : businesses,
-    [businesses, q]
+    () => (q ? matchedBusinesses : businesses),
+    [matchedBusinesses, businesses, q]
   );
   const filteredNews = useMemo(
     () => (q ? news.filter((item) => matchesQuery(item.title || "", q)) : news),

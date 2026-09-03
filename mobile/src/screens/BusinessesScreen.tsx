@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -14,7 +14,6 @@ import FadeIn from "../components/FadeIn";
 import BusinessRow from "../components/explore/BusinessRow";
 import DirectorySearch from "../components/explore/DirectorySearch";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
-import { personName } from "../components/feed/PeopleRow";
 import { getApprovedUsers, type DirectoryUser } from "../api/social";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
 import { useI18n } from "../i18n/I18nProvider";
@@ -32,29 +31,35 @@ export default function BusinessesScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
-    setShops(await getApprovedUsers({ accountType: "business", allPages: true }));
+  const load = useCallback(async (search = "") => {
+    const q = search.trim();
+    setShops(
+      await getApprovedUsers({
+        accountType: "business",
+        q: q || undefined,
+        allPages: !q,
+        limit: q ? 80 : undefined,
+      })
+    );
   }, []);
 
   useFocusEffect(
     useCallback(() => {
       if (!allowed) return;
-      void load().finally(() => setLoading(false));
+      void load(query).finally(() => setLoading(false));
     }, [allowed, load])
   );
 
-  const q = query.trim().toLowerCase();
-  const filtered = useMemo(
-    () =>
-      q
-        ? shops.filter((shop) =>
-            `${personName(shop)} ${shop.business_type || ""} ${shop.address || ""} ${shop.business_location || ""}`
-              .toLowerCase()
-              .includes(q)
-          )
-        : shops,
-    [q, shops]
-  );
+  useEffect(() => {
+    if (!allowed) return;
+    const timer = setTimeout(() => {
+      void load(query);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [allowed, load, query]);
+
+  const filtered = shops;
+  const q = query.trim();
 
   if (!allowed) {
     return (
@@ -96,7 +101,7 @@ export default function BusinessesScreen() {
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
-                void load().finally(() => setRefreshing(false));
+                void load(query).finally(() => setRefreshing(false));
               }}
               tintColor={colors.primary}
             />

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AppState,
   Modal,
   PanResponder,
   Pressable,
@@ -11,11 +12,19 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Audio, ResizeMode, Video, type AVPlaybackStatus } from "expo-av";
 import { useI18n } from "../../i18n/I18nProvider";
+import {
+  claimFeedPlayback,
+  createFeedPlaybackId,
+  releaseFeedPlayback,
+  subscribeFeedPlayback,
+} from "../../state/feedPlayback";
 import { playableVideoUrl } from "../../utils/media";
+import { TAB_BAR_SPACE } from "./FeedShell";
 
 type Props = {
   uri: string;
@@ -148,15 +157,42 @@ export default function FeedVideo({ uri, style }: Props) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const iconColor = "rgba(255,255,255,0.72)";
+  const playbackId = useRef(createFeedPlaybackId()).current;
+  const wrapRef = useRef<View>(null);
   const playerRef = useRef<Video>(null);
   const positionMillis = useRef(0);
   const scrubbing = useRef(false);
+  const pausedRef = useRef(true);
+  const fullscreenRef = useRef(false);
+  const windowHeightRef = useRef(windowHeight);
   const [paused, setPaused] = useState(true);
   const [muted, setMuted] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
   const [positionMs, setPositionMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
+
+  pausedRef.current = paused;
+  fullscreenRef.current = fullscreen;
+  windowHeightRef.current = windowHeight;
+
+  const pausePlayback = useCallback(() => {
+    pausedRef.current = true;
+    setPaused(true);
+    releaseFeedPlayback(playbackId);
+    void playerRef.current?.pauseAsync().catch(() => undefined);
+  }, [playbackId]);
+
+  const playPlayback = useCallback(() => {
+    claimFeedPlayback(playbackId);
+    pausedRef.current = false;
+    setPaused(false);
+  }, [playbackId]);
+
+  const togglePlayback = useCallback(() => {
+    if (pausedRef.current) playPlayback();
+    else pausePlayback();
+  }, [pausePlayback, playPlayback]);
 
   useEffect(() => {
     void Audio.setAudioModeAsync({
@@ -169,6 +205,51 @@ export default function FeedVideo({ uri, style }: Props) {
   }, []);
 
   useEffect(() => {
+    return subscribeFeedPlayback((playingId) => {
+      if (playingId === playbackId) return;
+      pausedRef.current = true;
+      setPaused(true);
+      void playerRef.current?.pauseAsync().catch(() => undefined);
+    });
+  }, [playbackId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        pausePlayback();
+      };
+    }, [pausePlayback])
+  );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") pausePlayback();
+    });
+    return () => sub.remove();
+  }, [pausePlayback]);
+
+  useEffect(() => {
+    if (paused || fullscreen) return;
+    const tick = () => {
+      wrapRef.current?.measureInWindow((_x, y, _w, h) => {
+        if (pausedRef.current || fullscreenRef.current || !h) return;
+        const visibleBottom = windowHeightRef.current - TAB_BAR_SPACE;
+        const visible = Math.max(0, Math.min(visibleBottom, y + h) - Math.max(0, y));
+        if (visible / h < 0.35) pausePlayback();
+      });
+    };
+    tick();
+    const timer = setInterval(tick, 200);
+    return () => clearInterval(timer);
+  }, [fullscreen, pausePlayback, paused]);
+
+  useEffect(() => {
+    return () => {
+      releaseFeedPlayback(playbackId);
+    };
+  }, [playbackId]);
+
+  useEffect(() => {
     setPlayerReady(false);
     const player = playerRef.current;
     return () => {
@@ -178,11 +259,10 @@ export default function FeedVideo({ uri, style }: Props) {
 
   const openFullscreen = () => {
     const player = playerRef.current;
-    const resume = !paused;
-    setPaused(true);
+    const resume = !pausedRef.current;
     void unloadQuietly(player).finally(() => {
       setFullscreen(true);
-      setPaused(!resume);
+      if (resume) playPlayback();
     });
   };
 
@@ -257,10 +337,10 @@ export default function FeedVideo({ uri, style }: Props) {
   );
 
   return (
-    <View style={[styles.wrap, style]}>
+    <View ref={wrapRef} collapsable={false} style={[styles.wrap, style]}>
       {fullscreen ? null : player}
       <Pressable
-        onPress={() => setPaused((value) => !value)}
+        onPress={togglePlayback}
         style={StyleSheet.absoluteFill}
         accessibilityRole="button"
         accessibilityLabel={paused ? t("feed.playVideo") : t("feed.pauseVideo")}
@@ -295,7 +375,7 @@ export default function FeedVideo({ uri, style }: Props) {
         <View style={styles.fullRoot}>
           {fullscreen ? player : null}
           <Pressable
-            onPress={() => setPaused((value) => !value)}
+            onPress={togglePlayback}
             style={StyleSheet.absoluteFill}
             accessibilityRole="button"
             accessibilityLabel={paused ? t("feed.playVideo") : t("feed.pauseVideo")}

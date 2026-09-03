@@ -1,0 +1,39 @@
+---
+description: Put all backend logic and PostgreSQL in the external apps/New_Joscity folder
+alwaysApply: true
+---
+
+# Backend and SQL location
+
+The backend is the **sibling** folder `../New_Joscity` (under `Downloads/apps`), **not** `JosCity-App/New_Joscity`.
+
+The live **web frontend** served at localhost:5173 is the sibling folder `../JOSCITY`, **not** `JosCity-App/JOSCITY`.
+
+Correct backend: `C:\Users\HP OMEN\Downloads\apps\New_Joscity`
+Correct web UI: `C:\Users\HP OMEN\Downloads\apps\JOSCITY`
+Wrong: `C:\Users\HP OMEN\Downloads\apps\JosCity-App\New_Joscity` or `JosCity-App\JOSCITY` for the running Vite app.
+
+Correct: `C:\Users\HP OMEN\Downloads\apps\New_Joscity`
+Wrong: `C:\Users\HP OMEN\Downloads\apps\JosCity-App\New_Joscity`
+
+Never put API handlers, routes, or SQL in `JosCity-App/New_Joscity`, `mobile`, or `JOSCITY`.
+
+## Backend
+
+- Add or update controllers, routes, services, and middleware only under `../New_Joscity/`
+- Wire new endpoints in `../New_Joscity/server.js` and `../New_Joscity/routes/`
+- If a mobile or web feature needs an API, implement it in `../New_Joscity` first, then call it from the client
+
+## PostgreSQL
+
+- Add numbered files under `../New_Joscity/migrations/`
+- Keep changes additive and idempotent (`IF NOT EXISTS`, `ON CONFLICT`)
+- Run migrations from that folder: `cd ../New_Joscity` then `npm run migrate -- migrations/<file>.sql`
+
+```text
+../New_Joscity/
+  controller/
+  routes/
+  services/
+  migrations/027_feature_name.sql
+```

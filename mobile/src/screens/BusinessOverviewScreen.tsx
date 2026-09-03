@@ -174,6 +174,7 @@ export default function BusinessOverviewScreen() {
                 name={data?.profile.name}
                 uri={data?.profile.picture}
                 size={72}
+                preview
               />
               <View style={styles.profileCopy}>
                 <Text numberOfLines={1} style={styles.profileName}>

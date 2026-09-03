@@ -369,7 +369,7 @@ export default function PersonalDetailsScreen() {
       setError("Enter a valid phone number.");
       return;
     }
-    if (nextAddress.length < 8) {
+    if (isBusiness && nextAddress.length < 8) {
       setError("Enter a fuller address (street, area, Jos).");
       return;
     }
@@ -561,7 +561,7 @@ export default function PersonalDetailsScreen() {
 
                 <View style={[styles.avatarRow, !isBusiness && styles.avatarRowPlain]}>
                   <View style={styles.avatarWrap}>
-                    <AvatarCircle name={fullName} uri={picture} size={84} />
+                    <AvatarCircle name={fullName} uri={picture} size={84} preview />
                     <Pressable
                       onPress={() => choosePhoto("avatar")}
                       disabled={Boolean(uploadingPhoto)}
@@ -711,7 +711,7 @@ export default function PersonalDetailsScreen() {
                 left={<FieldIcon name="call-outline" />}
               />
               <TextField
-                label="Address"
+                label={isBusiness ? "Address" : "Address (optional)"}
                 value={address}
                 onChangeText={setAddress}
                 autoCapitalize="words"
@@ -848,6 +848,7 @@ function makeStyles(colors: Palette) {
     position: "absolute",
     right: 0,
     bottom: 0,
+    zIndex: 3,
     width: 28,
     height: 28,
     borderRadius: 14,

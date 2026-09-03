@@ -213,11 +213,11 @@ export async function verifyPasswordResetOtp(
 export async function registerPersonal(params: {
   user_firstname: string;
   user_lastname: string;
-  user_gender: string;
+  user_gender?: string;
   user_phone: string;
   user_email: string;
-  nin_number: string;
-  address: string;
+  nin_number?: string;
+  address?: string;
   user_password: string;
   referral_code?: string;
 }): Promise<AuthResult> {
@@ -227,11 +227,11 @@ export async function registerPersonal(params: {
     body: JSON.stringify({
       user_firstname: params.user_firstname.trim(),
       user_lastname: params.user_lastname.trim(),
-      user_gender: params.user_gender,
+      user_gender: params.user_gender?.trim() || "",
       user_phone: params.user_phone.trim(),
       user_email: params.user_email.toLowerCase().trim(),
-      nin_number: params.nin_number.trim(),
-      address: params.address.trim(),
+      nin_number: params.nin_number?.trim() || "",
+      address: params.address?.trim() || "",
       user_password: params.user_password,
       referral_code: params.referral_code?.trim() || "",
     }),

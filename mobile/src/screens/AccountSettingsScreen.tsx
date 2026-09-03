@@ -3,6 +3,7 @@ import { Alert, Pressable, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import AppButton from "../components/AppButton";
 import FadeIn from "../components/FadeIn";
+import { ErrorBanner, showNotice } from "../components/AppNotice";
 import SettingsPage, { SettingsNavRow, useSettingsStyles } from "../components/SettingsPage";
 import ReportSheet from "../components/ReportSheet";
 import TextField from "../components/TextField";
@@ -166,16 +167,43 @@ export default function AccountSettingsScreen() {
     }
     setSaving(true);
     setError(null);
-    const result =
-      confirming === "deactivate" ? await deactivateAccount(password) : await deleteAccount(password);
-    setSaving(false);
-    if (!result.success) {
-      setError(
-        result.message ||
-          (confirming === "deactivate" ? t("account.deactivateError") : t("account.deleteError"))
-      );
+
+    if (confirming === "delete") {
+      await unregisterPushTokenOnLogout();
+      const result = await deleteAccount(password);
+      const passwordWrong =
+        result.status === 400 ||
+        /password is incorrect|incorrect password/i.test(String(result.message || ""));
+      const passed =
+        result.success ||
+        result.status === 401 ||
+        result.status === 404 ||
+        Boolean(result.timeout);
+      if (!passed) {
+        setSaving(false);
+        setError(
+          passwordWrong
+            ? result.message || t("account.deletePassword")
+            : result.message || t("account.deleteError")
+        );
+        return;
+      }
+      await clearSession();
+      router.replace("/welcome");
       return;
     }
+
+    const result = await deactivateAccount(password);
+    setSaving(false);
+    if (!result.success) {
+      setError(result.message || t("account.deactivateError"));
+      return;
+    }
+    showNotice({
+      title: t("account.deactivateSuccess"),
+      message: result.message || t("account.deactivateSuccessBody"),
+      tone: "success",
+    });
     await unregisterPushTokenOnLogout();
     await clearSession();
     router.replace("/welcome");
@@ -211,7 +239,8 @@ export default function AccountSettingsScreen() {
     setHoursOpen(String(result.data?.open || open).trim());
     setHoursClose(String(result.data?.close || close).trim());
     setHoursDays(Array.isArray(result.data?.days) ? result.data.days : days);
-    setHoursMessage(t("account.hoursSaved"));
+    setHoursMessage(null);
+    showNotice({ title: t("account.hoursSaved"), tone: "success" });
   };
 
   if (!allowed) return null;
@@ -301,14 +330,9 @@ export default function AccountSettingsScreen() {
                   />
                 </View>
                 {hoursMessage ? (
-                  <Text
-                    style={[
-                      hoursMessage === t("account.hoursSaved") ? s.rowMeta : s.error,
-                      { marginTop: 14, marginBottom: 0 },
-                    ]}
-                  >
-                    {hoursMessage}
-                  </Text>
+                  <View style={{ marginTop: 14 }}>
+                    <ErrorBanner message={hoursMessage} />
+                  </View>
                 ) : null}
               </View>
             </View>
@@ -392,10 +416,17 @@ export default function AccountSettingsScreen() {
             <TextField
               label={t("account.password")}
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(value) => {
+                setPassword(value);
+                setError(null);
+              }}
               secureTextEntry
             />
-            {error ? <Text style={s.error}>{error}</Text> : null}
+            {error ? (
+              <View style={{ marginTop: 4 }}>
+                <ErrorBanner message={error} />
+              </View>
+            ) : null}
             <AppButton
               label={
                 confirming === "deactivate"
@@ -409,7 +440,7 @@ export default function AccountSettingsScreen() {
             />
           </View>
         ) : error ? (
-          <Text style={s.error}>{error}</Text>
+          <ErrorBanner message={error} />
         ) : null}
       </FadeIn>
       <ReportSheet

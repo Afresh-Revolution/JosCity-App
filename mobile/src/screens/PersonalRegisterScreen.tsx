@@ -68,16 +68,10 @@ export default function PersonalRegisterScreen() {
       if (firstName.trim().length < 2 || lastName.trim().length < 2) {
         return "Enter your first and last name.";
       }
-      if (gender !== "male" && gender !== "female") {
-        return "Select your gender.";
-      }
-      if (address.trim().length < 10) {
-        return "Enter a fuller address (street, area, Jos).";
-      }
     }
     if (step === 3) {
-      if (nin.replace(/\D/g, "").length !== 11) {
-        return "NIN must be 11 digits.";
+      if (nin.replace(/\D/g, "").length > 0 && nin.replace(/\D/g, "").length !== 11) {
+        return "NIN must be 11 digits if you add it.";
       }
       if (!agreed) {
         return "Agree to the Terms of Service and Privacy Policy to continue.";
@@ -203,8 +197,8 @@ export default function PersonalRegisterScreen() {
                   {step === 1
                     ? "Start with how you’ll sign in to JOSCITY."
                     : step === 2
-                      ? "Tell us who you are — this appears on your membership ID."
-                      : "Your NIN keeps the JOSCITY community verified and safe."}
+                      ? "Tell us who you are — this appears on your membership ID. Gender and address are optional."
+                      : "You can add your NIN now or skip it, then agree to the terms."}
                 </Text>
               </FadeIn>
 
@@ -274,17 +268,17 @@ export default function PersonalRegisterScreen() {
                     <Pressable onPress={() => setGenderOpen(true)}>
                       <View pointerEvents="none">
                         <TextField
-                          label="Gender"
+                          label="Gender (optional)"
                           labelColor={labelColor}
                           value={gender ? gender[0].toUpperCase() + gender.slice(1) : ""}
-                          placeholder="Select gender"
+                          placeholder="Prefer not to say"
                           editable={false}
                           right={<Ionicons name="chevron-down" size={18} color={colors.textMuted} />}
                         />
                       </View>
                     </Pressable>
                     <TextField
-                      label="Address"
+                      label="Address (optional)"
                       labelColor={labelColor}
                       value={address}
                       onChangeText={setAddress}
@@ -296,13 +290,13 @@ export default function PersonalRegisterScreen() {
                 {step === 3 ? (
                   <>
                     <TextField
-                      label="NIN number"
+                      label="NIN number (optional)"
                       labelColor={labelColor}
                       value={nin}
                       onChangeText={(value) => setNin(value.replace(/[^\d]/g, "").slice(0, 11))}
                       keyboardType="number-pad"
                       placeholder="11-digit National Identification Number"
-                      helper="JOSCITY reviews your NIN before your account is fully verified."
+                      helper="You can skip this. If you add it, use 11 digits. JOSCITY can verify it later."
                     />
                     <Pressable
                       onPress={() => setAgreed((value) => !value)}
@@ -365,9 +359,9 @@ export default function PersonalRegisterScreen() {
       <Modal visible={genderOpen} transparent animationType="fade" onRequestClose={() => setGenderOpen(false)}>
         <Pressable style={styles.pickerDim} onPress={() => setGenderOpen(false)}>
           <View style={styles.picker}>
-            {(["male", "female"] as const).map((option) => (
+            {(["male", "female", ""] as const).map((option) => (
               <Pressable
-                key={option}
+                key={option || "skip"}
                 onPress={() => {
                   setGender(option);
                   setGenderOpen(false);
@@ -375,7 +369,7 @@ export default function PersonalRegisterScreen() {
                 style={styles.pickerItem}
               >
                 <Text style={styles.pickerLabel}>
-                  {option === "male" ? "Male" : "Female"}
+                  {option === "male" ? "Male" : option === "female" ? "Female" : "Prefer not to say"}
                 </Text>
               </Pressable>
             ))}

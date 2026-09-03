@@ -412,8 +412,12 @@ export default function MessagesScreen() {
         void load();
         return;
       }
+      if (conversation && "failed" in conversation && conversation.failed) {
+        setError(conversation.message || t("messages.deactivatedPeer"));
+        return;
+      }
       if (!conversation || !("conversationId" in conversation)) {
-        setError("We couldn't start this chat. Please try again.");
+        setError(t("messages.sendFailed"));
         return;
       }
       openChat(
@@ -509,7 +513,11 @@ export default function MessagesScreen() {
                 />
               }
             >
-          {error ? <ErrorBanner message={error} /> : null}
+          {error ? (
+            <View style={{ marginHorizontal: 16 }}>
+              <ErrorBanner message={error} />
+            </View>
+          ) : null}
 
           {incoming.length ? (
             <FadeIn delay={50}>

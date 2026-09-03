@@ -612,7 +612,7 @@ export default function ProfileScreen() {
           <FadeIn>
             <View style={styles.identity}>
               <View style={styles.avatarWrap}>
-                <AvatarCircle name={name} uri={picture} size={64} />
+                <AvatarCircle name={name} uri={picture} size={64} preview />
                 <Pressable
                   onPress={changePhoto}
                   disabled={uploadingPhoto}
@@ -947,6 +947,7 @@ function makeProfileStyles(colors: Palette) {
     position: "absolute",
     right: -2,
     bottom: -2,
+    zIndex: 3,
     width: 24,
     height: 24,
     borderRadius: 12,

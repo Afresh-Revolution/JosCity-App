@@ -42,7 +42,8 @@ export type MessageRequest = {
 
 export type DirectConversationResult =
   | ChatConversation
-  | { pending: true; message?: string };
+  | { pending: true; message?: string }
+  | { failed: true; message?: string };
 
 function toRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" ? (value as JsonRecord) : {};
@@ -239,7 +240,7 @@ export async function getConversation(
 export async function sendChatMessage(
   conversationId: number,
   messageContent: string
-): Promise<ChatMessage | null> {
+): Promise<{ message: ChatMessage | null; error?: string }> {
   const response = await apiFetch(`/chat/conversations/${conversationId}/messages`, {
     method: "POST",
     auth: true,
@@ -247,8 +248,16 @@ export async function sendChatMessage(
     body: JSON.stringify({ messageContent }),
   });
   const data = await readJson<{ message?: unknown; data?: unknown }>(response);
-  if (!response.ok) return null;
-  return normalizeMessage(data.message ?? data.data, conversationId);
+  if (!response.ok) {
+    const payload = toRecord(data);
+    return {
+      message: null,
+      error:
+        pickString(payload.message) ||
+        "Could not send this message.",
+    };
+  }
+  return { message: normalizeMessage(data.message ?? data.data, conversationId) };
 }
 
 export async function markConversationRead(conversationId: number): Promise<boolean> {
@@ -293,7 +302,9 @@ export async function createDirectConversation(
   if (data.pending) {
     return { pending: true, message: data.message };
   }
-  if (!response.ok) return null;
+  if (!response.ok) {
+    return { failed: true, message: data.message };
+  }
   return (
     normalizeConversation(data.conversation) ||
     (pickNumber(data.conversation_id)

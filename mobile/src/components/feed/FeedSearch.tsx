@@ -103,7 +103,7 @@ export function searchFeed(
     const name = personName(person);
     const key = name.toLowerCase();
     if (seenPeople.has(key)) continue;
-    const haystack = `${name} ${person.user_name || ""} ${person.address || ""}`.toLowerCase();
+    const haystack = `${name} ${person.display_name || ""} ${person.user_name || ""} ${person.business_name || ""} ${person.address || ""} ${person.business_location || ""}`.toLowerCase();
     if (!haystack.includes(queryLower)) continue;
     seenPeople.add(key);
     const authored = posts.find((post) => authorId(post) === person.user_id);

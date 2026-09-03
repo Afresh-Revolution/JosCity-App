@@ -823,6 +823,8 @@ export type BusinessPageProfile = {
   reply_label: string;
   following: boolean;
   is_owner: boolean;
+  account_status?: string;
+  deactivated?: boolean;
 };
 
 export type BusinessPageReview = {

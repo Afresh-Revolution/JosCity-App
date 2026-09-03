@@ -23,6 +23,7 @@ import FeedImage from "../components/feed/FeedImage";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import PostCard from "../components/feed/PostCard";
 import ReportSheet from "../components/ReportSheet";
+import { showNotice } from "../components/AppNotice";
 import {
   createDirectConversation,
   getBusinessMessageRequests,
@@ -50,6 +51,7 @@ import {
 } from "../storage/session";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
+import { accountStatusKind, accountStatusLabel } from "../utils/accountStatus";
 import { absoluteUrl, formatNaira, handleFromName } from "../utils/format";
 import { openListing } from "../utils/openListing";
 import { openMemberProfile } from "../utils/openProfile";
@@ -174,6 +176,7 @@ export default function BusinessProfileScreen() {
   const profile = data?.profile;
   const isActualOwner = Boolean(profile?.is_owner);
   const owner = isActualOwner && !customerView;
+  const deactivated = accountStatusKind(profile) === "deactivated";
   const linkedIsBusiness = isBusinessAccountType(linkedSession?.accountType);
   const switchTarget = linkedSession && !linkedIsBusiness ? linkedSession : null;
   const switchTitle = t("profile.personalAccount");
@@ -288,8 +291,20 @@ export default function BusinessProfileScreen() {
   const onMessage = async () => {
     const userId = Number(profile?.user_id || 0);
     if (!userId || messageBusy) return;
+    if (deactivated) {
+      showNotice({
+        title: t("business.messageDeactivated"),
+        message: t("business.messageDeactivatedBody"),
+        tone: "info",
+      });
+      return;
+    }
     if (messagePending) {
-      Alert.alert(t("business.messageRequestedTitle"), t("business.messageRequestedBody", { name: profile?.name || "" }));
+      showNotice({
+        title: t("business.messageRequestedTitle"),
+        message: t("business.messageRequestedBody", { name: profile?.name || "" }),
+        tone: "info",
+      });
       return;
     }
     setMessageBusy(true);
@@ -297,14 +312,23 @@ export default function BusinessProfileScreen() {
       const result = await createDirectConversation(userId);
       if (result && "pending" in result && result.pending) {
         setMessagePending(true);
-        Alert.alert(
-          t("business.messageRequestedTitle"),
-          result.message || t("business.messageRequestedBody", { name: profile?.name || "" })
-        );
+        showNotice({
+          title: t("business.messageRequestedTitle"),
+          message: result.message || t("business.messageRequestedBody", { name: profile?.name || "" }),
+          tone: "success",
+        });
+        return;
+      }
+      if (result && "failed" in result && result.failed) {
+        showNotice({
+          title: t("business.messageFailed"),
+          message: result.message || t("business.messageDeactivatedBody"),
+          tone: "error",
+        });
         return;
       }
       if (!result || !("conversationId" in result)) {
-        Alert.alert(t("business.messageFailed"));
+        showNotice({ title: t("business.messageFailed"), tone: "error" });
         return;
       }
       router.push({
@@ -417,6 +441,7 @@ export default function BusinessProfileScreen() {
                   name={profile?.name || previewName}
                   uri={profile?.picture || previewPicture}
                   size={72}
+                  preview
                 />
               </View>
             </View>
@@ -448,6 +473,13 @@ export default function BusinessProfileScreen() {
                 {profile?.reply_label ? ` · ${profile.reply_label}` : ""}
               </Text>
               <View style={styles.badges}>
+                {deactivated ? (
+                  <View style={[styles.badge, styles.badgeDeactivated]}>
+                    <Text style={styles.badgeDeactivatedText}>
+                      {accountStatusLabel("deactivated", t)}
+                    </Text>
+                  </View>
+                ) : null}
                 <View style={[styles.badge, profile?.is_open ? styles.badgeOpen : styles.badgeMuted]}>
                   <Text style={[styles.badgeText, profile?.is_open && styles.badgeTextOpen]}>
                     {profile?.is_open ? t("business.profileOpen") : t("business.profileClosed")}
@@ -533,8 +565,12 @@ export default function BusinessProfileScreen() {
                 </Pressable>
                 <Pressable
                   onPress={() => void onMessage()}
-                  disabled={messageBusy}
-                  style={[styles.actionSecondary, styles.actionGrow]}
+                  disabled={messageBusy || deactivated}
+                  style={[
+                    styles.actionSecondary,
+                    styles.actionGrow,
+                    deactivated && styles.actionDisabled,
+                  ]}
                 >
                   {messageBusy ? (
                     <ActivityIndicator color={colors.primary} size="small" />
@@ -1105,6 +1141,18 @@ function makeStyles(colors: Palette) {
     },
     badgeGold: {
       backgroundColor: colors.greetingBg,
+    },
+    badgeDeactivated: {
+      backgroundColor: "rgba(180, 35, 24, 0.12)",
+    },
+    badgeDeactivatedText: {
+      fontFamily: "Montserrat_700Bold",
+      fontSize: 10,
+      letterSpacing: 0.4,
+      color: colors.error,
+    },
+    actionDisabled: {
+      opacity: 0.45,
     },
     badgeNoCac: {
       backgroundColor: "#FFF4E8",

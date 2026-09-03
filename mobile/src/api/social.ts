@@ -62,6 +62,7 @@ export async function getApprovedUsers(options?: {
       method: "GET",
       auth: true,
       timeoutMs: 20000,
+      headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
     });
     const data = await readJson<{
       success?: boolean;
@@ -95,7 +96,12 @@ export async function searchUsers(query: string): Promise<DirectoryUser[]> {
   try {
     const response = await apiFetch(
       `/users/search?q=${encodeURIComponent(q)}`,
-      { method: "GET", auth: true, timeoutMs: 15000 }
+      {
+        method: "GET",
+        auth: true,
+        timeoutMs: 15000,
+        headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
+      }
     );
     const data = await readJson<{ data?: DirectoryUser[] }>(response);
     return Array.isArray(data.data) ? data.data : [];
@@ -409,6 +415,8 @@ export type PersonalPageProfile = {
   joined_at: string | null;
   are_friends: boolean;
   is_owner: boolean;
+  account_status?: string;
+  deactivated?: boolean;
 };
 
 export type PersonalPage = {
