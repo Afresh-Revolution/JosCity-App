@@ -14,8 +14,8 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import { ResizeMode, Video } from "expo-av";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import PreviewVideo from "../components/media/PreviewVideo";
 import FadeIn from "../components/FadeIn";
 import { showError } from "../components/AppNotice";
 import AvatarCircle from "../components/feed/AvatarCircle";
@@ -40,6 +40,7 @@ import {
   pickStatusMedia,
 } from "../utils/statusMedia";
 import { mergePendingStatus, mapStoryGroups, type StatusStory } from "../utils/stories";
+import { seedStoryMediaFromLocal } from "../storage/storyMediaCache";
 
 function displayNameFor(user: StoredUser | null): string {
   return (
@@ -162,20 +163,32 @@ export default function CreateStatusScreen() {
     const storyText = text.trim();
     const storyCaption = caption.trim() || undefined;
     const storyItems = [...items];
-    const upload =
-      storyType === "text"
-        ? createStory({ type: storyType, src: storyText }).then((result) => [result])
-        : Promise.all(
-            storyItems.map((item) =>
-              createStory({ type: storyType, caption: storyCaption, media: item })
-            )
-          );
-
     const current = user;
     const userId = Number(current?.user_id || 0);
     const userName = displayNameFor(current);
     const avatar = picture || "";
     const now = Date.now();
+    const upload =
+      storyType === "text"
+        ? createStory({ type: storyType, src: storyText }).then((result) => [result])
+        : Promise.all(
+            storyItems.map(async (item) => {
+              const result = await createStory({
+                type: storyType,
+                caption: storyCaption,
+                media: item,
+              });
+              if (result.success && result.storyId) {
+                await seedStoryMediaFromLocal({
+                  storyId: result.storyId,
+                  localUri: item.uri,
+                  expiresAt: now + 24 * 60 * 60 * 1000,
+                  type: storyType,
+                });
+              }
+              return result;
+            })
+          );
     const pendingStories: StatusStory[] =
       storyType === "text"
         ? [
@@ -337,14 +350,13 @@ export default function CreateStatusScreen() {
               ) : posting ? (
                 <View style={styles.media} />
               ) : (
-                <Video
+                <PreviewVideo
                   key={selected?.uri}
-                  source={{ uri: selected?.uri || "" }}
+                  uri={selected?.uri || ""}
                   style={styles.media}
-                  resizeMode={ResizeMode.COVER}
-                  shouldPlay
-                  isLooping
-                  isMuted
+                  playing
+                  loop
+                  muted
                 />
               )}
             </View>

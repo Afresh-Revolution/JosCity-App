@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Dimensions,
   Image,
@@ -9,10 +8,13 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useEventListener } from "expo";
+import { setAudioModeAsync } from "expo-audio";
 import { LinearGradient } from "expo-linear-gradient";
-import { ResizeMode, Video, Audio } from "expo-av";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import AvatarCircle from "../components/feed/AvatarCircle";
@@ -37,9 +39,12 @@ import {
 import { getUser } from "../storage/session";
 import { timeAgo } from "../utils/format";
 import { playableVideoUrl } from "../utils/media";
+import { runVideoPlayer } from "../utils/videoPlayer";
 import { openMemberProfile } from "../utils/openProfile";
 import {
   forgetStoryMedia,
+  hydrateStoryCache,
+  isLocalUri,
   peekCachedStoryUri,
   rememberStoryMedia,
   resolveStoryPlaybackUri,
@@ -341,7 +346,7 @@ export default function StatusViewerScreen() {
   if (!allowed || loading) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator color="#FFFFFF" size="large" />
+        <JosCityLoader color="#FFFFFF" size="large" />
       </View>
     );
   }
@@ -447,7 +452,7 @@ export default function StatusViewerScreen() {
         {story.isOwner ? (
           story.uploading ? (
             <View style={styles.viewsRow}>
-              <ActivityIndicator color="#FFFFFF" size="small" />
+              <JosCityLoader color="#FFFFFF" size="small" />
               <Text style={styles.viewsText}>{t("status.uploading")}</Text>
             </View>
           ) : (
@@ -489,6 +494,63 @@ export default function StatusViewerScreen() {
   );
 }
 
+function StoryVideo({
+  uri,
+  paused,
+  onEnded,
+  onProgress,
+  onError,
+  onBuffering,
+}: {
+  uri: string;
+  paused: boolean;
+  onEnded: () => void;
+  onProgress: (value: number) => void;
+  onError: () => void;
+  onBuffering: (waiting: boolean) => void;
+}) {
+  const player = useVideoPlayer(uri || null, (next) => {
+    next.loop = false;
+    next.muted = false;
+    next.timeUpdateEventInterval = 0.25;
+    runVideoPlayer(next, (item) => {
+      if (!paused) item.play?.();
+      else item.pause?.();
+    });
+  });
+
+  useEffect(() => {
+    runVideoPlayer(player, (item) => {
+      if (paused) item.pause?.();
+      else item.play?.();
+    });
+  }, [paused, player]);
+
+  useEventListener(player, "playToEnd", onEnded);
+  useEventListener(player, "timeUpdate", ({ currentTime }) => {
+    runVideoPlayer(player, (item) => {
+      const duration = item.duration || 0;
+      if (duration > 0) onProgress(Math.min((currentTime / duration) * 100, 100));
+      const waiting = item.status === "loading" && currentTime < 0.4;
+      onBuffering(waiting);
+    });
+  });
+  useEventListener(player, "statusChange", ({ status, error }) => {
+    onBuffering(status === "loading");
+    if (status === "error" || error) onError();
+  });
+
+  return (
+    <VideoView
+      player={player}
+      style={styles.media}
+      contentFit="contain"
+      nativeControls={false}
+      pointerEvents="none"
+    />
+  );
+}
+
 function StoryMedia({
   story,
   paused,
@@ -502,30 +564,48 @@ function StoryMedia({
 }) {
   const remoteVideo = story.type === "video" ? playableVideoUrl(story.content) : "";
   const remotePhoto = story.type === "photo" ? story.content : "";
-  const [mediaUri, setMediaUri] = useState(
-    () =>
-      peekCachedStoryUri(story.id, "media") ||
-      (story.type === "video" ? remoteVideo : remotePhoto)
-  );
+  const initialUri =
+    peekCachedStoryUri(story.id, "media") ||
+    (isLocalUri(story.content) ? story.content : "") ||
+    (story.type === "video" ? remoteVideo : remotePhoto);
+  const [mediaUri, setMediaUri] = useState(initialUri);
   const [attempt, setAttempt] = useState(0);
-  const [buffering, setBuffering] = useState(story.type === "video" && !peekCachedStoryUri(story.id, "media"));
+  const [buffering, setBuffering] = useState(
+    story.type === "video" && !peekCachedStoryUri(story.id, "media") && !isLocalUri(story.content)
+  );
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    let live = true;
     const cached = peekCachedStoryUri(story.id, "media");
+    const local = isLocalUri(story.content) ? story.content : "";
     setAttempt(0);
-    setBuffering(story.type === "video" && !cached);
-    setMediaUri(cached || (story.type === "video" ? playableVideoUrl(story.content) : story.content));
-    if (story.type === "text" || story.uploading || story.id <= 0) return;
+    setBuffering(story.type === "video" && !cached && !local);
+    setMediaUri(
+      cached || local || (story.type === "video" ? playableVideoUrl(story.content) : story.content)
+    );
+    if (story.type === "text" || story.uploading || story.id <= 0) {
+      return () => {
+        live = false;
+      };
+    }
+    void hydrateStoryCache().then(() => {
+      const fromDisk = peekCachedStoryUri(story.id, "media");
+      if (!live || !fromDisk) return;
+      setMediaUri((current) => (isLocalUri(current) ? current : fromDisk));
+      setBuffering(false);
+    });
     void resolveStoryPlaybackUri(story).then((uri) => {
-      if (!uri) return;
+      if (!live || !uri) return;
       setMediaUri((current) => {
-        if (current === uri) return current;
-        const local = uri.startsWith("file:") || uri.startsWith("content:");
-        const stillRemote = !current || current.startsWith("http");
-        return local && stillRemote ? uri : current || uri;
+        if (current && isLocalUri(current)) return current;
+        if (isLocalUri(uri)) return uri;
+        return current || uri;
       });
     });
+    return () => {
+      live = false;
+    };
   }, [story.id, story.content, story.type, story.uploading]);
 
   useEffect(() => {
@@ -538,17 +618,21 @@ function StoryMedia({
       expiresAt: story.expiresAt,
       kind: "media",
       type: story.type,
+    }).then((uri) => {
+      if (!uri || !isLocalUri(uri)) return;
+      setMediaUri((current) => (current && isLocalUri(current) ? current : uri));
+      setBuffering(false);
     });
   }, [story.id, story.content, story.type, story.expiresAt, story.uploading]);
 
   useEffect(() => {
     if (story.type !== "video") return;
-    void Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      allowsRecordingIOS: false,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
+    void setAudioModeAsync({
+      playsInSilentMode: true,
+      allowsRecording: false,
+      shouldPlayInBackground: false,
+      interruptionMode: "duckOthers",
+      shouldRouteThroughEarpiece: false,
     });
   }, [story.type]);
 
@@ -568,40 +652,45 @@ function StoryMedia({
   };
 
   if (story.type === "photo" && mediaUri) {
-    return <Image source={{ uri: mediaUri }} style={styles.media} resizeMode="contain" />;
+    return (
+      <Image
+        source={{ uri: mediaUri }}
+        style={styles.media}
+        resizeMode="contain"
+        fadeDuration={0}
+        onError={() => {
+          const cached = peekCachedStoryUri(story.id, "media");
+          if (cached && cached !== mediaUri) {
+            setMediaUri(cached);
+            return;
+          }
+          if (isLocalUri(story.content) && story.content !== mediaUri) {
+            setMediaUri(story.content);
+          }
+        }}
+      />
+    );
   }
   if (story.type === "video" && mediaUri) {
     return (
       <View style={styles.media}>
-        <Video
+        <StoryVideo
           key={`${story.id}-${attempt}-${mediaUri}`}
-          source={{ uri: mediaUri }}
-          style={styles.media}
-          resizeMode={ResizeMode.CONTAIN}
-          shouldPlay={!paused}
-          isLooping={false}
-          isMuted={false}
-          progressUpdateIntervalMillis={250}
-          pointerEvents="none"
-          onPlaybackStatusUpdate={(status) => {
-            if (!status.isLoaded) {
-              if ("error" in status && status.error) {
-                if (attempt >= 4) setBuffering(false);
-                else retryLoad();
-              }
-              return;
-            }
-            const waiting = Boolean(status.isBuffering && status.positionMillis < 400);
+          uri={mediaUri}
+          paused={paused}
+          onEnded={onEnded}
+          onProgress={onProgress}
+          onBuffering={(waiting) => {
             setBuffering((current) => (current === waiting ? current : waiting));
-            if (status.durationMillis) {
-              onProgress(Math.min((status.positionMillis / status.durationMillis) * 100, 100));
-            }
-            if (status.didJustFinish) onEnded();
+          }}
+          onError={() => {
+            if (attempt >= 4) setBuffering(false);
+            else retryLoad();
           }}
         />
         {buffering ? (
           <View style={styles.videoWait} pointerEvents="none">
-            <ActivityIndicator color="#FFFFFF" size="large" />
+            <JosCityLoader color="#FFFFFF" size="large" />
           </View>
         ) : null}
       </View>
@@ -640,14 +729,14 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   stage: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   media: {
     width: "100%",
     height: "100%",
   },
   videoWait: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.18)",

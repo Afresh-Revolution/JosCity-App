@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -13,6 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import FadeIn from "../components/FadeIn";
@@ -406,7 +406,7 @@ export default function BusinessWalletScreen() {
               accessibilityLabel={t("business.walletRequestCta")}
             >
               {submitting ? (
-                <ActivityIndicator color={colors.white} />
+                <JosCityLoader color={colors.white} />
               ) : (
                 <>
                   <Ionicons name="arrow-down" size={16} color={colors.white} />
@@ -463,7 +463,7 @@ export default function BusinessWalletScreen() {
               accessibilityLabel={t("common.save")}
             >
               {submitting ? (
-                <ActivityIndicator color={colors.white} />
+                <JosCityLoader color={colors.white} />
               ) : (
                 <Text style={styles.submitText}>{t("common.save")}</Text>
               )}
@@ -708,7 +708,7 @@ function makeStyles(colors: Palette) {
       justifyContent: "flex-end",
     },
     modalBackdrop: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0,0,0,0.35)",
     },
     modalCard: {

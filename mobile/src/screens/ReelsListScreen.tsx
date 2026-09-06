@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Dimensions,
   FlatList,
@@ -15,11 +14,12 @@ import {
   View,
   type ViewToken,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import { ResizeMode, Video } from "expo-av";
+import { useVideoPlayer, VideoView } from "expo-video";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import HashtagText from "../components/feed/HashtagText";
@@ -40,6 +40,7 @@ import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { absoluteUrl } from "../utils/format";
 import { playableVideoUrl } from "../utils/media";
+import { runVideoPlayer } from "../utils/videoPlayer";
 import { openMemberProfile } from "../utils/openProfile";
 import { resolveAccountBadgeColor } from "../utils/badgeColor";
 import { sharePostWithLink } from "../utils/share";
@@ -152,7 +153,7 @@ export default function ReelsListScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -173,7 +174,7 @@ export default function ReelsListScreen() {
       >
         {loading ? (
           <View style={styles.centered}>
-            <ActivityIndicator color={colors.white} size="large" />
+            <JosCityLoader color={colors.white} size="large" />
           </View>
         ) : visibleReels.length === 0 ? (
           <View style={styles.emptyWrap}>
@@ -272,6 +273,47 @@ export default function ReelsListScreen() {
   );
 }
 
+function ReelVideo({
+  uri,
+  playing,
+  muted,
+}: {
+  uri: string;
+  playing: boolean;
+  muted: boolean;
+}) {
+  const player = useVideoPlayer(uri || null, (next) => {
+    next.loop = true;
+    next.muted = muted;
+    runVideoPlayer(next, (item) => {
+      if (playing) item.play?.();
+      else item.pause?.();
+    });
+  });
+
+  useEffect(() => {
+    runVideoPlayer(player, (item) => {
+      item.muted = muted;
+    });
+  }, [muted, player]);
+
+  useEffect(() => {
+    runVideoPlayer(player, (item) => {
+      if (playing) item.play?.();
+      else item.pause?.();
+    });
+  }, [playing, player]);
+
+  return (
+    <VideoView
+      player={player}
+      style={StyleSheet.absoluteFill}
+      contentFit="cover"
+      nativeControls={false}
+    />
+  );
+}
+
 function ReelPage({
   reel,
   height,
@@ -347,14 +389,7 @@ function ReelPage({
   return (
     <View style={[styles.page, { height }]}>
       {videoUrl ? (
-        <Video
-          source={{ uri: videoUrl }}
-          style={StyleSheet.absoluteFill}
-          resizeMode={ResizeMode.COVER}
-          shouldPlay={active && !paused}
-          isLooping
-          isMuted={muted}
-        />
+        <ReelVideo uri={videoUrl} playing={active && !paused} muted={muted} />
       ) : imageUrl ? (
         <Image source={{ uri: imageUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
       ) : (
@@ -669,12 +704,12 @@ function makeStyles(colors: Palette) {
       fontSize: 14,
     },
     pauseMark: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       alignItems: "center",
       justifyContent: "center",
     },
     overlay: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       flexDirection: "row",
       alignItems: "flex-end",
       paddingHorizontal: 14,
@@ -732,7 +767,7 @@ function makeStyles(colors: Palette) {
       justifyContent: "flex-end",
     },
     editDim: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0,0,0,0.42)",
     },
     editSheet: {

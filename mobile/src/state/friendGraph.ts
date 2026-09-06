@@ -38,6 +38,7 @@ export async function refreshFriendGraph(): Promise<FriendGraph> {
   loadPromise = getFriendGraph()
     .then((next) => {
       graph = next;
+      theirFriends.clear();
       emit();
       return next;
     })
@@ -108,20 +109,29 @@ export async function cancelOutgoing(userId: number): Promise<boolean> {
   return ok;
 }
 
-export async function acceptIncoming(userId: number): Promise<boolean> {
-  const requestId = graph.receivedRequestIdByUser[userId];
-  if (!requestId) return false;
-  const ok = await acceptFriendRequest(requestId);
+export async function acceptIncoming(userId: number, requestId?: number): Promise<boolean> {
+  let id = requestId || graph.receivedRequestIdByUser[userId];
+  if (!id) {
+    await refreshFriendGraph();
+    id = requestId || graph.receivedRequestIdByUser[userId];
+  }
+  if (!id) return false;
+  const ok = await acceptFriendRequest(id);
   if (ok) patchFriendStatus(userId, "friends");
   void refreshFriendGraph();
   return ok;
 }
 
-export async function declineIncoming(userId: number): Promise<boolean> {
-  const requestId = graph.receivedRequestIdByUser[userId];
-  if (!requestId) return false;
-  const ok = await rejectFriendRequest(requestId);
+export async function declineIncoming(userId: number, requestId?: number): Promise<boolean> {
+  let id = requestId || graph.receivedRequestIdByUser[userId];
+  if (!id) {
+    await refreshFriendGraph();
+    id = requestId || graph.receivedRequestIdByUser[userId];
+  }
+  if (!id) return false;
+  const ok = await rejectFriendRequest(id);
   if (ok) patchFriendStatus(userId, "none");
+  void refreshFriendGraph();
   return ok;
 }
 
@@ -136,7 +146,7 @@ const theirFriends = new Map<number, Promise<number[]>>();
 export async function getMutualFriendCount(userId: number): Promise<number> {
   if (!userId) return 0;
   await ensureFriendGraph();
-  const mine = new Set(graph.myFriendIds);
+  const mine = new Set(graph.myFriendIds.filter((id) => id > 0 && id !== userId));
   if (!mine.size) return 0;
   if (!theirFriends.has(userId)) {
     theirFriends.set(
@@ -147,6 +157,11 @@ export async function getMutualFriendCount(userId: number): Promise<number> {
       })
     );
   }
-  const theirs = await theirFriends.get(userId);
-  return (theirs || []).filter((id) => mine.has(id)).length;
+  const theirs = (await theirFriends.get(userId)) || [];
+  const uniqueTheirs = [...new Set(theirs.filter((id) => id > 0 && id !== userId))];
+  const mineList = [...mine].sort((a, b) => a - b).join(",");
+  const theirsList = [...uniqueTheirs].sort((a, b) => a - b).join(",");
+  // Old /friends/user/:id returned the viewer's friends for every profile.
+  if (theirsList && theirsList === mineList) return 0;
+  return uniqueTheirs.filter((id) => mine.has(id)).length;
 }

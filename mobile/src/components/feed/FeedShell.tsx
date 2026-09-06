@@ -3,7 +3,6 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import * as Notifications from "expo-notifications";
 import BusinessTabBar, { type BusinessTab } from "../business/BusinessTabBar";
 import FeedHeader from "./FeedHeader";
 import FeedTabBar, { type FeedTab } from "./FeedTabBar";
@@ -101,10 +100,6 @@ export default function FeedShell({
         setToast(label);
         if (toastTimer.current) clearTimeout(toastTimer.current);
         toastTimer.current = setTimeout(() => setToast(null), 4200);
-        void Notifications.scheduleNotificationAsync({
-          content: { title: "JOSCITY", body: label, sound: true },
-          trigger: null,
-        }).catch(() => undefined);
       }
       prevUnread.current = next;
       setChatUnread(next);

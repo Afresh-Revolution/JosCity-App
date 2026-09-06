@@ -1,7 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -10,6 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import FadeIn from "../components/FadeIn";
 import { ErrorBanner } from "../components/AppNotice";
@@ -45,7 +45,7 @@ import { mapStoryGroups, mergePendingStatus, type StatusGroup } from "../utils/s
 import { peopleInsertIndex } from "../utils/peopleSlot";
 import { refreshFriendGraph } from "../state/friendGraph";
 import { openMemberProfile } from "../utils/openProfile";
-import { syncStoryCache } from "../storage/storyMediaCache";
+import { hydrateStoryCache, syncStoryCache } from "../storage/storyMediaCache";
 
 export default function HomeScreen() {
   const allowed = useRequirePersonalAccount();
@@ -102,6 +102,7 @@ export default function HomeScreen() {
       const server = mapStoryGroups(page.data, current?.user_id);
       serverStoriesRef.current = server;
       setStoryGroups(mergePendingStatus(server, getPendingStatusStories()));
+      await hydrateStoryCache();
       void syncStoryCache(server);
     } catch {
       setStoryGroups(mergePendingStatus(serverStoriesRef.current, getPendingStatusStories()));
@@ -280,7 +281,7 @@ export default function HomeScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -294,7 +295,7 @@ export default function HomeScreen() {
     >
       {loading && posts.length === 0 ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : (
         <View style={styles.feed}>
@@ -487,7 +488,7 @@ export default function HomeScreen() {
               disabled={loadingMore}
             >
               {loadingMore ? (
-                <ActivityIndicator color={colors.primary} />
+                <JosCityLoader color={colors.primary} />
               ) : (
                 <Text style={styles.loadMoreText}>{t("home.loadMore")}</Text>
               )}

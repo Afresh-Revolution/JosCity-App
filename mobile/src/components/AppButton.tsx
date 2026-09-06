@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
   ViewStyle,
 } from "react-native";
+import JosCityLoader from "./JosCityLoader";
 import { useTheme } from "../theme/ThemeProvider";
 
 type Props = {
@@ -86,7 +86,7 @@ export default function AppButton({
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={primary ? colors.white : colors.primary} />
+        <JosCityLoader color={primary ? colors.white : colors.primary} />
       ) : (
         <Text style={[styles.label, primary ? styles.primaryLabel : styles.secondaryLabel]}>
           {label}

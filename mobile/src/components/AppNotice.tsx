@@ -120,7 +120,7 @@ function makeSheetStyles(colors: Palette) {
       justifyContent: "flex-end",
     },
     dim: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0,0,0,0.42)",
     },
     sheet: {

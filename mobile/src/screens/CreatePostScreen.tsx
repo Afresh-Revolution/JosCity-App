@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
@@ -12,11 +11,12 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as ImagePicker from "expo-image-picker";
-import { ResizeMode, Video } from "expo-av";
 import FadeIn from "../components/FadeIn";
+import PreviewVideo from "../components/media/PreviewVideo";
 import { showError } from "../components/AppNotice";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedShell from "../components/feed/FeedShell";
@@ -172,7 +172,7 @@ export default function CreatePostScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -201,7 +201,7 @@ export default function CreatePostScreen() {
             accessibilityLabel="Post"
           >
             {posting ? (
-              <ActivityIndicator color={colors.white} size="small" />
+              <JosCityLoader color={colors.white} size="small" />
             ) : (
               <Text style={styles.postLabel}>Post</Text>
             )}
@@ -315,12 +315,7 @@ const MediaPreview = memo(function MediaPreview({
       {item.kind === "photo" ? (
         <Image source={{ uri: item.uri }} style={styles.previewMedia} />
       ) : (
-        <Video
-          source={{ uri: item.uri }}
-          style={styles.previewMedia}
-          resizeMode={ResizeMode.COVER}
-          shouldPlay={false}
-        />
+        <PreviewVideo uri={item.uri} style={styles.previewMedia} playing={false} muted />
       )}
       <Pressable
         onPress={onRemove}

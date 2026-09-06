@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
@@ -11,6 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -484,7 +484,7 @@ export default function PersonalDetailsScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -516,7 +516,7 @@ export default function PersonalDetailsScreen() {
     >
       {loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : (
         <KeyboardAvoidingView
@@ -548,7 +548,7 @@ export default function PersonalDetailsScreen() {
                     )}
                     <View style={styles.coverBadge}>
                       {uploadingPhoto === "cover" ? (
-                        <ActivityIndicator color={colors.white} size="small" />
+                        <JosCityLoader color={colors.white} size="small" />
                       ) : (
                         <>
                           <Ionicons name="camera" size={14} color={colors.white} />
@@ -570,7 +570,7 @@ export default function PersonalDetailsScreen() {
                       accessibilityLabel={picture ? "Change profile photo" : "Add profile photo"}
                     >
                       {uploadingPhoto === "avatar" ? (
-                        <ActivityIndicator color={colors.white} size="small" />
+                        <JosCityLoader color={colors.white} size="small" />
                       ) : (
                         <Ionicons name="camera" size={14} color={colors.white} />
                       )}

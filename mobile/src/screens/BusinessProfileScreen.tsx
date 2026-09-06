@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Image,
   Linking,
@@ -12,6 +11,7 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import BusinessAccountSheet from "../components/BusinessAccountSheet";
@@ -347,7 +347,7 @@ export default function BusinessProfileScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -380,7 +380,7 @@ export default function BusinessProfileScreen() {
     >
       {loading && !data ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : !data ? (
         <ScrollView
@@ -542,7 +542,7 @@ export default function BusinessProfileScreen() {
                   ]}
                 >
                   {followBusy ? (
-                    <ActivityIndicator
+                    <JosCityLoader
                       color={profile?.following ? colors.primary : colors.white}
                       size="small"
                     />
@@ -573,7 +573,7 @@ export default function BusinessProfileScreen() {
                   ]}
                 >
                   {messageBusy ? (
-                    <ActivityIndicator color={colors.primary} size="small" />
+                    <JosCityLoader color={colors.primary} size="small" />
                   ) : (
                     <>
                       <Ionicons name="chatbubble-outline" size={16} color={colors.text} />

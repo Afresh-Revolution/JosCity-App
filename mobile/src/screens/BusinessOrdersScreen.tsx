@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -8,6 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect } from "expo-router";
 import FadeIn from "../components/FadeIn";
 import { ErrorBanner, showError, showNotice } from "../components/AppNotice";
@@ -86,7 +86,7 @@ export default function BusinessOrdersScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -95,7 +95,7 @@ export default function BusinessOrdersScreen() {
     <FeedShell tab="manage" header={<View />}>
       {loading && !awaiting.length && !recent.length ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : (
         <ScrollView
@@ -171,7 +171,7 @@ function OrderCard({
           style={({ pressed }) => [styles.fulfill, pressed && styles.pressed]}
         >
           {busy ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <JosCityLoader color="#FFFFFF" />
           ) : (
             <Text style={styles.fulfillText}>
               {service ? t("orders.markCompleted") : t("orders.markDelivered")}

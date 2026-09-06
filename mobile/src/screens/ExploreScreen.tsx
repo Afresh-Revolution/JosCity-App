@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -9,6 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import type { ComponentProps } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -238,7 +238,7 @@ export default function ExploreScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -257,7 +257,7 @@ export default function ExploreScreen() {
     >
       {loading && !refreshing ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : (
         <ScrollView
@@ -372,7 +372,7 @@ export default function ExploreScreen() {
                     </View>
                   ))
                 ) : eventsLoading ? (
-                  <ActivityIndicator color={colors.primary} style={{ marginVertical: 18 }} />
+                  <JosCityLoader color={colors.primary} style={{ marginVertical: 18 }} />
                 ) : (
                   <Text style={styles.eventEmpty}>{t("explore.eventsEmpty")}</Text>
                 )}

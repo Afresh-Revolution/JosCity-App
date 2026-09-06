@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   AppState,
   KeyboardAvoidingView,
   Modal,
@@ -11,6 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "./JosCityLoader";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
@@ -185,7 +185,7 @@ export default function RatingPromptHost() {
             style={({ pressed }) => [styles.submit, pressed && styles.pressed]}
           >
             {saving ? (
-              <ActivityIndicator color={colors.white} />
+              <JosCityLoader color={colors.white} />
             ) : (
               <Text style={styles.submitText}>{t("rating.submit")}</Text>
             )}
@@ -206,7 +206,7 @@ function makeStyles(colors: Palette) {
       justifyContent: "flex-end",
     },
     dim: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0,0,0,0.45)",
     },
     sheet: {

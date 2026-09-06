@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import AppButton from "../components/AppButton";
 import FadeIn from "../components/FadeIn";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
@@ -31,7 +32,7 @@ export default function ComingSoonScreen({
   if (!allowed) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }

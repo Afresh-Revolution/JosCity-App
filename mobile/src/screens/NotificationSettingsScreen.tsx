@@ -1,6 +1,5 @@
 import { useMemo, useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
@@ -9,33 +8,28 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import FadeIn from "../components/FadeIn";
 import SoonBadge from "../components/SoonBadge";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import {
+  DEFAULT_PREFERENCES,
   getNotificationPreferences,
   updateNotificationPreference,
   type NotificationPreferenceKey,
   type NotificationPreferences,
 } from "../api/notifications";
+import {
+  getNotificationPermissionGranted,
+  openSystemNotificationSettings,
+} from "../push/pushNotifications";
 import { useAppFeatures } from "../hooks/useAppFeatures";
 import { useMembershipSettings } from "../hooks/useMembershipSettings";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
-
-const DEFAULT_PREFERENCES: NotificationPreferences = {
-  payments: true,
-  membership: true,
-  system: true,
-  orders: true,
-  listings: true,
-  rewards: true,
-  referrals: true,
-  business: true,
-};
 
 const SECTIONS: Array<{
   title: string;
@@ -47,6 +41,33 @@ const SECTIONS: Array<{
     featureKey?: "membership" | "rewards";
   }>;
 }> = [
+  {
+    title: "Messages",
+    subtitle: "Chats and how they appear on the lock screen",
+    items: [
+      {
+        key: "messages",
+        label: "Messages",
+        description: "Direct messages and message requests",
+      },
+      {
+        key: "message_previews",
+        label: "Message previews",
+        description: "Show message text on the lock screen",
+      },
+    ],
+  },
+  {
+    title: "Activity",
+    subtitle: "Friends, comments and reactions",
+    items: [
+      {
+        key: "social",
+        label: "Friends and comments",
+        description: "Follows, comments, replies and reactions",
+      },
+    ],
+  },
   {
     title: "Account",
     subtitle: "Wallet approvals, membership and security",
@@ -110,11 +131,16 @@ export default function NotificationSettingsScreen() {
   const [prefs, setPrefs] = useState<NotificationPreferences>(DEFAULT_PREFERENCES);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<NotificationPreferenceKey | null>(null);
+  const [osGranted, setOsGranted] = useState<boolean | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const data = await getNotificationPreferences();
+    const [data, granted] = await Promise.all([
+      getNotificationPreferences(),
+      getNotificationPermissionGranted(),
+    ]);
     setPrefs(data);
+    setOsGranted(granted);
     setLoading(false);
   }, []);
 
@@ -141,7 +167,7 @@ export default function NotificationSettingsScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -169,15 +195,45 @@ export default function NotificationSettingsScreen() {
     >
       {loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
           <FadeIn duration={420} translateY={8}>
             <Text style={styles.intro}>
-              Turning a category off hides those updates from your notification centre.
+              Turning a category off hides those updates from your notification centre
+              and stops push notifications for that category.
               Security notices about sign-ins are always delivered.
             </Text>
+          </FadeIn>
+
+          <FadeIn delay={20} duration={420} translateY={10}>
+            <Text style={styles.sectionTitle}>Device</Text>
+            <Text style={styles.sectionSubtitle}>System permission for banners and sounds</Text>
+            <View style={styles.card}>
+              <View style={styles.row}>
+                <View style={styles.copy}>
+                  <Text style={styles.rowTitle}>
+                    {osGranted ? "Notifications allowed" : "Notifications are off"}
+                  </Text>
+                  <Text style={styles.rowDescription}>
+                    {osGranted
+                      ? "JOSCITY can send banners when the app is closed."
+                      : "Enable notifications in system settings to get banners when the app is closed."}
+                  </Text>
+                </View>
+                {!osGranted ? (
+                  <Pressable
+                    onPress={() => void openSystemNotificationSettings()}
+                    style={styles.settingsBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open system settings"
+                  >
+                    <Text style={styles.settingsBtnText}>Settings</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
           </FadeIn>
 
           {SECTIONS.map((section, index) => (
@@ -221,8 +277,8 @@ export default function NotificationSettingsScreen() {
           ))}
 
           <Text style={styles.footnote}>
-            JOSCITY sends these updates in-app. Push notifications arrive once
-            you install the app on your device and allow notifications.
+            Push notifications need a signed JOSCITY build on a physical phone.
+            Expo Go cannot receive production pushes.
           </Text>
         </ScrollView>
       )}
@@ -307,6 +363,17 @@ function makeStyles(colors: Palette) {
   },
   copy: {
     flex: 1,
+  },
+  settingsBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  settingsBtnText: {
+    fontFamily: "Montserrat_700Bold",
+    fontSize: 12,
+    color: colors.white,
   },
   rowTitle: {
     fontFamily: "Montserrat_700Bold",

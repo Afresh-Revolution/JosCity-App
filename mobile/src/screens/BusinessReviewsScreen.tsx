@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -9,6 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import FadeIn from "../components/FadeIn";
@@ -110,7 +110,7 @@ export default function BusinessReviewsScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -123,7 +123,7 @@ export default function BusinessReviewsScreen() {
     <FeedShell tab="profile" header={<View />}>
       {loading && !data ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : (
         <ScrollView
@@ -249,7 +249,7 @@ export default function BusinessReviewsScreen() {
                           style={styles.sendReply}
                         >
                           {savingId === item.id ? (
-                            <ActivityIndicator color={colors.white} size="small" />
+                            <JosCityLoader color={colors.white} size="small" />
                           ) : (
                             <Text style={styles.sendReplyText}>{t("reviews.sendReply")}</Text>
                           )}

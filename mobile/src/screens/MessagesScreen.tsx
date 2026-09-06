@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Keyboard,
   Platform,
   Pressable,
@@ -10,6 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { ScrollView as GestureScrollView } from "react-native-gesture-handler";
 import { useFocusEffect, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -261,7 +261,9 @@ export default function MessagesScreen() {
           (contact) => contact.kind === "business" && !isAlreadyChatting(contact)
         );
 
-    setChats(chatsWithHistory);
+    setChats(chatsWithHistory.filter((chat, index, list) =>
+      list.findIndex((row) => row.conversationId === chat.conversationId) === index
+    ));
     setFriends(nextFriends);
     setFollowing(nextFollowing);
     setIncoming(requests.incoming);
@@ -453,7 +455,7 @@ export default function MessagesScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -478,7 +480,7 @@ export default function MessagesScreen() {
       following.length === 0 &&
       incoming.length === 0 ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : (
         <View style={styles.body}>
@@ -550,7 +552,7 @@ export default function MessagesScreen() {
                       style={styles.acceptBtn}
                     >
                       {openingId === request.requestId ? (
-                        <ActivityIndicator color={colors.white} size="small" />
+                        <JosCityLoader color={colors.white} size="small" />
                       ) : (
                         <Text style={styles.acceptText}>{t("messages.accept")}</Text>
                       )}
@@ -695,7 +697,7 @@ export default function MessagesScreen() {
                   </Text>
                 </View>
                 {openingId === friend.userId ? (
-                  <ActivityIndicator color={colors.primary} size="small" />
+                  <JosCityLoader color={colors.primary} size="small" />
                 ) : (
                   <Ionicons name="chatbubble-outline" size={18} color={colors.textMuted} />
                 )}
@@ -744,7 +746,7 @@ export default function MessagesScreen() {
                       </Text>
                     </View>
                     {openingId === shop.userId ? (
-                      <ActivityIndicator color={colors.primary} size="small" />
+                      <JosCityLoader color={colors.primary} size="small" />
                     ) : (
                       <Ionicons name="storefront-outline" size={18} color={colors.textMuted} />
                     )}
@@ -813,7 +815,7 @@ function makeStyles(colors: Palette) {
     flex: 1,
   },
   keyboardDismiss: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 20,
   },
   scroll: {

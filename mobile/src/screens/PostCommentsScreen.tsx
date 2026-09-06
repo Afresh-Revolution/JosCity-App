@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Keyboard,
   KeyboardAvoidingView,
@@ -12,6 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -173,7 +173,7 @@ export default function PostCommentsScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} />
+        <JosCityLoader color={colors.primary} />
       </View>
     );
   }
@@ -207,7 +207,7 @@ export default function PostCommentsScreen() {
           keyboardShouldPersistTaps="handled"
         >
           {loading && !post ? (
-            <ActivityIndicator color={colors.primary} style={styles.loader} />
+            <JosCityLoader color={colors.primary} style={styles.loader} />
           ) : missing && !post ? (
             <Text style={styles.empty}>This post is no longer available.</Text>
           ) : (
@@ -318,7 +318,7 @@ export default function PostCommentsScreen() {
           </View>
 
           {loading && post ? (
-            <ActivityIndicator color={colors.primary} style={styles.loader} />
+            <JosCityLoader color={colors.primary} style={styles.loader} />
           ) : comments.length === 0 ? (
             <Text style={styles.empty}>No comments yet.</Text>
           ) : (

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,7 +9,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import JosCityLoader from "../components/JosCityLoader";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -33,6 +33,8 @@ import { isRecentlyActive } from "../utils/presence";
 import { startForegroundInterval } from "../utils/foregroundInterval";
 import { openMemberProfile } from "../utils/openProfile";
 import ReportSheet from "../components/ReportSheet";
+import { clearPushFocus, setPushFocus } from "../push/pushFocus";
+import { reportPushFocus, reportPushFocusCleared } from "../push/pushNotifications";
 
 export default function ChatThreadScreen() {
   const { colors, scheme } = useTheme();
@@ -85,6 +87,27 @@ export default function ChatThreadScreen() {
     })();
   }, [allowed, conversationId, load]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!conversationId) return () => undefined;
+      setPushFocus("messages", conversationId);
+      void reportPushFocus("messages", conversationId);
+      const stop = startForegroundInterval(() => {
+        void reportPushFocus("messages", conversationId);
+      }, 30000);
+      return () => {
+        stop();
+        clearPushFocus();
+        void reportPushFocusCleared();
+      };
+    }, [conversationId])
+  );
+
+  const latestFromPeer = useMemo(
+    () => [...messages].reverse().find((row) => row.senderId === otherUserId)?.createdAt,
+    [messages, otherUserId]
+  );
+
   useEffect(() => {
     if (!allowed || !otherUserId) {
       setOnline(null);
@@ -95,11 +118,7 @@ export default function ChatThreadScreen() {
       const ids = await getChatPresence([otherUserId]);
       if (cancelled) return;
       const fromPresence = ids.has(otherUserId);
-      const latestFromPeer = messages
-        .slice()
-        .reverse()
-        .find((row) => row.senderId === otherUserId);
-      setOnline(fromPresence || isRecentlyActive(latestFromPeer?.createdAt));
+      setOnline(fromPresence || isRecentlyActive(latestFromPeer));
     };
     void tick();
     const stop = startForegroundInterval(() => void tick(), 20000);
@@ -107,12 +126,8 @@ export default function ChatThreadScreen() {
       cancelled = true;
       stop();
     };
-  }, [allowed, otherUserId]);
+  }, [allowed, otherUserId, latestFromPeer]);
 
-  const latestFromPeer = useMemo(
-    () => [...messages].reverse().find((row) => row.senderId === otherUserId)?.createdAt,
-    [messages, otherUserId]
-  );
   const shownOnline = online === true || isRecentlyActive(latestFromPeer);
 
   const onSend = useCallback(async () => {
@@ -124,7 +139,10 @@ export default function ChatThreadScreen() {
     try {
       const result = await sendChatMessage(conversationId, text);
       if (result.message) {
-        setMessages((current) => [...current, { ...result.message!, senderId: result.message!.senderId || myId }]);
+        setMessages((current) => {
+          if (current.some((row) => row.messageId === result.message!.messageId)) return current;
+          return [...current, { ...result.message!, senderId: result.message!.senderId || myId }];
+        });
         void markConversationRead(conversationId);
         requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
       } else {
@@ -146,7 +164,7 @@ export default function ChatThreadScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -206,7 +224,7 @@ export default function ChatThreadScreen() {
       >
         {loading ? (
           <View style={styles.centered}>
-            <ActivityIndicator color={colors.primary} size="large" />
+            <JosCityLoader color={colors.primary} size="large" />
           </View>
         ) : (
           <ScrollView

@@ -1,5 +1,5 @@
 import { Alert, Linking } from "react-native";
-import type { Router } from "expo-router";
+import { useRouter } from "expo-router";
 import {
   eventId,
   gatewavUrl,
@@ -7,6 +7,8 @@ import {
   type ExploreEvent,
 } from "../api/explore";
 import { cacheOpenEvent } from "../state/openEvent";
+
+type Router = ReturnType<typeof useRouter>;
 
 export async function openExploreEvent(
   router: Pick<Router, "push">,

@@ -100,6 +100,13 @@ export function matchesNotificationFilter(
   return kind === filter;
 }
 
+export function isIncomingFriendRequest(row: ApiNotification): boolean {
+  const node = String(row.node_type || "").toLowerCase();
+  const action = String(row.action || "").toLowerCase();
+  if (action.includes("accepted") || action === "friend_request_accepted") return false;
+  return node === "friend_request" || action === "friend_request";
+}
+
 export function notificationPostId(row: ApiNotification): number {
   const node = String(row.node_type || "").toLowerCase();
   const action = String(row.action || row.message || row.title || "").toLowerCase();
@@ -241,4 +248,27 @@ export function notificationIcon(
     default:
       return { name: "shield-checkmark-outline", color: colors.primary, background: colors.cream };
   }
+}
+
+export function uniqueNotifications(rows: ApiNotification[]): ApiNotification[] {
+  const byId = new Map<number, ApiNotification>();
+  for (const row of rows) {
+    if (row.id > 0 && !byId.has(row.id)) byId.set(row.id, row);
+  }
+  const seen = new Set<string>();
+  const out: ApiNotification[] = [];
+  for (const row of byId.values()) {
+    const fingerprint = [
+      row.from_user_id || 0,
+      String(row.action || "").toLowerCase(),
+      String(row.node_type || "").toLowerCase(),
+      row.node_id || 0,
+      String(row.title || "").trim().toLowerCase(),
+      String(row.message || "").trim().toLowerCase(),
+    ].join("|");
+    if (seen.has(fingerprint)) continue;
+    seen.add(fingerprint);
+    out.push(row);
+  }
+  return out;
 }

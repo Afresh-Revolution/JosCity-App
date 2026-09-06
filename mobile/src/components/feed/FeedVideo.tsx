@@ -12,10 +12,12 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { useEventListener } from "expo";
+import { setAudioModeAsync } from "expo-audio";
 import { useFocusEffect } from "expo-router";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Audio, ResizeMode, Video, type AVPlaybackStatus } from "expo-av";
 import { useI18n } from "../../i18n/I18nProvider";
 import {
   claimFeedPlayback,
@@ -24,6 +26,7 @@ import {
   subscribeFeedPlayback,
 } from "../../state/feedPlayback";
 import { playableVideoUrl } from "../../utils/media";
+import { runVideoPlayer } from "../../utils/videoPlayer";
 import { TAB_BAR_SPACE } from "./FeedShell";
 
 type Props = {
@@ -36,20 +39,6 @@ function formatClock(ms: number) {
   const m = Math.floor(total / 60);
   const s = total % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-async function unloadQuietly(player: Video | null) {
-  if (!player) return;
-  try {
-    await player.stopAsync();
-  } catch {
-    // Native view may already be gone.
-  }
-  try {
-    await player.unloadAsync();
-  } catch {
-    // Native view may already be gone.
-  }
 }
 
 function VideoSeekBar({
@@ -159,7 +148,6 @@ export default function FeedVideo({ uri, style }: Props) {
   const iconColor = "rgba(255,255,255,0.72)";
   const playbackId = useRef(createFeedPlaybackId()).current;
   const wrapRef = useRef<View>(null);
-  const playerRef = useRef<Video>(null);
   const positionMillis = useRef(0);
   const scrubbing = useRef(false);
   const pausedRef = useRef(true);
@@ -168,7 +156,6 @@ export default function FeedVideo({ uri, style }: Props) {
   const [paused, setPaused] = useState(true);
   const [muted, setMuted] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const [playerReady, setPlayerReady] = useState(false);
   const [positionMs, setPositionMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
 
@@ -176,17 +163,27 @@ export default function FeedVideo({ uri, style }: Props) {
   fullscreenRef.current = fullscreen;
   windowHeightRef.current = windowHeight;
 
+  const player = useVideoPlayer(playableUri || null, (next) => {
+    next.loop = true;
+    next.muted = muted;
+    next.timeUpdateEventInterval = 0.25;
+    runVideoPlayer(next, (item) => item.pause?.());
+  });
+  const playerRef = useRef(player);
+  playerRef.current = player;
+
   const pausePlayback = useCallback(() => {
     pausedRef.current = true;
     setPaused(true);
     releaseFeedPlayback(playbackId);
-    void playerRef.current?.pauseAsync().catch(() => undefined);
+    runVideoPlayer(playerRef.current, (item) => item.pause?.());
   }, [playbackId]);
 
   const playPlayback = useCallback(() => {
     claimFeedPlayback(playbackId);
     pausedRef.current = false;
     setPaused(false);
+    runVideoPlayer(playerRef.current, (item) => item.play?.());
   }, [playbackId]);
 
   const togglePlayback = useCallback(() => {
@@ -195,12 +192,12 @@ export default function FeedVideo({ uri, style }: Props) {
   }, [pausePlayback, playPlayback]);
 
   useEffect(() => {
-    void Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      allowsRecordingIOS: false,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
+    void setAudioModeAsync({
+      playsInSilentMode: true,
+      allowsRecording: false,
+      shouldPlayInBackground: false,
+      interruptionMode: "duckOthers",
+      shouldRouteThroughEarpiece: false,
     });
   }, []);
 
@@ -209,7 +206,7 @@ export default function FeedVideo({ uri, style }: Props) {
       if (playingId === playbackId) return;
       pausedRef.current = true;
       setPaused(true);
-      void playerRef.current?.pauseAsync().catch(() => undefined);
+      runVideoPlayer(playerRef.current, (item) => item.pause?.());
     });
   }, [playbackId]);
 
@@ -250,33 +247,32 @@ export default function FeedVideo({ uri, style }: Props) {
   }, [playbackId]);
 
   useEffect(() => {
-    setPlayerReady(false);
-    const player = playerRef.current;
-    return () => {
-      void unloadQuietly(player);
-    };
-  }, [playableUri, fullscreen]);
+    positionMillis.current = 0;
+    setPositionMs(0);
+    setDurationMs(0);
+  }, [playableUri]);
 
-  const openFullscreen = () => {
-    const player = playerRef.current;
-    const resume = !pausedRef.current;
-    void unloadQuietly(player).finally(() => {
-      setFullscreen(true);
-      if (resume) playPlayback();
+  useEffect(() => {
+    runVideoPlayer(player, (item) => {
+      item.muted = muted;
     });
-  };
+  }, [muted, player]);
 
-  const closeFullscreen = () => {
-    const player = playerRef.current;
-    void unloadQuietly(player).finally(() => setFullscreen(false));
-  };
+  useEffect(() => {
+    runVideoPlayer(player, (item) => {
+      if (paused) item.pause?.();
+      else item.play?.();
+    });
+  }, [paused, player]);
 
-  const seekIfNeeded = () => {
-    const player = playerRef.current;
-    const ms = positionMillis.current;
-    if (!player || ms <= 0) return;
-    void player.setPositionAsync(ms).catch(() => undefined);
-  };
+  useEventListener(player, "timeUpdate", ({ currentTime }) => {
+    const ms = currentTime * 1000;
+    positionMillis.current = ms;
+    runVideoPlayer(playerRef.current, (item) => {
+      if (item.duration) setDurationMs(item.duration * 1000);
+    });
+    if (!scrubbing.current) setPositionMs(ms);
+  });
 
   const seekTo = (ms: number) => {
     const length = durationMs || ms;
@@ -284,14 +280,9 @@ export default function FeedVideo({ uri, style }: Props) {
     scrubbing.current = true;
     positionMillis.current = next;
     setPositionMs(next);
-    void playerRef.current?.setPositionAsync(next).catch(() => undefined);
-  };
-
-  const onStatus = (status: AVPlaybackStatus) => {
-    if (!status.isLoaded) return;
-    positionMillis.current = status.positionMillis;
-    if (status.durationMillis) setDurationMs(status.durationMillis);
-    if (!scrubbing.current) setPositionMs(status.positionMillis);
+    runVideoPlayer(playerRef.current, (item) => {
+      item.currentTime = next / 1000;
+    });
   };
 
   const muteControl = (extraStyle?: StyleProp<ViewStyle>) => (
@@ -305,22 +296,12 @@ export default function FeedVideo({ uri, style }: Props) {
     </Pressable>
   );
 
-  const player = (
-    <Video
-      ref={playerRef}
-      source={{ uri: playableUri }}
+  const videoView = (
+    <VideoView
+      player={player}
       style={StyleSheet.absoluteFill}
-      resizeMode={fullscreen ? ResizeMode.CONTAIN : ResizeMode.COVER}
-      shouldPlay={!paused && playerReady}
-      isLooping
-      isMuted={muted}
-      useNativeControls={false}
-      progressUpdateIntervalMillis={250}
-      onReadyForDisplay={() => {
-        setPlayerReady(true);
-        seekIfNeeded();
-      }}
-      onPlaybackStatusUpdate={onStatus}
+      contentFit={fullscreen ? "contain" : "cover"}
+      nativeControls={false}
     />
   );
 
@@ -338,12 +319,12 @@ export default function FeedVideo({ uri, style }: Props) {
 
   return (
     <View ref={wrapRef} collapsable={false} style={[styles.wrap, style]}>
-      {fullscreen ? null : player}
+      {fullscreen ? null : videoView}
       <Pressable
-        onPress={togglePlayback}
+        onPress={() => setFullscreen(true)}
         style={StyleSheet.absoluteFill}
         accessibilityRole="button"
-        accessibilityLabel={paused ? t("feed.playVideo") : t("feed.pauseVideo")}
+        accessibilityLabel={t("feed.fullscreen")}
       />
       {paused ? (
         <View style={styles.play} pointerEvents="none">
@@ -354,26 +335,16 @@ export default function FeedVideo({ uri, style }: Props) {
       <View style={styles.inlineSeek} pointerEvents="box-none">
         {seekBar(true)}
       </View>
-      <View style={styles.topRight} pointerEvents="box-none">
-        <Pressable
-          onPress={openFullscreen}
-          style={styles.roundBtn}
-          accessibilityRole="button"
-          accessibilityLabel={t("feed.fullscreen")}
-        >
-          <Ionicons name="expand" size={18} color={iconColor} />
-        </Pressable>
-      </View>
 
       <Modal
         visible={fullscreen}
         animationType="fade"
         presentationStyle="fullScreen"
         supportedOrientations={["portrait", "landscape-left", "landscape-right"]}
-        onRequestClose={closeFullscreen}
+        onRequestClose={() => setFullscreen(false)}
       >
         <View style={styles.fullRoot}>
-          {fullscreen ? player : null}
+          {fullscreen ? videoView : null}
           <Pressable
             onPress={togglePlayback}
             style={StyleSheet.absoluteFill}
@@ -410,7 +381,7 @@ export default function FeedVideo({ uri, style }: Props) {
             pointerEvents="box-none"
           >
             <Pressable
-              onPress={closeFullscreen}
+              onPress={() => setFullscreen(false)}
               style={styles.roundBtn}
               accessibilityRole="button"
               accessibilityLabel={t("feed.exitFullscreen")}

@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
@@ -11,6 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -91,7 +91,7 @@ export default function EventDetailScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -124,7 +124,7 @@ export default function EventDetailScreen() {
     >
       {loading && !event ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : !event ? (
         <Text style={styles.empty}>{t("explore.eventMissing")}</Text>

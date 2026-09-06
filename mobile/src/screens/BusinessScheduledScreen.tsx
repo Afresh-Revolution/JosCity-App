@@ -1,6 +1,5 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
@@ -14,12 +13,13 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as ImagePicker from "expo-image-picker";
-import { ResizeMode, Video } from "expo-av";
 import FadeIn from "../components/FadeIn";
+import PreviewVideo from "../components/media/PreviewVideo";
 import { ErrorBanner, showError, showNotice } from "../components/AppNotice";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import {
@@ -291,7 +291,7 @@ export default function BusinessScheduledScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -414,7 +414,7 @@ export default function BusinessScheduledScreen() {
                 style={[styles.submit, !canSubmit && styles.submitDisabled]}
               >
                 {saving ? (
-                  <ActivityIndicator color={colors.white} size="small" />
+                  <JosCityLoader color={colors.white} size="small" />
                 ) : (
                   <Text style={styles.submitText}>{t("scheduled.submit")}</Text>
                 )}
@@ -424,7 +424,7 @@ export default function BusinessScheduledScreen() {
 
           {loading && items.length === 0 ? (
             <View style={styles.listLoading}>
-              <ActivityIndicator color={colors.primary} />
+              <JosCityLoader color={colors.primary} />
             </View>
           ) : items.length === 0 ? (
             <Text style={styles.empty}>{t("scheduled.empty")}</Text>
@@ -468,7 +468,7 @@ export default function BusinessScheduledScreen() {
                       style={styles.cancelBtn}
                     >
                       {cancellingId === item.id ? (
-                        <ActivityIndicator color={colors.error} size="small" />
+                        <JosCityLoader color={colors.error} size="small" />
                       ) : (
                         <Text style={styles.cancelText}>{t("scheduled.cancel")}</Text>
                       )}
@@ -615,12 +615,7 @@ const MediaPreview = memo(function MediaPreview({
       {item.kind === "photo" ? (
         <Image source={{ uri: item.uri }} style={styles.previewMedia} />
       ) : (
-        <Video
-          source={{ uri: item.uri }}
-          style={styles.previewMedia}
-          resizeMode={ResizeMode.COVER}
-          shouldPlay={false}
-        />
+        <PreviewVideo uri={item.uri} style={styles.previewMedia} playing={false} muted />
       )}
       <Pressable onPress={onRemove} style={styles.removeMedia} accessibilityLabel={closeLabel}>
         <Ionicons name="close" size={14} color="#FFFFFF" />

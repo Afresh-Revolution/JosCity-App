@@ -559,7 +559,7 @@ function makePostStyles(colors: Palette) {
     justifyContent: "flex-end",
   },
   editDim: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.42)",
   },
   editSheet: {

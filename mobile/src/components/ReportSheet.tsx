@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -9,6 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "./JosCityLoader";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { showError, showNotice } from "./AppNotice";
 import {
@@ -107,7 +107,7 @@ export default function ReportSheet({
             accessibilityLabel={t("report.submit")}
           >
             {busy ? (
-              <ActivityIndicator color={colors.white} />
+              <JosCityLoader color={colors.white} />
             ) : (
               <Text style={styles.submitText}>{t("report.submit")}</Text>
             )}
@@ -121,7 +121,7 @@ export default function ReportSheet({
 function makeStyles(colors: Palette) {
   return StyleSheet.create({
     root: { flex: 1, justifyContent: "flex-end" },
-    dim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" },
+    dim: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.45)" },
     sheet: {
       backgroundColor: colors.card,
       borderTopLeftRadius: 20,

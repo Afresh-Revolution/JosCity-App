@@ -1,6 +1,8 @@
-import type { Router } from "expo-router";
+import { useRouter } from "expo-router";
 import type { ForumThread } from "../api/forum";
 import { cacheOpenThread } from "../state/openThread";
+
+type Router = ReturnType<typeof useRouter>;
 
 export function openForumThread(
   router: Pick<Router, "push" | "replace">,

@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Pressable,
   RefreshControl,
@@ -9,6 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
@@ -557,7 +557,7 @@ export default function ProfileScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -595,7 +595,7 @@ export default function ProfileScreen() {
     >
       {loading && !user ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : (
         <ScrollView
@@ -624,7 +624,7 @@ export default function ProfileScreen() {
                   accessibilityLabel={t("profile.changePhoto")}
                 >
                   {uploadingPhoto ? (
-                    <ActivityIndicator color={colors.white} size="small" />
+                    <JosCityLoader color={colors.white} size="small" />
                   ) : (
                     <Ionicons name="camera" size={12} color={colors.white} />
                   )}
@@ -842,7 +842,7 @@ export default function ProfileScreen() {
                     ) : null}
                   </View>
                   {switchingAccount ? (
-                    <ActivityIndicator color={colors.primary} size="small" />
+                    <JosCityLoader color={colors.primary} size="small" />
                   ) : (
                     <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                   )}
@@ -856,7 +856,7 @@ export default function ProfileScreen() {
                 accessibilityLabel={t("profile.signOut")}
               >
                 {signingOut ? (
-                  <ActivityIndicator color={colors.error} size="small" />
+                  <JosCityLoader color={colors.error} size="small" />
                 ) : (
                   <Ionicons name="log-out-outline" size={20} color={colors.error} />
                 )}

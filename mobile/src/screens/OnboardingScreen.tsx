@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
   },
   fill: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   hero: {
     width: "100%",

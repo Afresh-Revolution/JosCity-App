@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Linking,
   Pressable,
   ScrollView,
@@ -8,6 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AppButton from "../components/AppButton";
@@ -83,7 +83,7 @@ export default function NewsDetailScreen() {
     >
       {loading && !item ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : !item ? (
         <Text style={styles.empty}>{t("explore.newsMissing")}</Text>

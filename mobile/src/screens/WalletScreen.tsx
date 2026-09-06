@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
@@ -13,6 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
@@ -339,7 +339,7 @@ export default function WalletScreen() {
   const openCheckout = async (url?: string) => {
     if (!url) return;
     try {
-      await WebBrowser.openBrowserAsync(url, { enableDefaultShareMenu: false });
+      await WebBrowser.openBrowserAsync(url, { enableDefaultShareMenuItem: false });
     } catch {
       await Linking.openURL(url);
     }
@@ -832,7 +832,7 @@ export default function WalletScreen() {
                   accessibilityLabel={t("common.save")}
                 >
                   {submitting ? (
-                    <ActivityIndicator color={colors.white} />
+                    <JosCityLoader color={colors.white} />
                   ) : (
                     <Text style={styles.submitText}>{t("common.save")}</Text>
                   )}
@@ -909,7 +909,7 @@ export default function WalletScreen() {
                   accessibilityLabel={sheet === "bank" ? t("wallet.submitReview") : t("wallet.fund")}
                 >
                   {submitting ? (
-                    <ActivityIndicator color={colors.white} />
+                    <JosCityLoader color={colors.white} />
                   ) : (
                     <Text style={styles.submitText}>
                       {sheet === "bank" ? t("wallet.submitReview") : t("wallet.fund")}
@@ -931,7 +931,7 @@ export default function WalletScreen() {
                     disabled={submitting}
                     style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
                   >
-                    {submitting ? <ActivityIndicator color={colors.white} /> : <Text style={styles.submitText}>{t("wallet.paystack")}</Text>}
+                    {submitting ? <JosCityLoader color={colors.white} /> : <Text style={styles.submitText}>{t("wallet.paystack")}</Text>}
                   </Pressable>
                 ) : null}
                 {safehavenOn ? (
@@ -986,7 +986,7 @@ export default function WalletScreen() {
                   disabled={submitting}
                   style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
                 >
-                  {submitting ? <ActivityIndicator color={colors.white} /> : <Text style={styles.submitText}>{t("wallet.submitProof")}</Text>}
+                  {submitting ? <JosCityLoader color={colors.white} /> : <Text style={styles.submitText}>{t("wallet.submitProof")}</Text>}
                 </Pressable>
               </>
             ) : null}
@@ -1049,7 +1049,7 @@ export default function WalletScreen() {
                   accessibilityLabel={t("wallet.shareNow")}
                 >
                   {submitting ? (
-                    <ActivityIndicator color={colors.white} />
+                    <JosCityLoader color={colors.white} />
                   ) : (
                     <Text style={styles.submitText}>{t("wallet.shareNow")}</Text>
                   )}
@@ -1395,7 +1395,7 @@ function makeStyles(colors: Palette) {
     justifyContent: "flex-end",
   },
   modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.35)",
   },
   modalCard: {

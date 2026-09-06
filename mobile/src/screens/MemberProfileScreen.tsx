@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Pressable,
   RefreshControl,
@@ -10,6 +9,7 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import FadeIn from "../components/FadeIn";
@@ -275,7 +275,7 @@ export default function MemberProfileScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -314,7 +314,7 @@ export default function MemberProfileScreen() {
     >
       {loading && !data ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : (
         <ScrollView
@@ -440,7 +440,7 @@ export default function MemberProfileScreen() {
                         ]}
                       >
                         {messageBusy ? (
-                          <ActivityIndicator color={colors.primary} size="small" />
+                          <JosCityLoader color={colors.primary} size="small" />
                         ) : (
                           <>
                             <Ionicons name="chatbubble-outline" size={16} color={colors.text} />
@@ -462,7 +462,7 @@ export default function MemberProfileScreen() {
                         accessibilityLabel={t("member.block")}
                       >
                         {blockBusy ? (
-                          <ActivityIndicator color={colors.primary} size="small" />
+                          <JosCityLoader color={colors.primary} size="small" />
                         ) : (
                           <>
                             <Ionicons name="ban-outline" size={16} color={colors.error} />

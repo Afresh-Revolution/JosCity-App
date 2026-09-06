@@ -180,7 +180,7 @@ function makeStyles(colors: Palette) {
     position: "relative",
   },
   deletePane: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "flex-end",
     justifyContent: "center",
     paddingRight: 4,

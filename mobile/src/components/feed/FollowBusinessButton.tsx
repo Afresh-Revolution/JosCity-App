@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text } from "react-native";
+import { Alert, Pressable, StyleSheet, Text } from "react-native";
+import JosCityLoader from "../JosCityLoader";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { toggleBusinessFollow } from "../../api/marketplace";
 import { useI18n } from "../../i18n/I18nProvider";
@@ -69,7 +70,7 @@ export default function FollowBusinessButton({
       accessibilityLabel={isFollowing ? t("business.following") : t("business.follow")}
     >
       {busy ? (
-        <ActivityIndicator size="small" color={isFollowing ? colors.primary : colors.white} />
+        <JosCityLoader size="small" color={isFollowing ? colors.primary : colors.white} />
       ) : (
         <>
           <Ionicons

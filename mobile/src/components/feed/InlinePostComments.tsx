@@ -1,6 +1,5 @@
 import { useMemo, useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,6 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "../JosCityLoader";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AvatarCircle from "./AvatarCircle";
 import { CommentThread, commentKey, commentTotal } from "./CommentThread";
@@ -129,7 +129,7 @@ export default function InlinePostComments({
       <View style={fill ? styles.listFill : undefined}>
         {loading && comments.length === 0 ? (
           <View style={fill ? styles.emptyFill : undefined}>
-            <ActivityIndicator color={colors.primary} style={fill ? undefined : styles.loader} />
+            <JosCityLoader color={colors.primary} style={fill ? undefined : styles.loader} />
           </View>
         ) : comments.length === 0 ? (
           <View style={fill ? styles.emptyFill : undefined}>
@@ -198,7 +198,7 @@ export default function InlinePostComments({
           accessibilityLabel="Send comment"
         >
           {sending ? (
-            <ActivityIndicator color={colors.primary} size="small" />
+            <JosCityLoader color={colors.primary} size="small" />
           ) : (
             <Ionicons
               name="send"

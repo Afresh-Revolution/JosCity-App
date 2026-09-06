@@ -21,6 +21,7 @@ export type DirectoryUser = {
   is_verified?: boolean;
   user_verified?: boolean;
   badge_color?: string | null;
+  mutual_count?: number;
 };
 
 function isMatchingAccount(
@@ -49,6 +50,7 @@ export async function getApprovedUsers(options?: {
         address: row.address || row.business_location || null,
         has_cac: Boolean(row.has_cac),
         cac_verified: Boolean(row.cac_verified),
+        mutual_count: Math.max(0, Number(row.mutual_count || 0)),
       }));
 
   const fetchPage = async (page: number, limit: number) => {
@@ -350,7 +352,7 @@ export async function getFriendsOfUser(userId: number): Promise<number[]> {
     });
     const data = await readJson<{ success?: boolean; data?: FriendRow[] }>(response);
     if (!response.ok || !Array.isArray(data.data)) return [];
-    return data.data.map((row) => Number(row.user_id || 0)).filter((id) => id > 0);
+    return [...new Set(data.data.map((row) => Number(row.user_id || 0)).filter((id) => id > 0 && id !== userId))];
   } catch {
     return [];
   }

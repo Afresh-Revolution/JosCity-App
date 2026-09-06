@@ -108,11 +108,11 @@ export default function ImageSaveSheet({
 function makeStyles(colors: Palette) {
   return StyleSheet.create({
     root: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       justifyContent: "flex-end",
     },
     dim: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0,0,0,0.42)",
     },
     sheet: {

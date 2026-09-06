@@ -69,6 +69,16 @@ export async function getStories(): Promise<StoriesPage> {
   };
 }
 
+function createdStoryId(payload: unknown): number {
+  if (!payload || typeof payload !== "object") return 0;
+  const row = payload as Record<string, unknown>;
+  const nested =
+    row.data && typeof row.data === "object" && !Array.isArray(row.data)
+      ? (row.data as Record<string, unknown>)
+      : row;
+  return Number(nested.story_id || nested.id || row.story_id || row.id || 0) || 0;
+}
+
 export async function createStory(input: {
   type: StoryType;
   src?: string;
@@ -77,7 +87,7 @@ export async function createStory(input: {
   backgroundColor?: string;
   textColor?: string;
   media?: StoryMediaFile;
-}): Promise<{ success: boolean; message?: string }> {
+}): Promise<{ success: boolean; message?: string; storyId?: number }> {
   try {
     const isMedia = input.type === "photo" || input.type === "video";
     if (isMedia && input.media?.uri) {
@@ -130,7 +140,11 @@ export async function createStory(input: {
           ),
         };
       }
-      return { success: true, message: result.data.message };
+      return {
+        success: true,
+        message: result.data.message,
+        storyId: createdStoryId(result.data),
+      };
     }
 
     const response = await apiFetch("/stories", {
@@ -145,16 +159,21 @@ export async function createStory(input: {
         text_color: input.textColor,
       }),
     });
-    const data = await readJson<{ success?: boolean; message?: string; error?: string }>(
-      response
-    );
+    const data = await readJson<{
+      success?: boolean;
+      message?: string;
+      error?: string;
+      data?: { story_id?: number; id?: number };
+      story_id?: number;
+      id?: number;
+    }>(response);
     if (!response.ok) {
       return {
         success: false,
         message: friendlyError(data.message || data.error || "Failed to create status"),
       };
     }
-    return { success: true, message: data.message };
+    return { success: true, message: data.message, storyId: createdStoryId(data) };
   } catch {
     return { success: false, message: friendlyError("offline") };
   }

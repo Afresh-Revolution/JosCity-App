@@ -2,7 +2,7 @@
   "expo": {
     "name": "JosCity",
     "slug": "joscity",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "joscity",
@@ -101,8 +101,9 @@
       [
         "expo-notifications",
         {
+          "icon": "./assets/notification-icon.png",
           "color": "#0F3D26",
-          "defaultChannel": "default",
+          "defaultChannel": "notifications",
           "enableBackgroundRemoteNotifications": true
         }
       ],
@@ -122,7 +123,17 @@
           "isAccessMediaLocationEnabled": false
         }
       ],
-      "expo-localization"
+      "expo-localization",
+      "expo-sharing",
+      "expo-status-bar",
+      "expo-web-browser",
+      "expo-video",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "JOSCITY uses the microphone when you record a video for a post, story, or reel."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

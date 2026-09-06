@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
@@ -15,6 +14,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
@@ -252,7 +252,7 @@ export default function ListingDetailScreen() {
   const openCheckoutUrl = async (url?: string) => {
     if (!url) return;
     try {
-      await WebBrowser.openBrowserAsync(url, { enableDefaultShareMenu: false });
+      await WebBrowser.openBrowserAsync(url, { enableDefaultShareMenuItem: false });
     } catch {
       await Linking.openURL(url);
     }
@@ -341,7 +341,7 @@ export default function ListingDetailScreen() {
   if (!ready || (loading && !listing)) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -932,7 +932,7 @@ function makeStyles(colors: Palette) {
       justifyContent: "flex-end",
     },
     sheetDim: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0,0,0,0.35)",
     },
     sheet: {

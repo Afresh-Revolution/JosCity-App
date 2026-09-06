@@ -66,6 +66,18 @@ function pickNumber(...values: unknown[]): number | undefined {
   return undefined;
 }
 
+function uniqueById<T>(rows: T[], idOf: (row: T) => number): T[] {
+  const seen = new Set<number>();
+  const out: T[] = [];
+  for (const row of rows) {
+    const id = idOf(row);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(row);
+  }
+  return out;
+}
+
 function normalizeConversation(value: unknown): ChatConversation | null {
   const record = toRecord(value);
   const otherUser = toRecord(record.other_user ?? record.otherUser);
@@ -200,7 +212,10 @@ export async function getUserConversations(
     : Array.isArray(data.data)
       ? data.data
       : [];
-  return rows.map(normalizeConversation).filter(Boolean) as ChatConversation[];
+  return uniqueById(
+    rows.map(normalizeConversation).filter(Boolean) as ChatConversation[],
+    (row) => row.conversationId
+  );
 }
 
 export async function getConversation(
@@ -231,9 +246,12 @@ export async function getConversation(
         conversation.otherAvatar;
     }
   }
-  const messages = (Array.isArray(data.messages) ? data.messages : [])
-    .map((item) => normalizeMessage(item, conversationId))
-    .filter(Boolean) as ChatMessage[];
+  const messages = uniqueById(
+    (Array.isArray(data.messages) ? data.messages : [])
+      .map((item) => normalizeMessage(item, conversationId))
+      .filter(Boolean) as ChatMessage[],
+    (row) => row.messageId
+  );
   return { conversation, messages };
 }
 

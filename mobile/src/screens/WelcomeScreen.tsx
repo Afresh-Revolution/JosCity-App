@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   fill: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   hero: {
     width: "100%",

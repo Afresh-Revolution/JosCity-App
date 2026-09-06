@@ -1,6 +1,5 @@
 import { type ComponentProps, type ReactElement, type ReactNode, useMemo } from "react";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -8,7 +7,9 @@ import {
   StyleSheet,
   Text,
   View,
+  type RefreshControlProps,
 } from "react-native";
+import JosCityLoader from "./JosCityLoader";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import FeedShell, { TAB_BAR_SPACE } from "./feed/FeedShell";
@@ -34,7 +35,7 @@ type Props = {
   title: string;
   loading?: boolean;
   keyboard?: boolean;
-  refreshControl?: ReactElement;
+  refreshControl?: ReactElement<RefreshControlProps>;
   children: ReactNode;
 };
 
@@ -63,7 +64,7 @@ export default function SettingsPage({
 
   const body = loading ? (
     <View style={styles.centered}>
-      <ActivityIndicator color={colors.primary} size="large" />
+      <JosCityLoader color={colors.primary} size="large" />
     </View>
   ) : keyboard ? (
     <KeyboardAvoidingView

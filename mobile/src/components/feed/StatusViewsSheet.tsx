@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
 import {
-  ActivityIndicator,
   Animated,
   Easing,
   FlatList,
@@ -10,6 +9,7 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "../JosCityLoader";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { StoryViewer } from "../../api/stories";
@@ -101,7 +101,7 @@ export default function StatusViewsSheet({
 
           {loading ? (
             <View style={styles.empty}>
-              <ActivityIndicator color={colors.primary} />
+              <JosCityLoader color={colors.primary} />
             </View>
           ) : viewers.length ? (
             <FlatList
@@ -149,7 +149,7 @@ function makeStyles(colors: Palette) {
       justifyContent: "flex-end",
     },
     dim: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0,0,0,0.55)",
     },
     sheet: {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text } from "react-native";
+import { Alert, Pressable, StyleSheet, Text } from "react-native";
+import JosCityLoader from "../JosCityLoader";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useI18n } from "../../i18n/I18nProvider";
 import {
@@ -15,6 +16,7 @@ import {
 import type { Palette } from "../../theme/colors";
 import { useTheme } from "../../theme/ThemeProvider";
 import type { FriendStatus } from "../../api/social";
+import { playFriendRequestSound } from "../../utils/uiSounds";
 
 type Props = {
   userId: number;
@@ -72,7 +74,13 @@ export default function FriendActionButton({
   const onPress = () => {
     if (busy) return;
     if (status === "none") {
-      void run(() => addFriend(userId), "friends.addFailed");
+      void (async () => {
+        setBusy(true);
+        const ok = await addFriend(userId);
+        setBusy(false);
+        if (ok) playFriendRequestSound();
+        else Alert.alert(t("friends.addFailed"));
+      })();
       return;
     }
     if (status === "sent") {
@@ -120,7 +128,7 @@ export default function FriendActionButton({
       accessibilityLabel={label}
     >
       {busy ? (
-        <ActivityIndicator
+        <JosCityLoader
           size="small"
           color={status === "none" ? colors.white : colors.primary}
         />

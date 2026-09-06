@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
 import {
-  ActivityIndicator,
   Animated,
   Easing,
   Modal,
@@ -9,6 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "./JosCityLoader";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useI18n } from "../i18n/I18nProvider";
 
@@ -83,7 +83,7 @@ export default function SignOutSheet({
             ]}
           >
             {busy ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
+              <JosCityLoader color="#FFFFFF" size="small" />
             ) : (
               <Text style={styles.signOutLabel}>{t("profile.signOut")}</Text>
             )}
@@ -110,7 +110,7 @@ function makeStyles() {
       justifyContent: "flex-end",
     },
     dim: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0,0,0,0.55)",
     },
     sheet: {

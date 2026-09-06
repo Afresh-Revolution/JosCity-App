@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -11,6 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AppButton from "../components/AppButton";
@@ -150,7 +150,7 @@ export default function ForumCreateScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -175,7 +175,7 @@ export default function ForumCreateScreen() {
     >
       {loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : (
         <KeyboardAvoidingView
@@ -229,7 +229,7 @@ export default function ForumCreateScreen() {
                 accessibilityLabel={t("forums.addCategory")}
               >
                 {addingCategory ? (
-                  <ActivityIndicator color={colors.white} size="small" />
+                  <JosCityLoader color={colors.white} size="small" />
                 ) : (
                   <Ionicons name="add" size={20} color={colors.white} />
                 )}

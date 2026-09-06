@@ -1,4 +1,6 @@
-import type { Router } from "expo-router";
+import { useRouter } from "expo-router";
+
+type Router = ReturnType<typeof useRouter>;
 
 function isBusinessType(accountType?: string | null): boolean {
   return String(accountType || "").toLowerCase() === "business";

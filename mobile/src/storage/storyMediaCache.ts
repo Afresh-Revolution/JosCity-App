@@ -89,9 +89,27 @@ function removeFileQuietly(fileName: string) {
   }
 }
 
+export function isLocalUri(url: string) {
+  return /^(file|content|ph|assets-library|data):/i.test(String(url || ""));
+}
+
 export function peekCachedStoryUri(storyId: number, kind: Kind): string | null {
   if (!storyId) return null;
-  return memory.get(entryKey(storyId, kind)) || null;
+  const key = entryKey(storyId, kind);
+  const mem = memory.get(key);
+  if (mem) return mem;
+  const known = index?.find((entry) => entry.key === key);
+  if (!known) return null;
+  try {
+    const file = fileFor(known.fileName);
+    if (file.exists && file.size > 0) {
+      memory.set(key, file.uri);
+      return file.uri;
+    }
+  } catch {
+    // Ignore unreadable cache files.
+  }
+  return null;
 }
 
 export function storyRemoteMediaUrl(story: StatusStory): string {
@@ -126,11 +144,15 @@ export async function rememberStoryMedia(input: {
 
   const job = (async () => {
     await loadIndex();
-    const known = index?.find((entry) => entry.key === key && entry.remoteUrl === remoteUrl);
+    const known = index?.find((entry) => entry.key === key);
     if (known) {
       const file = fileFor(known.fileName);
       if (file.exists && file.size > 0) {
         memory.set(key, file.uri);
+        if (known.remoteUrl !== remoteUrl) {
+          known.remoteUrl = remoteUrl;
+          await saveIndex();
+        }
         return file.uri;
       }
     }
@@ -161,6 +183,55 @@ export async function rememberStoryMedia(input: {
   } finally {
     inflight.delete(key);
   }
+}
+
+export async function hydrateStoryCache(): Promise<void> {
+  await loadIndex();
+}
+
+export async function seedStoryMediaFromLocal(input: {
+  storyId: number;
+  localUri: string;
+  expiresAt: number;
+  type?: StatusStory["type"];
+}): Promise<string> {
+  const { storyId, localUri, expiresAt, type } = input;
+  if (!localUri || storyId <= 0 || Platform.OS === "web") return localUri;
+  await loadIndex();
+  const kinds: Kind[] = type === "photo" || !type ? ["media", "thumb"] : ["media"];
+  let kept = localUri;
+  for (const kind of kinds) {
+    const key = entryKey(storyId, kind);
+    const cached = memory.get(key);
+    if (cached) {
+      kept = cached;
+      continue;
+    }
+    const fileName = `${storyId}-${kind}${extensionFor(localUri, kind, type)}`;
+    try {
+      mediaDir();
+      const dest = fileFor(fileName);
+      if (!(dest.exists && dest.size > 0)) {
+        try {
+          const source = new File(localUri);
+          if (source.exists) await source.copy(dest);
+        } catch {
+          await File.downloadFileAsync(localUri, dest, { idempotent: true });
+        }
+      }
+      if (!dest.exists || dest.size <= 0) continue;
+      memory.set(key, dest.uri);
+      kept = dest.uri;
+      index = [
+        ...(index || []).filter((entry) => entry.key !== key),
+        { key, storyId, remoteUrl: localUri, fileName, expiresAt },
+      ];
+    } catch {
+      // Keep the original local uri if copy fails.
+    }
+  }
+  await saveIndex();
+  return kept;
 }
 
 export async function resolveStoryPlaybackUri(story: StatusStory): Promise<string> {

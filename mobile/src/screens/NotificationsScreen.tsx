@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Pressable,
   RefreshControl,
@@ -9,12 +8,14 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { ScrollView as GestureScrollView } from "react-native-gesture-handler";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import FadeIn from "../components/FadeIn";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
+import FriendRequestActions from "../components/notifications/FriendRequestActions";
 import SwipeableNotification from "../components/notifications/SwipeableNotification";
 import {
   deleteAllNotifications,
@@ -27,6 +28,7 @@ import {
 } from "../api/notifications";
 import { useMembershipSettings } from "../hooks/useMembershipSettings";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
+import { ensureFriendGraph } from "../state/friendGraph";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { openMemberProfile } from "../utils/openProfile";
@@ -42,6 +44,8 @@ import {
   notificationSection,
   notificationTitle,
   notificationWhen,
+  isIncomingFriendRequest,
+  uniqueNotifications,
   type NotificationFilter,
 } from "../utils/notifications";
 
@@ -67,7 +71,7 @@ export default function NotificationsScreen() {
     else setLoading(true);
     try {
       const rows = await getNotifications();
-      setItems(rows);
+      setItems(uniqueNotifications(rows));
     } catch {
       if (mode !== "refresh") {
         Alert.alert("Notifications", "Could not load notifications.");
@@ -81,6 +85,7 @@ export default function NotificationsScreen() {
   useEffect(() => {
     if (!allowed) return;
     void load();
+    void ensureFriendGraph();
   }, [allowed, load]);
 
   const unreadCount = items.filter((item) => !item.is_read).length;
@@ -127,6 +132,10 @@ export default function NotificationsScreen() {
         current.map((row) => (row.id === item.id ? { ...row, is_read: true } : row))
       );
       void markNotificationRead(item.id);
+    }
+    if (isIncomingFriendRequest(item)) {
+      if (item.from_user_id) openMemberProfile(router, item.from_user_id);
+      return;
     }
     const postId = notificationPostId(item);
     const action = String(item.action || "").toLowerCase();
@@ -221,7 +230,7 @@ export default function NotificationsScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -300,7 +309,7 @@ export default function NotificationsScreen() {
     >
       {loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : (
         <GestureScrollView
@@ -376,15 +385,7 @@ export default function NotificationsScreen() {
                       onClose={() => setOpenId((current) => (current === item.id ? null : current))}
                       onDelete={() => onDeleteOne(item.id)}
                     >
-                      <Pressable
-                        onPress={() => (selecting ? toggleSelected(item.id) : onMarkRead(item))}
-                        onLongPress={() => {
-                          setSelecting(true);
-                          setSelected([item.id]);
-                          setOpenId(null);
-                        }}
-                        style={[styles.card, !item.is_read && styles.cardUnread]}
-                      >
+                      <View style={[styles.card, !item.is_read && styles.cardUnread]}>
                         {selecting ? (
                           <View style={[styles.check, checked && styles.checkOn]}>
                             {checked ? (
@@ -410,20 +411,47 @@ export default function NotificationsScreen() {
                           </View>
                         )}
                         <View style={styles.copy}>
-                          <View style={styles.titleRow}>
-                            <Text style={styles.cardTitle} numberOfLines={2}>
-                              {notificationTitle(item)}
-                            </Text>
-                            {!item.is_read ? <View style={styles.dot} /> : null}
-                          </View>
-                          {body ? (
-                            <Text style={styles.body} numberOfLines={3}>
-                              {body}
-                            </Text>
+                          <Pressable
+                            onPress={() => (selecting ? toggleSelected(item.id) : onMarkRead(item))}
+                            onLongPress={() => {
+                              setSelecting(true);
+                              setSelected([item.id]);
+                              setOpenId(null);
+                            }}
+                          >
+                            <View style={styles.titleRow}>
+                              <Text style={styles.cardTitle} numberOfLines={2}>
+                                {notificationTitle(item)}
+                              </Text>
+                              {!item.is_read ? <View style={styles.dot} /> : null}
+                            </View>
+                            {body ? (
+                              <Text style={styles.body} numberOfLines={3}>
+                                {body}
+                              </Text>
+                            ) : null}
+                            <Text style={styles.when}>{notificationWhen(item.time)}</Text>
+                          </Pressable>
+                          {!selecting && isIncomingFriendRequest(item) && item.from_user_id ? (
+                            <FriendRequestActions
+                              userId={Number(item.from_user_id)}
+                              name={actorName || "this member"}
+                              requestId={Number(item.node_id || 0) || undefined}
+                              onResolved={(accepted) => {
+                                if (!item.is_read) void markNotificationRead(item.id);
+                                if (!accepted) onDeleteOne(item.id);
+                                else {
+                                  setItems((current) =>
+                                    current.map((row) =>
+                                      row.id === item.id ? { ...row, is_read: true } : row
+                                    )
+                                  );
+                                }
+                              }}
+                            />
                           ) : null}
-                          <Text style={styles.when}>{notificationWhen(item.time)}</Text>
                         </View>
-                      </Pressable>
+                      </View>
                     </SwipeableNotification>
                   </FadeIn>
                 );

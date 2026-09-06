@@ -31,11 +31,23 @@ export function personName(person: DirectoryUser): string {
   );
 }
 
-function MutualFriendsLabel({ userId }: { userId: number }) {
+function MutualFriendsLabel({
+  userId,
+  knownCount,
+}: {
+  userId: number;
+  knownCount?: number;
+}) {
   const { t } = useI18n();
-  const [count, setCount] = useState<number | null>(null);
+  const [count, setCount] = useState<number | null>(
+    typeof knownCount === "number" ? Math.max(0, knownCount) : null
+  );
 
   useEffect(() => {
+    if (typeof knownCount === "number") {
+      setCount(Math.max(0, knownCount));
+      return;
+    }
     let live = true;
     void getMutualFriendCount(userId).then((next) => {
       if (live) setCount(next);
@@ -43,7 +55,7 @@ function MutualFriendsLabel({ userId }: { userId: number }) {
     return () => {
       live = false;
     };
-  }, [userId]);
+  }, [userId, knownCount]);
 
   if (count == null) return null;
   if (count === 1) return <>{t("friends.mutualOne")}</>;
@@ -129,7 +141,7 @@ export function PersonCard({ person }: { person: DirectoryUser }) {
         />
       </View>
       <Text style={styles.meta} numberOfLines={1}>
-        {isBiz ? person.business_type || t("nav.business") : <MutualFriendsLabel userId={person.user_id} />}
+        {isBiz ? person.business_type || t("nav.business") : <MutualFriendsLabel userId={person.user_id} knownCount={person.mutual_count} />}
       </Text>
       {isBiz ? (
         <FollowBusinessButton userId={person.user_id} name={name} compact />
@@ -173,7 +185,7 @@ export function PersonListRow({ person }: { person: DirectoryUser }) {
           />
         </View>
         <Text style={styles.listMeta} numberOfLines={1}>
-          {isBiz ? person.business_type || t("nav.business") : <MutualFriendsLabel userId={person.user_id} />}
+          {isBiz ? person.business_type || t("nav.business") : <MutualFriendsLabel userId={person.user_id} knownCount={person.mutual_count} />}
         </Text>
       </View>
       {isBiz ? (

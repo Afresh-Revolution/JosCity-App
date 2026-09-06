@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -11,6 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import FadeIn from "../components/FadeIn";
@@ -122,7 +122,7 @@ export default function ForumThreadScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -154,7 +154,7 @@ export default function ForumThreadScreen() {
               accessibilityLabel={t("forums.delete")}
             >
               {deleting ? (
-                <ActivityIndicator color={colors.error} size="small" />
+                <JosCityLoader color={colors.error} size="small" />
               ) : (
                 <Ionicons name="trash-outline" size={20} color={colors.error} />
               )}
@@ -165,7 +165,7 @@ export default function ForumThreadScreen() {
     >
       {loading && !thread ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <JosCityLoader color={colors.primary} size="large" />
         </View>
       ) : !thread ? (
         <Text style={styles.empty}>{t("forums.threadMissing")}</Text>
@@ -252,7 +252,7 @@ export default function ForumThreadScreen() {
               accessibilityLabel={t("forums.reply")}
             >
               {sending ? (
-                <ActivityIndicator color={colors.white} size="small" />
+                <JosCityLoader color={colors.white} size="small" />
               ) : (
                 <Ionicons name="send" size={16} color={colors.white} />
               )}

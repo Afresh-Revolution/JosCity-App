@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   glowWrap: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
     pointerEvents: "none",

@@ -16,8 +16,10 @@ import {
   Montserrat_700Bold,
 } from "@expo-google-fonts/montserrat";
 import { PlayfairDisplay_700Bold } from "@expo-google-fonts/playfair-display";
+import { hydrateStoryCache } from "../src/storage/storyMediaCache";
 import { bootstrapPushNotifications, configurePushNotifications, unregisterPushTokenOnLogout } from "../src/push/pushNotifications";
 import { openRatingPrompt } from "../src/state/ratingPrompt";
+import { resolvePushRoute, pushRateOrderId, type PushPayload } from "../src/push/pushRoute";
 import { setUnauthorizedHandler } from "../src/api/client";
 import { clearSession } from "../src/storage/session";
 import { colors } from "../src/theme/colors";
@@ -57,6 +59,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!fontsLoaded || Platform.OS === "web") return;
+    void hydrateStoryCache();
     const timer = setTimeout(() => {
       void bootstrapPushNotifications();
     }, 600);
@@ -120,32 +123,38 @@ function NotificationTapRouter() {
   const last = Notifications.useLastNotificationResponse();
   const seen = useRef<string | undefined>(undefined);
 
+  const openPayload = useCallback(
+    (data?: PushPayload) => {
+      const rateOrderId = pushRateOrderId(data);
+      if (rateOrderId > 0) {
+        openRatingPrompt(rateOrderId);
+      }
+      const href = resolvePushRoute(data);
+      if (!href) return;
+      router.push(href as never);
+    },
+    [router]
+  );
+
   useEffect(() => {
     if (!last) return;
     const key = last.notification.request.identifier;
     if (seen.current === key) return;
     if (last.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
     seen.current = key;
-    const data = last.notification.request.content.data as {
-      url?: string;
-      rateOrderId?: number | string;
-      postId?: number | string;
-    } | undefined;
-    const rateOrderId = Number(data?.rateOrderId);
-    if (rateOrderId > 0) {
-      openRatingPrompt(rateOrderId);
-    }
-    if (typeof data?.url === "string" && data.url.startsWith("/")) {
-      router.push(data.url as never);
-      return;
-    }
-    const postId = Number(data?.postId);
-    if (postId > 0) {
-      router.push({ pathname: "/post/[id]", params: { id: String(postId) } });
-      return;
-    }
-    router.push("/notifications");
-  }, [last, router]);
+    openPayload(last.notification.request.content.data as PushPayload | undefined);
+  }, [last, openPayload]);
+
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const key = response.notification.request.identifier;
+      if (seen.current === key) return;
+      if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
+      seen.current = key;
+      openPayload(response.notification.request.content.data as PushPayload | undefined);
+    });
+    return () => sub.remove();
+  }, [openPayload]);
 
   return null;
 }

@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
@@ -12,6 +11,7 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "../components/JosCityLoader";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as ImagePicker from "expo-image-picker";
@@ -169,7 +169,7 @@ export default function BusinessNewListingScreen() {
   if (!allowed) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <JosCityLoader color={colors.primary} size="large" />
       </View>
     );
   }
@@ -215,7 +215,7 @@ export default function BusinessNewListingScreen() {
                     style={styles.thumbAdd}
                   >
                     {uploading ? (
-                      <ActivityIndicator color={colors.primary} />
+                      <JosCityLoader color={colors.primary} />
                     ) : (
                       <Ionicons name="image-outline" size={22} color={colors.textMuted} />
                     )}
@@ -229,7 +229,7 @@ export default function BusinessNewListingScreen() {
                 style={styles.dropzone}
               >
                 {uploading ? (
-                  <ActivityIndicator color={colors.primary} />
+                  <JosCityLoader color={colors.primary} />
                 ) : (
                   <>
                     <Ionicons name="image-outline" size={28} color={colors.textMuted} />
@@ -373,7 +373,7 @@ export default function BusinessNewListingScreen() {
               ]}
             >
               {saving === "published" ? (
-                <ActivityIndicator color={colors.white} />
+                <JosCityLoader color={colors.white} />
               ) : (
                 <Text style={styles.primaryText}>{t("listing.publish")}</Text>
               )}
@@ -388,7 +388,7 @@ export default function BusinessNewListingScreen() {
               ]}
             >
               {saving === "draft" ? (
-                <ActivityIndicator color={colors.primary} />
+                <JosCityLoader color={colors.primary} />
               ) : (
                 <Text style={styles.secondaryText}>{t("listing.draft")}</Text>
               )}

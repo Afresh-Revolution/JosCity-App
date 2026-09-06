@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Image,
   Modal,
@@ -10,13 +10,15 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { ResizeMode, Video } from "expo-av";
 import { LinearGradient } from "expo-linear-gradient";
+import PreviewVideo from "../media/PreviewVideo";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import FadeIn from "../FadeIn";
 import { useI18n } from "../../i18n/I18nProvider";
 import { cacheOpenStatus, statusGroupKey } from "../../state/openStatus";
 import {
+  hydrateStoryCache,
+  isLocalUri,
   peekCachedStoryUri,
   rememberStoryMedia,
   storyRemoteThumbUrl,
@@ -198,23 +200,35 @@ function StoryPreview({
   fallbackName: string;
   styles: ReturnType<typeof makeStyles>;
 }) {
+  const localContent =
+    story?.content && isLocalUri(story.content) ? story.content : "";
   const remoteThumb = story ? storyRemoteThumbUrl(story) : "";
   const cachedThumb = story?.id ? peekCachedStoryUri(story.id, "thumb") : null;
-  const [thumbUri, setThumbUri] = useState(cachedThumb || remoteThumb);
-  const [thumbFailed, setThumbFailed] = useState(false);
-  const thumbTries = useRef(0);
-  const localVideo = Boolean(
-    story?.type === "video" &&
-      story.content &&
-      !/^https?:\/\//i.test(story.content)
+  const cachedMedia = story?.id ? peekCachedStoryUri(story.id, "media") : null;
+  const [thumbUri, setThumbUri] = useState(
+    cachedThumb || cachedMedia || localContent || remoteThumb
   );
+  const [thumbFailed, setThumbFailed] = useState(false);
+  const localVideo = Boolean(story?.type === "video" && localContent);
 
   useEffect(() => {
+    let live = true;
     setThumbFailed(false);
-    thumbTries.current = 0;
-    const next = (story?.id ? peekCachedStoryUri(story.id, "thumb") : null) || remoteThumb;
-    setThumbUri(next);
-    if (!story || story.id <= 0 || story.uploading || !remoteThumb.startsWith("http")) return;
+    const apply = () => {
+      const next =
+        (story?.id ? peekCachedStoryUri(story.id, "thumb") : null) ||
+        (story?.id ? peekCachedStoryUri(story.id, "media") : null) ||
+        localContent ||
+        remoteThumb;
+      if (live) setThumbUri(next);
+    };
+    apply();
+    void hydrateStoryCache().then(apply);
+    if (!story || story.id <= 0 || story.uploading || !remoteThumb.startsWith("http")) {
+      return () => {
+        live = false;
+      };
+    }
     void rememberStoryMedia({
       storyId: story.id,
       remoteUrl: remoteThumb,
@@ -222,16 +236,30 @@ function StoryPreview({
       kind: "thumb",
       type: story.type,
     }).then((uri) => {
-      if (uri) setThumbUri(uri);
+      if (!live || !uri) return;
+      const cached =
+        peekCachedStoryUri(story.id, "thumb") || peekCachedStoryUri(story.id, "media");
+      setThumbUri(cached || (isLocalUri(uri) ? uri : localContent) || uri);
     });
-  }, [story?.id, story?.content, story?.expiresAt, story?.type, story?.uploading, remoteThumb]);
+    return () => {
+      live = false;
+    };
+  }, [story?.id, story?.content, story?.expiresAt, story?.type, story?.uploading, localContent, remoteThumb]);
 
-  if (story?.type === "photo" && (thumbUri || story.content)) {
+  if (story?.type === "photo" && !thumbFailed && (thumbUri || localContent || story.content)) {
     return (
       <Image
-        source={{ uri: thumbUri || story.content }}
+        source={{ uri: thumbUri || localContent || story.content }}
         style={styles.preview}
         resizeMode="cover"
+        fadeDuration={0}
+        onError={() => {
+          if (localContent && thumbUri !== localContent) {
+            setThumbUri(localContent);
+            return;
+          }
+          setThumbFailed(true);
+        }}
       />
     );
   }
@@ -239,29 +267,22 @@ function StoryPreview({
     return (
       <View style={styles.videoPreview}>
         {localVideo ? (
-          <Video
-            source={{ uri: story.content }}
-            style={styles.preview}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay={false}
-            isMuted
-            pointerEvents="none"
-          />
+          <PreviewVideo uri={story.content} style={styles.preview} playing={false} muted />
         ) : thumbUri && !thumbFailed ? (
           <Image
             source={{ uri: thumbUri }}
             style={styles.preview}
             resizeMode="cover"
+            fadeDuration={0}
             onError={() => {
-              if (thumbTries.current >= 3) {
-                setThumbFailed(true);
+              const cached =
+                (story?.id ? peekCachedStoryUri(story.id, "thumb") : null) ||
+                (story?.id ? peekCachedStoryUri(story.id, "media") : null);
+              if (cached && cached !== thumbUri) {
+                setThumbUri(cached);
                 return;
               }
-              thumbTries.current += 1;
-              const delay = 1200 * thumbTries.current;
-              setTimeout(() => {
-                setThumbUri(`${remoteThumb}${remoteThumb.includes("?") ? "&" : "?"}try=${thumbTries.current}`);
-              }, delay);
+              setThumbFailed(true);
             }}
           />
         ) : fallbackUri ? (

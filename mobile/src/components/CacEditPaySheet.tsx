@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Image,
   Linking,
@@ -10,6 +9,7 @@ import {
   Text,
   View,
 } from "react-native";
+import JosCityLoader from "./JosCityLoader";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import * as WebBrowser from "expo-web-browser";
@@ -66,7 +66,7 @@ export default function CacEditPaySheet({
   const openCheckout = async (url?: string) => {
     if (!url) return;
     try {
-      await WebBrowser.openBrowserAsync(url, { enableDefaultShareMenu: false });
+      await WebBrowser.openBrowserAsync(url, { enableDefaultShareMenuItem: false });
     } catch {
       await Linking.openURL(url);
     }
@@ -158,7 +158,7 @@ export default function CacEditPaySheet({
                   style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
                 >
                   {submitting ? (
-                    <ActivityIndicator color={colors.white} />
+                    <JosCityLoader color={colors.white} />
                   ) : (
                     <Text style={styles.submitText}>{t("wallet.paystack")}</Text>
                   )}
@@ -220,7 +220,7 @@ export default function CacEditPaySheet({
                 style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
               >
                 {submitting ? (
-                  <ActivityIndicator color={colors.white} />
+                  <JosCityLoader color={colors.white} />
                 ) : (
                   <Text style={styles.submitText}>{t("wallet.submitProof")}</Text>
                 )}
@@ -240,7 +240,7 @@ function makeStyles(colors: Palette) {
       justifyContent: "flex-end",
     },
     modalBackdrop: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0,0,0,0.35)",
     },
     modalCard: {

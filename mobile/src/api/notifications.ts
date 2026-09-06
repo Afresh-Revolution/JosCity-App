@@ -1,4 +1,5 @@
 import { apiFetch, readJson } from "./client";
+import { uniqueNotifications } from "../utils/notifications";
 
 export type ApiNotification = {
   id: number;
@@ -42,13 +43,15 @@ export async function getNotifications(): Promise<ApiNotification[]> {
   if (!response.ok || !Array.isArray(data.data)) {
     throw new Error("Could not load notifications");
   }
-  return data.data
-    .map((row) => ({
-      ...row,
-      id: Number(row.id || 0),
-      is_read: Boolean(row.is_read),
-    }))
-    .filter((row) => row.id > 0);
+  return uniqueNotifications(
+    data.data
+      .map((row) => ({
+        ...row,
+        id: Number(row.id || 0),
+        is_read: Boolean(row.is_read),
+      }))
+      .filter((row) => row.id > 0)
+  );
 }
 
 export async function markNotificationRead(id: number): Promise<boolean> {
@@ -83,7 +86,10 @@ export type NotificationPreferenceKey =
   | "listings"
   | "rewards"
   | "referrals"
-  | "business";
+  | "business"
+  | "messages"
+  | "social"
+  | "message_previews";
 
 export type NotificationPreferences = Record<NotificationPreferenceKey, boolean>;
 
@@ -96,7 +102,12 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
   rewards: true,
   referrals: true,
   business: true,
+  messages: true,
+  social: true,
+  message_previews: true,
 };
+
+export { DEFAULT_PREFERENCES };
 
 export async function getNotificationPreferences(): Promise<NotificationPreferences> {
   try {
@@ -130,20 +141,68 @@ export async function updateNotificationPreference(
   }
 }
 
-export async function registerPushToken(
-  token: string,
-  platform: "ios" | "android" | "unknown"
-): Promise<boolean> {
+export async function registerPushToken(input: {
+  token: string;
+  platform: "ios" | "android" | "unknown";
+  installationId: string;
+  appVersion?: string;
+}): Promise<boolean> {
   return asOk("/notifications/push-token", {
     method: "POST",
-    body: JSON.stringify({ token, platform }),
+    body: JSON.stringify({
+      token: input.token,
+      platform: input.platform,
+      installation_id: input.installationId,
+      app_version: input.appVersion || null,
+      app_name: "joscity",
+    }),
   });
 }
 
-export async function unregisterPushToken(token?: string | null): Promise<boolean> {
+export async function refreshPushToken(input: {
+  token?: string | null;
+  installationId: string;
+  appVersion?: string;
+}): Promise<boolean> {
+  return asOk("/notifications/push-token", {
+    method: "PATCH",
+    body: JSON.stringify({
+      token: input.token || undefined,
+      installation_id: input.installationId,
+      app_version: input.appVersion || null,
+      app_name: "joscity",
+    }),
+  });
+}
+
+export async function unregisterPushToken(input: {
+  token?: string | null;
+  installationId?: string | null;
+}): Promise<boolean> {
   return asOk("/notifications/push-token", {
     method: "DELETE",
-    body: JSON.stringify(token ? { token } : {}),
+    body: JSON.stringify({
+      token: input.token || undefined,
+      installation_id: input.installationId || undefined,
+      app_name: "joscity",
+    }),
     skipUnauthorized: true,
   });
+}
+
+export async function setNotificationFocus(
+  screen: string,
+  entityId?: string | number | null
+): Promise<boolean> {
+  return asOk("/notifications/focus", {
+    method: "PUT",
+    body: JSON.stringify({
+      screen,
+      entityId: entityId == null ? null : String(entityId),
+    }),
+  });
+}
+
+export async function clearNotificationFocus(): Promise<boolean> {
+  return asOk("/notifications/focus", { method: "DELETE" });
 }
