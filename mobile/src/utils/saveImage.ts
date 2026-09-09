@@ -1,6 +1,6 @@
 import { Alert, Platform } from "react-native";
 import { Directory, File, Paths } from "expo-file-system";
-import * as MediaLibrary from "expo-media-library";
+import { isExpoGo } from "./optionalNativeModules";
 
 function extensionFromUrl(url: string): string {
   const clean = url.split("?")[0] || "";
@@ -26,6 +26,25 @@ export async function saveRemoteImage(url: string): Promise<boolean> {
 
   if (Platform.OS === "web") {
     return downloadOnWeb(url);
+  }
+
+  if (isExpoGo()) {
+    Alert.alert(
+      "Development build required",
+      "Saving images is unavailable in Expo Go. Install the latest JosCity development build."
+    );
+    return false;
+  }
+
+  let MediaLibrary: typeof import("expo-media-library");
+  try {
+    MediaLibrary = await import("expo-media-library");
+  } catch {
+    Alert.alert(
+      "Development build required",
+      "Saving images is unavailable in this Expo client. Install the latest JosCity development build."
+    );
+    return false;
   }
 
   const permission = await MediaLibrary.requestPermissionsAsync(true, ["photo"]);

@@ -46,23 +46,43 @@ export type FeedPage = {
   data: FeedPost[];
   pagination?: { page: number; limit: number; hasMore: boolean };
   message?: string;
+  feedSessionId?: string;
+  feedSessionExpiresAt?: string;
+  sessionReset?: boolean;
 };
 
-export async function getFeed(page = 1, limit = 10): Promise<FeedPage> {
+export type FeedSessionRequest = { feedSessionId?: string; cursor?: string; refresh?: boolean };
+export type SessionFeedPage = Omit<FeedPage, "pagination"> & {
+  pagination?: { page?: number; limit: number; hasMore: boolean; nextCursor?: string | null };
+};
+
+export async function getFeed(page = 1, limit = 10, session?: FeedSessionRequest): Promise<SessionFeedPage> {
   const query = new URLSearchParams({
     page: String(page),
     limit: String(limit),
     type: "all",
     feedChannel: "main",
   });
+  if (session) {
+    query.set("sessionMode", "1");
+    if (session.feedSessionId) query.set("feedSessionId", session.feedSessionId);
+    if (session.cursor) query.set("cursor", session.cursor);
+    if (session.refresh) query.set("refresh", "1");
+  }
   const response = await apiFetch(`/feed/feeds?${query.toString()}`, {
     method: "GET",
     auth: true,
     timeoutMs: 30000,
   });
-  const data = await readJson<FeedPage>(response);
-  if (!response.ok) {
+  const data = await readJson<SessionFeedPage & { code?: string }>(response);
+  if (!response.ok || data.success === false) {
+    if (session?.feedSessionId && data.code === "INVALID_FEED_SESSION") {
+      return getFeed(1, limit, {});
+    }
     throw new Error(data.message || "Could not load feed");
+  }
+  if (session && !data.feedSessionId) {
+    throw new Error("Feed ranking is not available. Please update the server and try again.");
   }
   const posts = (Array.isArray(data.data) ? data.data : []).map((post) => {
     const postId = Number(post.post_id || post.id || 0);
@@ -77,6 +97,9 @@ export async function getFeed(page = 1, limit = 10): Promise<FeedPage> {
     success: true,
     data: posts.filter((post) => post.post_id > 0),
     pagination: data.pagination,
+    feedSessionId: data.feedSessionId,
+    feedSessionExpiresAt: data.feedSessionExpiresAt,
+    sessionReset: data.sessionReset,
   };
 }
 
@@ -120,19 +143,36 @@ export async function getPost(postId: number): Promise<FeedPost | null> {
   }
 }
 
-export async function reactToPost(postId: number): Promise<void> {
-  await apiFetch(`/posts/${postId}/react`, {
+export type PostReactionState = { liked: boolean; reactionsCount: number };
+
+async function readReactionState(response: Response): Promise<PostReactionState> {
+  const data = await readJson<{
+    success?: boolean;
+    message?: string;
+    data?: { user_reaction?: { reaction_id?: number } | null; reactions?: Array<{ count?: number | string }> };
+  }>(response);
+  if (!response.ok || data.success === false) throw new Error(data.message || "Could not update reaction");
+  return {
+    liked: Number(data.data?.user_reaction?.reaction_id || 0) === 1,
+    reactionsCount: (data.data?.reactions || []).reduce((total, item) => total + Math.max(0, Number(item.count) || 0), 0),
+  };
+}
+
+export async function reactToPost(postId: number): Promise<PostReactionState> {
+  const response = await apiFetch(`/posts/${postId}/react`, {
     method: "POST",
     auth: true,
     body: JSON.stringify({ reaction_id: 1, reaction: "like" }),
   });
+  return readReactionState(response);
 }
 
-export async function removeReaction(postId: number): Promise<void> {
-  await apiFetch(`/posts/${postId}/react`, {
+export async function removeReaction(postId: number): Promise<PostReactionState> {
+  const response = await apiFetch(`/posts/${postId}/react`, {
     method: "DELETE",
     auth: true,
   });
+  return readReactionState(response);
 }
 
 type FeedActionResult = {

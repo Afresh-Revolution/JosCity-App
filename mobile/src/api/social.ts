@@ -343,6 +343,11 @@ export async function getPendingRequests(): Promise<{
 }
 
 export async function getFriendsOfUser(userId: number): Promise<number[]> {
+  const rows = await getFriendsForUser(userId);
+  return [...new Set(rows.map((row) => Number(row.user_id || 0)).filter((id) => id > 0 && id !== userId))];
+}
+
+export async function getFriendsForUser(userId: number): Promise<DirectoryUser[]> {
   if (!userId) return [];
   try {
     const response = await apiFetch(`/friends/user/${userId}`, {
@@ -352,7 +357,21 @@ export async function getFriendsOfUser(userId: number): Promise<number[]> {
     });
     const data = await readJson<{ success?: boolean; data?: FriendRow[] }>(response);
     if (!response.ok || !Array.isArray(data.data)) return [];
-    return [...new Set(data.data.map((row) => Number(row.user_id || 0)).filter((id) => id > 0 && id !== userId))];
+    const seen = new Set<number>();
+    return data.data
+      .map((row): DirectoryUser => ({
+        user_id: Number(row.user_id || 0),
+        user_firstname: row.user_firstname,
+        user_lastname: row.user_lastname,
+        user_picture: row.user_picture || row.profile_image_url || null,
+        display_name: row.display_name || null,
+        business_name: row.business_name || null,
+        account_type: row.account_type || undefined,
+        user_name: row.user_name || row.username || null,
+        address: row.address || null,
+        user_verified: Boolean(row.verified),
+      }))
+      .filter((row) => row.user_id > 0 && row.user_id !== userId && !seen.has(row.user_id) && Boolean(seen.add(row.user_id)));
   } catch {
     return [];
   }

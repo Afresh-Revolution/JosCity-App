@@ -1,4 +1,4 @@
-import { apiFetch, readJson } from "./client";
+import { apiFetch, readJson, uploadForm } from "./client";
 import type { AccountType, StoredUser } from "../storage/session";
 import { friendlyError } from "../utils/errors";
 
@@ -332,18 +332,12 @@ export async function uploadProfilePicture(params: {
   );
 
   try {
-    const response = await apiFetch("/profile/picture", {
-      method: "POST",
-      auth: true,
-      timeoutMs: 45000,
-      body: form,
+    const { promise } = uploadForm("/profile/picture", form, {
+      timeoutMs: 60000,
     });
-    const data = await readJson<{
-      success?: boolean;
-      user_picture?: string;
-      message?: string;
-    }>(response);
-    if (!response.ok) {
+    const result = await promise;
+    const data = result.data as typeof result.data & { user_picture?: string };
+    if (!result.ok) {
       return {
         success: false,
         message: data.message || "Failed to upload profile picture",

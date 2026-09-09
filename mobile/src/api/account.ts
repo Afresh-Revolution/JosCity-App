@@ -53,6 +53,7 @@ export type SecurityInfo = {
 };
 
 export type ActivityItem = {
+  source?: string;
   id: string;
   title: string;
   amount?: string | null;

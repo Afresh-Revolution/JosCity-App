@@ -55,8 +55,9 @@ export default function HelpSupportScreen() {
   const load = useCallback(async () => {
     const result = await getSupportContent();
     if (result.data) {
-      setContent(result.data);
-      setCategory((current) => current || result.data.categories[0]?.label || "");
+      const content = result.data;
+      setContent(content);
+      setCategory((current) => current || content.categories[0]?.label || "");
     }
   }, []);
 

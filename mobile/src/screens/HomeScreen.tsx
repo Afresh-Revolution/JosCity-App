@@ -1,9 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
+  AppState,
   Pressable,
   RefreshControl,
-  ScrollView,
+  FlatList,
   StyleSheet,
   Text,
   TextInput,
@@ -69,12 +70,16 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [storyGroups, setStoryGroups] = useState<StatusGroup[]>([]);
   const [pendingPost, setPendingPost] = useState(getPendingPost());
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<FlatList<FeedPost>>(null);
   const searchInputRef = useRef<TextInput>(null);
-  const postY = useRef<Record<number, number>>({});
   const peopleY = useRef(0);
   const lastUserId = useRef<number | undefined>(undefined);
   const serverStoriesRef = useRef<StatusGroup[]>([]);
+  const feedSession = useRef<{ id?: string; cursor?: string; expiresAt?: number }>({});
+  const feedGeneration = useRef(0);
+  const feedBusy = useRef(false);
+
+  useEffect(() => () => { feedGeneration.current += 1; }, []);
 
   useEffect(() => {
     void getUser().then((next) => {
@@ -89,11 +94,37 @@ export default function HomeScreen() {
     return () => clearInterval(timer);
   }, []);
 
-  const loadFeed = useCallback(async (nextPage: number, mode: "replace" | "append") => {
-    const result = await getFeed(nextPage, 10);
-    setPage(nextPage);
-    setHasMore(Boolean(result.pagination?.hasMore));
-    setPosts((current) => (mode === "append" ? [...current, ...result.data] : result.data));
+  const loadFeed = useCallback(async (nextPage: number, mode: "replace" | "append", refresh = false) => {
+    if (mode === "append" && feedBusy.current) return;
+    const generation = ++feedGeneration.current;
+    feedBusy.current = true;
+    const previousId = feedSession.current.id;
+    try {
+      const result = await getFeed(nextPage, 10, {
+        feedSessionId: previousId,
+        cursor: mode === "append" ? feedSession.current.cursor : undefined,
+        refresh,
+      });
+      if (generation !== feedGeneration.current) return;
+      const replace = mode === "replace" || result.sessionReset || result.feedSessionId !== previousId;
+      feedSession.current = {
+        id: result.feedSessionId,
+        cursor: result.pagination?.nextCursor || undefined,
+        expiresAt: result.feedSessionExpiresAt ? Date.parse(result.feedSessionExpiresAt) : undefined,
+      };
+      setPage(replace ? 1 : nextPage);
+      setHasMore(Boolean(result.pagination?.hasMore));
+      setError(null);
+      setPosts((current) => {
+        const unique = new Map<number, FeedPost>();
+        for (const post of [...(replace ? [] : current), ...result.data]) {
+          if (!unique.has(post.post_id)) unique.set(post.post_id, post);
+        }
+        return [...unique.values()];
+      });
+    } finally {
+      if (generation === feedGeneration.current) feedBusy.current = false;
+    }
   }, []);
 
   const loadStories = useCallback(async () => {
@@ -145,16 +176,22 @@ export default function HomeScreen() {
   }, [loadExtras, loadFeed, t]);
 
   useEffect(() => {
-    if (!allowed) return;
+    if (!allowed) {
+      feedGeneration.current += 1;
+      feedBusy.current = false;
+      feedSession.current = {};
+      setPosts([]);
+      return;
+    }
     void bootstrap();
   }, [allowed, bootstrap]);
 
   useEffect(() => {
     return onHomeRefresh(() => {
       void loadStories();
-      void loadFeed(1, "replace");
+      void loadFeed(1, "replace", true).catch(() => setError(t("home.loadError")));
     });
-  }, [loadFeed, loadStories]);
+  }, [loadFeed, loadStories, t]);
 
   useEffect(() => {
     return onPendingStatusChange(() => {
@@ -177,21 +214,25 @@ export default function HomeScreen() {
         const nextId =
           typeof nextUser?.user_id === "number" ? nextUser.user_id : undefined;
         if (nextId && lastUserId.current && lastUserId.current !== nextId) {
+          feedSession.current = {};
+          setPosts([]);
           await bootstrap();
+        } else if (feedSession.current.expiresAt && Date.now() >= feedSession.current.expiresAt) {
+          await loadFeed(1, "replace", true);
         }
         lastUserId.current = nextId ?? lastUserId.current;
         const count = await getUnreadNotificationCount();
         setUnread(count);
         await loadStories();
         nudgeRatingPrompt();
-      })();
-    }, [allowed, bootstrap, loadStories])
+      })().catch(() => setError(t("home.loadError")));
+    }, [allowed, bootstrap, loadStories, loadFeed, t])
   );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([loadFeed(1, "replace"), loadExtras()]);
+      await Promise.all([loadFeed(1, "replace", true), loadExtras()]);
       setError(null);
     } catch {
       setError(t("home.refreshError"));
@@ -200,15 +241,28 @@ export default function HomeScreen() {
     }
   }, [loadExtras, loadFeed, t]);
 
+  useEffect(() => {
+    if (!allowed) return;
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active" && feedSession.current.expiresAt &&
+          Date.now() >= feedSession.current.expiresAt) {
+        void onRefresh();
+      }
+    });
+    return () => subscription.remove();
+  }, [allowed, onRefresh]);
+
   const onLoadMore = useCallback(async () => {
-    if (!hasMore || loadingMore) return;
+    if (!hasMore || loadingMore || loading || refreshing || feedBusy.current) return;
     setLoadingMore(true);
     try {
       await loadFeed(page + 1, "append");
+    } catch {
+      setError(t("home.loadError"));
     } finally {
       setLoadingMore(false);
     }
-  }, [hasMore, loadFeed, loadingMore, page]);
+  }, [hasMore, loadFeed, loadingMore, loading, refreshing, page, t]);
 
   const toggleSearch = useCallback(() => {
     setSearchOpen((open) => {
@@ -225,7 +279,7 @@ export default function HomeScreen() {
   }, [searchOpen]);
 
   const scrollToY = (y: number) => {
-    scrollRef.current?.scrollTo({ y: Math.max(y - 12, 0), animated: true });
+    scrollRef.current?.scrollToOffset({ offset: Math.max(y - 12, 0), animated: true });
   };
 
   const onSelectSearch = (result: FeedSearchResult) => {
@@ -250,9 +304,8 @@ export default function HomeScreen() {
       scrollToY(peopleY.current);
       return;
     }
-    if (result.postId && postY.current[result.postId] != null) {
-      scrollToY(postY.current[result.postId]);
-    }
+    const index = posts.findIndex(post => post.post_id === result.postId);
+    if (index >= 0) scrollRef.current?.scrollToIndex({ index, animated: true });
   };
 
   const displayName =
@@ -309,8 +362,19 @@ export default function HomeScreen() {
               inputRef={searchInputRef}
             />
           ) : null}
-          <ScrollView
+          <FlatList
             ref={scrollRef}
+            data={posts}
+            keyExtractor={(post) => String(post.post_id)}
+            initialNumToRender={5}
+            maxToRenderPerBatch={5}
+            windowSize={7}
+            removeClippedSubviews={false}
+            onEndReached={() => { if (!error) void onLoadMore(); }}
+            onEndReachedThreshold={0.5}
+            onScrollToIndexFailed={({ index, averageItemLength }) => {
+              scrollRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: true });
+            }}
             style={styles.scroll}
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
@@ -321,7 +385,7 @@ export default function HomeScreen() {
                 tintColor={colors.primary}
               />
             }
-          >
+            ListHeaderComponent={<>
           {showGreeting && greeting ? (
             <FadeIn delay={40} duration={480} translateY={8}>
               <View style={styles.banner}>
@@ -426,15 +490,12 @@ export default function HomeScreen() {
             <Text style={styles.empty}>{t("home.empty")}</Text>
           ) : null}
 
-          {posts.map((post, index) => {
+            </>}
+            renderItem={({ item: post, index }) => {
             const postId = Number(post.post_id || post.id || 0);
             return (
               <Fragment key={String(postId || index)}>
-                <View
-                  onLayout={(event) => {
-                    postY.current[postId] = event.nativeEvent.layout.y;
-                  }}
-                >
+                <View>
                   <PostCard
                     post={post}
                     delay={Math.min(index * 70, 280)}
@@ -463,7 +524,8 @@ export default function HomeScreen() {
                 ) : null}
               </Fragment>
             );
-          })}
+            }}
+            ListFooterComponent={<>
 
           {posts.length === 0 ? (
             <View
@@ -494,7 +556,8 @@ export default function HomeScreen() {
               )}
             </Pressable>
           ) : null}
-        </ScrollView>
+            </>}
+          />
         </View>
       )}
     </FeedShell>

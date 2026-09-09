@@ -342,7 +342,7 @@ async function fallbackOverview(): Promise<BusinessOverview> {
   overview.metrics.payout_ready = Number(wallet.data?.balance || 0);
   overview.unread_notifications = notifications.filter((row) => !row.is_read).length;
   overview.activity = notifications
-    .map((row) => {
+    .map((row): BusinessActivityItem | null => {
       const text = [row.title, row.message, row.action, row.node_type].filter(Boolean).join(" ");
       const type = classifyActivity(text);
       if (!type) return null;
@@ -806,6 +806,7 @@ export type BusinessPageProfile = {
   picture: string | null;
   cover: string | null;
   phone: string | null;
+  email: string | null;
   verified: boolean;
   has_cac?: boolean;
   cac_verified: boolean;
@@ -899,6 +900,7 @@ function emptyPage(): BusinessPage {
       picture: null,
       cover: null,
       phone: null,
+      email: null,
       verified: false,
       has_cac: false,
       cac_verified: false,

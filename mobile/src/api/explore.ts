@@ -1,4 +1,4 @@
-import { apiFetch, readJson } from "./client";
+import { apiFetch, cachedPublicFetch, readJson } from "./client";
 import { getFeed } from "./feed";
 import { friendlyError } from "../utils/errors";
 
@@ -310,7 +310,7 @@ async function getGatewavEvents(timeoutMs = 12000): Promise<ExploreEvent[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(GATEWAV_FEED_URL, {
+    const response = await cachedPublicFetch(GATEWAV_FEED_URL, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal: controller.signal,

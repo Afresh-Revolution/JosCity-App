@@ -307,6 +307,7 @@ export const EN_STRINGS: Record<string, string> = {
   "messages.newOne": "1 new message",
   "messages.newMany": "{count} new messages",
   "messages.offline": "Offline",
+  "messages.seen": "Seen",
   "messages.online": "Online",
   "messages.delete": "Delete",
   "messages.deleteChat": "Delete chat",

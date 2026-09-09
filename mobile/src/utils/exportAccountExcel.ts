@@ -362,7 +362,7 @@ export async function loadAccountExport(): Promise<PackedExport> {
     getBusinessPage().catch(() => null),
   ]);
 
-  const liveUser = profileResult.user || {};
+  const liveUser = ("user" in profileResult ? profileResult.user : undefined) || {};
   const exportData = exported.data;
   const accountData = account.data;
   const pageProfile = page?.profile;

@@ -15,6 +15,26 @@ type FetchOptions = RequestInit & {
 
 let unauthorizedHandler: (() => void | Promise<void>) | null = null;
 let unauthorizedBusy = false;
+let networkOnline = true;
+const networkListeners = new Set<(online: boolean) => void>();
+
+function setNetworkOnline(online: boolean) {
+  if (networkOnline === online) return;
+  networkOnline = online;
+  for (const listener of networkListeners) listener(online);
+}
+
+export function getNetworkOnline(): boolean {
+  return networkOnline;
+}
+
+export function subscribeNetworkOnline(
+  listener: (online: boolean) => void
+): () => void {
+  networkListeners.add(listener);
+  listener(networkOnline);
+  return () => networkListeners.delete(listener);
+}
 
 export function setUnauthorizedHandler(handler: (() => void | Promise<void>) | null) {
   unauthorizedHandler = handler;
@@ -40,8 +60,6 @@ export async function apiFetch(path: string, options: FetchOptions = {}) {
     skipUnauthorized = false,
     ...init
   } = options;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const isFormData =
     typeof FormData !== "undefined" && init.body instanceof FormData;
   const headers: Record<string, string> = {
@@ -50,10 +68,11 @@ export async function apiFetch(path: string, options: FetchOptions = {}) {
     ...(init.headers as Record<string, string> | undefined),
   };
 
-  if (auth) {
-    const token = explicitToken || (await getAuthToken());
-    if (token) headers.Authorization = `Bearer ${token}`;
-  }
+  const resolvedToken = auth ? explicitToken || (await getAuthToken()) : undefined;
+  if (resolvedToken) headers.Authorization = `Bearer ${resolvedToken}`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(apiUrl(path), {
@@ -61,10 +80,14 @@ export async function apiFetch(path: string, options: FetchOptions = {}) {
       signal: controller.signal,
       headers,
     });
+    setNetworkOnline(true);
     if (auth && response.status === 401 && !skipUnauthorized) {
       void handleUnauthorized();
     }
     return response;
+  } catch (error) {
+    setNetworkOnline(false);
+    throw error;
   } finally {
     clearTimeout(timer);
   }
@@ -76,6 +99,20 @@ export async function pingApi(): Promise<boolean> {
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+export async function cachedPublicFetch(
+  url: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  try {
+    const response = await fetch(url, init);
+    setNetworkOnline(true);
+    return response;
+  } catch (error) {
+    setNetworkOnline(false);
+    throw error;
   }
 }
 
@@ -145,6 +182,7 @@ export function uploadForm(
         options.onProgress?.(last);
       };
       xhr.onload = () => {
+        setNetworkOnline(true);
         options.onProgress?.(1);
         if (xhr?.status === 401) {
           void handleUnauthorized();
@@ -166,9 +204,11 @@ export function uploadForm(
           finish({ ok: false, aborted: true, data: {} });
           return;
         }
+        setNetworkOnline(false);
         finish({ ok: false, data: { message: "offline" } });
       };
       xhr.ontimeout = () => {
+        setNetworkOnline(false);
         finish({ ok: false, data: { message: "timeout" } });
       };
       xhr.send(form);

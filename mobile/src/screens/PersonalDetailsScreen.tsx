@@ -304,7 +304,7 @@ export default function PersonalDetailsScreen() {
         return;
       }
 
-      if (!result.success || !result.user_picture) {
+      if (!result.success || !("user_picture" in result) || !result.user_picture) {
         showError("Could not update photo", result.message);
         return;
       }

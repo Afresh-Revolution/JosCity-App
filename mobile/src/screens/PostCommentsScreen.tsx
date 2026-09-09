@@ -220,7 +220,7 @@ export default function PostCommentsScreen() {
                       post.author?.id || post.user_id,
                       post.author?.account_type,
                       "push",
-                      { name: post.author.name, picture: post.author.picture }
+                      { name: post.author?.name, picture: post.author?.picture }
                     )
                   }
                   style={styles.authorRow}

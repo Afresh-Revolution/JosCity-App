@@ -2,7 +2,7 @@
   "expo": {
     "name": "JosCity",
     "slug": "joscity",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "joscity",
@@ -63,6 +63,7 @@
     "android": {
       "package": "com.joscity.app",
       "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0C3D26"
@@ -127,11 +128,19 @@
       "expo-sharing",
       "expo-status-bar",
       "expo-web-browser",
-      "expo-video",
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": false,
+          "supportsPictureInPicture": false
+        }
+      ],
       [
         "expo-audio",
         {
-          "microphonePermission": "JOSCITY uses the microphone when you record a video for a post, story, or reel."
+          "microphonePermission": "JOSCITY uses the microphone when you record a video for a post, story, or reel.",
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
         }
       ]
     ],

@@ -392,6 +392,15 @@ export default function MemberProfileScreen() {
                         }`
                       : ""}
                   </Text>
+                  <Pressable
+                    onPress={() => router.push({ pathname: "/people/[id]/friends", params: { id: String(profile.user_id), name: profile.name } })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${profile.name}'s friends`}
+                    style={styles.friendsLink}
+                  >
+                    <Ionicons name="people-outline" size={15} color={colors.primary} />
+                    <Text style={styles.friendsLinkText}>View friends</Text>
+                  </Pressable>
                   {deactivated || profile.membership_label ? (
                     <View style={styles.badges}>
                       {deactivated ? (
@@ -705,6 +714,18 @@ function makeStyles(colors: Palette) {
       fontSize: 13,
       color: colors.text,
       textAlign: "center",
+    },
+    friendsLink: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      alignSelf: "center",
+      marginTop: 8,
+    },
+    friendsLinkText: {
+      fontFamily: "Montserrat_700Bold",
+      fontSize: 13,
+      color: colors.primary,
     },
     badges: {
       flexDirection: "row",

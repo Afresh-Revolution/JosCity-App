@@ -122,6 +122,11 @@ export default function PostCard({ post, delay = 0, viewerId, onDeleted, onSaved
     setSaved(resolveSaved(Number(post.post_id || post.id || 0), post.user_saved));
   }, [post.post_id, post.id, post.user_saved]);
 
+  useEffect(() => {
+    setLiked(Boolean(post.user_reacted));
+    setLikes(Math.max(0, Number(post.reactions_count || 0)));
+  }, [post.post_id, post.id, post.user_reacted, post.reactions_count]);
+
   const applySaved = (next: boolean) => {
     setSaved(next);
     setSavedOverride(postId, next);
@@ -361,10 +366,15 @@ export default function PostCard({ post, delay = 0, viewerId, onDeleted, onSaved
               const next = !liked;
               setLiked(next);
               setLikes((count) => Math.max(0, count + (next ? 1 : -1)));
-              void (next ? reactToPost(postId) : removeReaction(postId)).catch(() => {
-                setLiked(!next);
-                setLikes((count) => Math.max(0, count + (next ? -1 : 1)));
-              });
+              void (next ? reactToPost(postId) : removeReaction(postId))
+                .then((state) => {
+                  setLiked(state.liked);
+                  setLikes(state.reactionsCount);
+                })
+                .catch(() => {
+                  setLiked(!next);
+                  setLikes((count) => Math.max(0, count + (next ? -1 : 1)));
+                });
             }}
           >
             <Ionicons

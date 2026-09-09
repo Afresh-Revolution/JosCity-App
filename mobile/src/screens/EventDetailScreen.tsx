@@ -162,7 +162,7 @@ export default function EventDetailScreen() {
                   value ? (
                     <Pressable
                       key={label}
-                      onPress={() => void copy(value, label)}
+                      onPress={() => void copy(value, label ?? undefined)}
                       style={styles.payRow}
                     >
                       <View style={styles.payCopy}>

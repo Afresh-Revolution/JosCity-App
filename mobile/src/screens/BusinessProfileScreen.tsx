@@ -456,7 +456,7 @@ export default function BusinessProfileScreen() {
                   size={18}
                 />
               </View>
-              <Text style={styles.handle}>{profile?.handle}</Text>
+              <Text style={styles.handle}>{profile?.email || profile?.handle}</Text>
               <Text style={styles.category}>{profile?.category}</Text>
               {profile?.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
               {profile?.location ? (
@@ -586,10 +586,12 @@ export default function BusinessProfileScreen() {
               </View>
             ) : null}
             <View style={styles.actions}>
-              <Pressable onPress={onCall} style={[styles.actionSecondary, styles.actionGrow]}>
-                <Ionicons name="call-outline" size={16} color={colors.text} />
-                <Text style={styles.actionSecondaryText}>{t("business.profileCall")}</Text>
-              </Pressable>
+              {!isActualOwner ? (
+                <Pressable onPress={onCall} style={[styles.actionSecondary, styles.actionGrow]}>
+                  <Ionicons name="call-outline" size={16} color={colors.text} />
+                  <Text style={styles.actionSecondaryText}>{t("business.profileCall")}</Text>
+                </Pressable>
+              ) : null}
               <Pressable onPress={onShare} style={[styles.actionSecondary, styles.actionGrow]}>
                 <Ionicons name="share-outline" size={16} color={colors.text} />
                 <Text style={styles.actionSecondaryText}>{t("business.profileShare")}</Text>
@@ -856,6 +858,8 @@ function pageFromUser(
       picture,
       cover: String(user.user_cover || "").trim() || picture,
       phone: String(user.business_phone || user.user_phone || "").trim() || null,
+      email:
+        String(user.business_email || user.user_email || user.email || "").trim() || null,
       verified: Boolean(user.is_verified || user.user_verified),
       has_cac: Boolean(String(user.cac_number || user.CAC_number || "").trim()),
       cac_verified: Boolean(user.cac_verified),

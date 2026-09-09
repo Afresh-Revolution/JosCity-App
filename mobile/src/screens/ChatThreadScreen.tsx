@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
+  AppState,
   KeyboardAvoidingView,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -53,6 +56,7 @@ export default function ChatThreadScreen() {
   const [online, setOnline] = useState<boolean | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -62,30 +66,66 @@ export default function ChatThreadScreen() {
     userId?: number;
   } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const inputRef = useRef<TextInput>(null);
 
-  const load = useCallback(async (userId: number) => {
-    if (!conversationId) return;
-    const result = await getConversation(conversationId, userId);
-    if (result.conversation) {
-      setName((current) => result.conversation?.otherUsername || result.conversation?.conversationName || current);
-      if (result.conversation.otherAvatar) setAvatar(result.conversation.otherAvatar);
-      if (result.conversation.otherUserId) setOtherUserId(result.conversation.otherUserId);
-    }
-    setMessages(result.messages);
-    void markConversationRead(conversationId);
-  }, [conversationId]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!allowed || !conversationId) return;
+      let cancelled = false;
+      let inFlight = false;
+      setLoading(true);
+      const refresh = async () => {
+        if (cancelled || inFlight || AppState.currentState !== "active") return;
+        inFlight = true;
+        try {
+          const user = await getUser();
+          const userId = Number(user?.user_id || 0);
+          if (!userId || cancelled) return;
+          const result = await getConversation(conversationId, userId);
+          if (cancelled || AppState.currentState !== "active") return;
+          setMyId(userId);
+          if (result.conversation) {
+            setName((current) => result.conversation?.otherUsername || result.conversation?.conversationName || current);
+            if (result.conversation.otherAvatar) setAvatar(result.conversation.otherAvatar);
+            if (result.conversation.otherUserId) setOtherUserId(result.conversation.otherUserId);
+          }
+          setMessages((current) => {
+            const merged = new Map(current.map((message) => [message.messageId, message]));
+            for (const message of result.messages) {
+              const previous = merged.get(message.messageId);
+              merged.set(message.messageId, { ...message, seen: message.seen || previous?.seen });
+            }
+            return [...merged.values()].sort((a, b) => a.messageId - b.messageId);
+          });
+          // Wait for the loaded conversation to render before acknowledging it.
+          requestAnimationFrame(() => {
+            if (!cancelled && AppState.currentState === "active") {
+              void markConversationRead(conversationId);
+            }
+          });
+        } catch {
+          // Keep the current thread during temporary connection failures.
+        } finally {
+          inFlight = false;
+          if (!cancelled) setLoading(false);
+        }
+      };
+      void refresh();
+      const stop = startForegroundInterval(() => void refresh(), 5000);
+      const subscription = AppState.addEventListener("change", (state) => {
+        if (state === "active") void refresh();
+      });
+      return () => {
+        cancelled = true;
+        stop();
+        subscription.remove();
+      };
+    }, [allowed, conversationId])
+  );
 
   useEffect(() => {
-    if (!allowed || !conversationId) return;
-    setLoading(true);
-    void (async () => {
-      const user = await getUser();
-      const userId = Number(user?.user_id || 0);
-      setMyId(userId);
-      await load(userId);
-      setLoading(false);
-    })();
-  }, [allowed, conversationId, load]);
+    setMessages([]);
+  }, [conversationId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -133,29 +173,37 @@ export default function ChatThreadScreen() {
   const onSend = useCallback(async () => {
     const text = draft.trim();
     if (!text || !conversationId || sending) return;
+    const selectedReply = replyTo;
     setSending(true);
     setDraft("");
+    setReplyTo(null);
     setSendError(null);
     try {
-      const result = await sendChatMessage(conversationId, text);
+      const result = await sendChatMessage(conversationId, text, selectedReply?.messageId);
       if (result.message) {
         setMessages((current) => {
           if (current.some((row) => row.messageId === result.message!.messageId)) return current;
           return [...current, { ...result.message!, senderId: result.message!.senderId || myId }];
         });
-        void markConversationRead(conversationId);
         requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
       } else {
         setDraft(text);
+        setReplyTo(selectedReply);
         setSendError(result.error || t("messages.sendFailed"));
       }
     } catch {
       setDraft(text);
+      setReplyTo(selectedReply);
       setSendError(t("messages.sendFailed"));
     } finally {
       setSending(false);
     }
-  }, [conversationId, draft, sending, myId, t]);
+  }, [conversationId, draft, sending, myId, replyTo, t]);
+
+  const selectReply = useCallback((message: ChatMessage) => {
+    setReplyTo(message);
+    setTimeout(() => inputRef.current?.focus(), 120);
+  }, []);
 
   const canSend = Boolean(draft.trim()) && !sending;
 
@@ -219,7 +267,7 @@ export default function ChatThreadScreen() {
 
       <KeyboardAvoidingView
         style={styles.body}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={8}
       >
         {loading ? (
@@ -230,6 +278,8 @@ export default function ChatThreadScreen() {
           <ScrollView
             ref={scrollRef}
             contentContainerStyle={styles.thread}
+            directionalLockEnabled
+            canCancelContentTouches
             onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
           >
             {rows.length === 0 ? (
@@ -238,29 +288,23 @@ export default function ChatThreadScreen() {
               rows.map((item) => {
                 const mine = myId > 0 && item.senderId === myId;
                 return (
-                  <View
+                  <SwipeReplyMessage
                     key={item.messageId}
-                    style={[styles.bubbleWrap, mine ? styles.bubbleWrapMine : styles.bubbleWrapTheirs]}
-                  >
-                    <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
-                      <Text
-                        style={[styles.bubbleText, mine && styles.bubbleTextMine]}
-                        onLongPress={
-                          mine
-                            ? undefined
-                            : () =>
-                                setReport({
-                                  type: "message",
-                                  id: item.messageId,
-                                  userId: item.senderId,
-                                })
-                        }
-                      >
-                        {item.messageContent}
-                      </Text>
-                    </View>
-                    <Text style={styles.stamp}>{timeAgo(item.createdAt)}</Text>
-                  </View>
+                    item={item}
+                    mine={mine}
+                    myId={myId}
+                    peerName={name}
+                    colors={colors}
+                    styles={styles}
+                    onReply={selectReply}
+                    onReport={() =>
+                      setReport({
+                        type: "message",
+                        id: item.messageId,
+                        userId: item.senderId,
+                      })
+                    }
+                  />
                 );
               })
             )}
@@ -273,8 +317,29 @@ export default function ChatThreadScreen() {
               <ErrorBanner message={sendError} />
             </View>
           ) : null}
+          {replyTo ? (
+            <View style={styles.replyPreview}>
+              <View style={styles.replyPreviewCopy}>
+                <Text style={styles.replyPreviewName}>
+                  {replyTo.senderId === myId ? "You" : name}
+                </Text>
+                <Text style={styles.replyPreviewText} numberOfLines={1}>
+                  {replyTo.messageContent}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setReplyTo(null)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel reply"
+              >
+                <Ionicons name="close-circle" size={22} color={colors.textMuted} />
+              </Pressable>
+            </View>
+          ) : null}
           <View style={styles.composerRow}>
           <TextInput
+            ref={inputRef}
             value={draft}
             onChangeText={(value) => {
               setDraft(value);
@@ -304,6 +369,127 @@ export default function ChatThreadScreen() {
         contentId={report?.id}
         reportedUserId={report?.userId || otherUserId || null}
       />
+    </View>
+  );
+}
+
+function SwipeReplyMessage({
+  item,
+  mine,
+  myId,
+  peerName,
+  colors,
+  styles,
+  onReply,
+  onReport,
+}: {
+  item: ChatMessage;
+  mine: boolean;
+  myId: number;
+  peerName: string;
+  colors: Palette;
+  styles: ReturnType<typeof makeStyles>;
+  onReply: (message: ChatMessage) => void;
+  onReport: () => void;
+}) {
+  const { t } = useI18n();
+  const translateX = useRef(new Animated.Value(0)).current;
+  const replyActionOpacity = translateX.interpolate({
+    inputRange: [0, 15, 30],
+    outputRange: [0, 0.45, 1],
+    extrapolate: "clamp",
+  });
+  const replyActionScale = translateX.interpolate({
+    inputRange: [0, 30],
+    outputRange: [0.65, 1],
+    extrapolate: "clamp",
+  });
+  const resetPosition = useCallback(() => {
+    Animated.spring(translateX, {
+      toValue: 0,
+      useNativeDriver: true,
+      speed: 24,
+      bounciness: 5,
+    }).start();
+  }, [translateX]);
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          gesture.dx > 3 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1,
+        onMoveShouldSetPanResponderCapture: (_event, gesture) =>
+          gesture.dx > 3 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1,
+        onPanResponderGrant: () => {
+          translateX.stopAnimation();
+        },
+        onPanResponderMove: (_event, gesture) => {
+          translateX.setValue(Math.min(Math.max(gesture.dx, 0), 52));
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          if (gesture.dx >= 30) onReply(item);
+          resetPosition();
+        },
+        onPanResponderTerminate: resetPosition,
+      }),
+    [item, onReply, resetPosition, translateX]
+  );
+  const quotedSender =
+    item.replyToSenderId === myId
+      ? "You"
+      : item.replyToSenderUsername || peerName;
+
+  return (
+    <View style={mine ? styles.swipeMine : styles.swipeTheirs}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.swipeReplyAction,
+          {
+            opacity: replyActionOpacity,
+            transform: [{ scale: replyActionScale }],
+          },
+        ]}
+      >
+        <Ionicons name="arrow-undo" size={21} color={colors.primary} />
+      </Animated.View>
+      <Animated.View
+        {...panResponder.panHandlers}
+        style={{ transform: [{ translateX }] }}
+      >
+        <View style={[styles.bubbleWrap, mine ? styles.bubbleWrapMine : styles.bubbleWrapTheirs]}>
+        <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
+          {item.replyToId && item.replyToContent ? (
+            <View
+              style={[
+                styles.quotedMessage,
+                mine ? styles.quotedMessageMine : styles.quotedMessageTheirs,
+              ]}
+            >
+              <Text
+                style={[styles.quotedSender, mine && styles.quotedSenderMine]}
+                numberOfLines={1}
+              >
+                {quotedSender}
+              </Text>
+              <Text
+                style={[styles.quotedText, mine && styles.quotedTextMine]}
+                numberOfLines={2}
+              >
+                {item.replyToContent}
+              </Text>
+            </View>
+          ) : null}
+          <Text
+            style={[styles.bubbleText, mine && styles.bubbleTextMine]}
+            onLongPress={mine ? undefined : onReport}
+          >
+            {item.messageContent}
+          </Text>
+        </View>
+        <Text style={styles.stamp}>{timeAgo(item.createdAt)}</Text>
+        {mine && item.seen ? <Text style={styles.stamp}>{t("messages.seen")}</Text> : null}
+        </View>
+      </Animated.View>
     </View>
   );
 }
@@ -378,7 +564,7 @@ function makeStyles(colors: Palette) {
     color: colors.textMuted,
   },
   bubbleWrap: {
-    maxWidth: "82%",
+    maxWidth: "100%",
   },
   bubbleWrapMine: {
     alignSelf: "flex-end",
@@ -387,6 +573,25 @@ function makeStyles(colors: Palette) {
   bubbleWrapTheirs: {
     alignSelf: "flex-start",
     alignItems: "flex-start",
+  },
+  swipeMine: {
+    alignSelf: "flex-end",
+    maxWidth: "82%",
+    overflow: "visible",
+  },
+  swipeTheirs: {
+    alignSelf: "flex-start",
+    maxWidth: "82%",
+    overflow: "visible",
+  },
+  swipeReplyAction: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 52,
+    alignItems: "center",
+    justifyContent: "center",
   },
   bubble: {
     borderRadius: 16,
@@ -410,6 +615,39 @@ function makeStyles(colors: Palette) {
   bubbleTextMine: {
     color: colors.white,
   },
+  quotedMessage: {
+    marginBottom: 6,
+    borderLeftWidth: 3,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  quotedMessageMine: {
+    borderLeftColor: colors.white,
+    backgroundColor: "rgba(255,255,255,0.14)",
+  },
+  quotedMessageTheirs: {
+    borderLeftColor: colors.primary,
+    backgroundColor: colors.background,
+  },
+  quotedSender: {
+    fontFamily: "Montserrat_600SemiBold",
+    fontSize: 11,
+    color: colors.primary,
+  },
+  quotedSenderMine: {
+    color: colors.white,
+  },
+  quotedText: {
+    marginTop: 2,
+    fontFamily: "Montserrat_400Regular",
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.textMuted,
+  },
+  quotedTextMine: {
+    color: "rgba(255,255,255,0.84)",
+  },
   stamp: {
     marginTop: 4,
     fontFamily: "Montserrat_400Regular",
@@ -425,6 +663,34 @@ function makeStyles(colors: Palette) {
   },
   sendError: {
     marginBottom: 4,
+  },
+  replyPreview: {
+    minHeight: 52,
+    marginBottom: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+    borderRadius: 10,
+    backgroundColor: colors.sheet,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  replyPreviewCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  replyPreviewName: {
+    fontFamily: "Montserrat_600SemiBold",
+    fontSize: 12,
+    color: colors.primary,
+  },
+  replyPreviewText: {
+    marginTop: 2,
+    fontFamily: "Montserrat_400Regular",
+    fontSize: 12,
+    color: colors.textMuted,
   },
   composerRow: {
     flexDirection: "row",

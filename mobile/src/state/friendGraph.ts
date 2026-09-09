@@ -78,7 +78,7 @@ export function patchFriendStatus(
       delete next.receivedRequestIdByUser[userId];
       if (!next.myFriendIds.includes(userId)) next.myFriendIds.push(userId);
     }
-    if (status === "none" || status === "friends") {
+    if (status === "friends") {
       delete next.sentRequestIdByUser[userId];
     }
   }

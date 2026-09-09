@@ -2,7 +2,7 @@ import { Alert, AppState, Linking, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
+import type { NotificationPermissionsStatus } from "expo-notifications";
 import {
   clearNotificationFocus,
   registerPushToken,
@@ -11,6 +11,10 @@ import {
 } from "../api/notifications";
 import { getAuthToken } from "../storage/session";
 import { isPushFocused } from "./pushFocus";
+import {
+  getNotificationsModule,
+  type NotificationsModule,
+} from "../utils/optionalNativeModules";
 
 const STORED_TOKEN_KEY = "joscity.expoPushToken";
 const INSTALL_ID_KEY = "joscity.installationId";
@@ -98,9 +102,11 @@ export async function getInstallationId(): Promise<string> {
   }
 }
 
-export function configurePushNotifications(): void {
+export async function configurePushNotifications(): Promise<void> {
   if (configured || Platform.OS === "web") return;
   configured = true;
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return;
   Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
       const data = notification.request.content.data as {
@@ -131,6 +137,8 @@ export function configurePushNotifications(): void {
 
 async function ensureAndroidChannels(): Promise<void> {
   if (Platform.OS !== "android") return;
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return;
   const soundAndVibrate = {
     vibrationPattern: [0, 250, 250, 250] as number[],
     lightColor: "#0F3D26",
@@ -143,11 +151,7 @@ async function ensureAndroidChannels(): Promise<void> {
       contentType: Notifications.AndroidAudioContentType.SONIFICATION,
     },
   };
-  const channels: Array<{
-    id: string;
-    name: string;
-    importance: Notifications.AndroidImportance;
-  }> = [
+  const channels = [
     { id: "messages", name: "Messages", importance: Notifications.AndroidImportance.HIGH },
     { id: "notifications", name: "Notifications", importance: Notifications.AndroidImportance.HIGH },
     { id: "rides", name: "Rides", importance: Notifications.AndroidImportance.MAX },
@@ -170,7 +174,10 @@ async function ensureAndroidChannels(): Promise<void> {
   }
 }
 
-function isGranted(status: Notifications.NotificationPermissionsStatus): boolean {
+function isGranted(
+  status: NotificationPermissionsStatus,
+  Notifications: NotificationsModule
+): boolean {
   return (
     status.granted ||
     status.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
@@ -193,7 +200,9 @@ async function markPermissionAsked(): Promise<void> {
   }
 }
 
-function explainThenRequest(): Promise<boolean> {
+async function explainThenRequest(): Promise<boolean> {
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return false;
   return new Promise((resolve) => {
     Alert.alert(
       "Stay up to date",
@@ -214,7 +223,7 @@ function explainThenRequest(): Promise<boolean> {
             const next = await Notifications.requestPermissionsAsync({
               ios: { allowAlert: true, allowBadge: true, allowSound: true },
             });
-            resolve(isGranted(next));
+            resolve(isGranted(next, Notifications));
           },
         },
       ]
@@ -228,10 +237,12 @@ function explainThenRequest(): Promise<boolean> {
  */
 export async function requestPushPermissionOnLaunch(): Promise<boolean> {
   if (Platform.OS === "web") return false;
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return false;
   await ensureAndroidChannels();
 
   const current = await Notifications.getPermissionsAsync();
-  if (isGranted(current)) return true;
+  if (isGranted(current, Notifications)) return true;
 
   const canAsk = current.canAskAgain !== false;
   if (!canAsk || current.status === "denied") {
@@ -252,12 +263,16 @@ export async function openSystemNotificationSettings(): Promise<void> {
 
 export async function getNotificationPermissionGranted(): Promise<boolean> {
   if (Platform.OS === "web") return false;
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return false;
   const current = await Notifications.getPermissionsAsync();
-  return isGranted(current);
+  return isGranted(current, Notifications);
 }
 
 async function getExpoPushToken(): Promise<string | null> {
   if (!Device.isDevice) return null;
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return null;
   const projectId = easProjectId();
   try {
     const result = await Notifications.getExpoPushTokenAsync(
@@ -291,8 +306,10 @@ async function syncTokenWithApi(token: string): Promise<void> {
   });
 }
 
-function listenForTokenChanges(): void {
+async function listenForTokenChanges(): Promise<void> {
   if (tokenListener || Platform.OS === "web") return;
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return;
   tokenListener = Notifications.addPushTokenListener((event) => {
     const token = String(event.data || "").trim();
     if (!token) return;
@@ -306,8 +323,8 @@ export async function bootstrapPushNotifications(): Promise<void> {
   if (bootstrapPromise) return bootstrapPromise;
 
   bootstrapPromise = (async () => {
-    configurePushNotifications();
-    listenForTokenChanges();
+    await configurePushNotifications();
+    await listenForTokenChanges();
     const granted = await requestPushPermissionOnLaunch();
     if (!granted) return;
     const token = await getExpoPushToken();
@@ -320,8 +337,8 @@ export async function bootstrapPushNotifications(): Promise<void> {
 export async function registerPushTokenAfterLogin(): Promise<void> {
   if (Platform.OS === "web") return;
   try {
-    configurePushNotifications();
-    listenForTokenChanges();
+    await configurePushNotifications();
+    await listenForTokenChanges();
     const granted = await requestPushPermissionOnLaunch();
     if (!granted) return;
     const token = (await getExpoPushToken()) || (await storedPushToken());

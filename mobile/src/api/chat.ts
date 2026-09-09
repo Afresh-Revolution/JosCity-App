@@ -22,6 +22,11 @@ export type ChatMessage = {
   username?: string;
   messageContent: string;
   createdAt: string;
+  seen?: boolean;
+  replyToId?: number;
+  replyToContent?: string;
+  replyToSenderId?: number;
+  replyToSenderUsername?: string;
 };
 
 export type ChatFriendContact = {
@@ -33,6 +38,7 @@ export type ChatFriendContact = {
 };
 
 export type MessageRequest = {
+  businessUserId?: number;
   requestId: number;
   displayName: string;
   picture?: string | null;
@@ -144,6 +150,14 @@ function normalizeMessage(value: unknown, conversationId?: number): ChatMessage 
     username: pickString(record.username, record.sender_username),
     messageContent: pickString(record.message_content, record.messageContent, record.content) || "",
     createdAt: pickString(record.created_at, record.createdAt) || new Date().toISOString(),
+    seen: record.seen === true || record.seen === 1 || record.seen === "1",
+    replyToId: pickNumber(record.reply_to_id, record.replyToId),
+    replyToContent: pickString(record.reply_to_content, record.replyToContent),
+    replyToSenderId: pickNumber(record.reply_to_sender_id, record.replyToSenderId),
+    replyToSenderUsername: pickString(
+      record.reply_to_sender_username,
+      record.replyToSenderUsername
+    ),
   };
 }
 
@@ -173,6 +187,7 @@ function normalizeRequest(value: unknown): MessageRequest | null {
   if (!requestId) return null;
   return {
     requestId,
+    businessUserId: pickNumber(record.business_user_id, record.businessUserId),
     displayName: pickString(record.display_name, record.displayName, record.username) || "Member",
     picture: pickString(record.user_picture, record.picture, record.profile_picture) || null,
     status: pickString(record.status) || "pending",
@@ -232,6 +247,7 @@ export async function getConversation(
     participants?: unknown[];
     messages?: unknown[];
   }>(response);
+  if (!response.ok) throw new Error("Could not load conversation.");
   const conversation = normalizeConversation(data.conversation);
   if (conversation && viewerId) {
     const other = (data.participants || [])
@@ -252,18 +268,34 @@ export async function getConversation(
       .filter(Boolean) as ChatMessage[],
     (row) => row.messageId
   );
+  // A direct recipient's read cursor is authoritative; the viewer's cursor is not.
+  if (viewerId && conversation?.conversationType === "direct") {
+    const peer = (data.participants || []).map(toRecord).find((row) => {
+      const id = pickNumber(row.user_id, row.userId);
+      return id && id !== viewerId;
+    });
+    const lastReadId = pickNumber(peer?.last_read_message_id, peer?.lastReadMessageId);
+    if (lastReadId !== undefined) {
+      for (const message of messages) {
+        if (message.senderId === viewerId && message.messageId <= lastReadId) {
+          message.seen = true;
+        }
+      }
+    }
+  }
   return { conversation, messages };
 }
 
 export async function sendChatMessage(
   conversationId: number,
-  messageContent: string
+  messageContent: string,
+  replyToId?: number
 ): Promise<{ message: ChatMessage | null; error?: string }> {
   const response = await apiFetch(`/chat/conversations/${conversationId}/messages`, {
     method: "POST",
     auth: true,
     timeoutMs: 20000,
-    body: JSON.stringify({ messageContent }),
+    body: JSON.stringify({ messageContent, replyToId: replyToId || null }),
   });
   const data = await readJson<{ message?: unknown; data?: unknown }>(response);
   if (!response.ok) {

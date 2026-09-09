@@ -1,9 +1,9 @@
 import { AppState, Platform } from "react-native";
-import * as Notifications from "expo-notifications";
 import { getNotifications } from "../api/notifications";
 import { showNotice } from "../components/AppNotice";
 import i18n from "../i18n/i18n";
 import { getAuthToken } from "../storage/session";
+import { getNotificationsModule } from "../utils/optionalNativeModules";
 
 const shown = new Set<string>();
 const FRESH_MS = 10 * 60 * 1000;
@@ -55,14 +55,17 @@ export function startScheduledPostNoticeWatcher(): () => void {
 
   let pushSub: { remove: () => void } | null = null;
   if (Platform.OS !== "web") {
-    pushSub = Notifications.addNotificationReceivedListener((notification) => {
-      const data = notification.request.content.data as {
-        kind?: string;
-        postId?: number | string;
-      } | undefined;
-      if (data?.kind !== "scheduled_post_published") return;
-      const postId = Number(data.postId || 0);
-      announcePostMade(postId > 0 ? keyForPostId(postId) : notification.request.identifier);
+    void getNotificationsModule().then((Notifications) => {
+      if (cancelled || !Notifications) return;
+      pushSub = Notifications.addNotificationReceivedListener((notification) => {
+        const data = notification.request.content.data as {
+          kind?: string;
+          postId?: number | string;
+        } | undefined;
+        if (data?.kind !== "scheduled_post_published") return;
+        const postId = Number(data.postId || 0);
+        announcePostMade(postId > 0 ? keyForPostId(postId) : notification.request.identifier);
+      });
     });
   }
 
