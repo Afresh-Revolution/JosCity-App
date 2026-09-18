@@ -12,6 +12,7 @@ import JosCityLoader from "../components/JosCityLoader";
 import type { ComponentProps } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import AgentQuickActions from "../components/agents/AgentQuickActions";
 import FadeIn from "../components/FadeIn";
 import EventCard from "../components/explore/EventCard";
 import ExploreHeader from "../components/explore/ExploreHeader";
@@ -316,6 +317,8 @@ export default function ExploreScreen() {
               ))}
             </View>
           </FadeIn>
+
+          <AgentQuickActions />
 
             <FadeIn delay={130}>
               <View style={styles.section}>

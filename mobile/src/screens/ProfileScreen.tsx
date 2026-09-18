@@ -13,6 +13,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import SwitchAccountSheet from "../components/SwitchAccountSheet";
 import BusinessAccountSheet from "../components/BusinessAccountSheet";
 import SignOutSheet from "../components/SignOutSheet";
 import FadeIn from "../components/FadeIn";
@@ -151,6 +152,7 @@ export default function ProfileScreen() {
   const [signingOut, setSigningOut] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [switchingAccount, setSwitchingAccount] = useState(false);
+  const [switchChooserOpen, setSwitchChooserOpen] = useState(false);
   const [businessSheetOpen, setBusinessSheetOpen] = useState(false);
   const [linkedSession, setLinkedSession] = useState<StoredSession | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -352,13 +354,9 @@ export default function ProfileScreen() {
     : linkedSession && linkedIsBusiness
       ? linkedSession
       : null;
-  const switchTitle = isBusiness ? t("profile.personalAccount") : t("profile.businessAccount");
-  const switchSubtitle = switchTarget
-    ? displayNameFor(switchTarget.user)
-    : isBusiness
-      ? ""
-      : t("profile.businessAccountSub");
-  const showSwitchRow = !isBusiness || Boolean(switchTarget);
+  const switchTitle = "Switch account";
+  const switchSubtitle = isBusiness ? "Personal or Agent" : "Business or Agent";
+  const showSwitchRow = true;
 
   const applySwitchedSession = useCallback(
     async (session: StoredSession) => {
@@ -375,7 +373,7 @@ export default function ProfileScreen() {
 
   const switchAccount = useCallback(async () => {
     if (switchingAccount) return;
-    if (!isBusiness && !switchTarget) {
+    if (!switchTarget) {
       setBusinessSheetOpen(true);
       return;
     }
@@ -390,11 +388,7 @@ export default function ProfileScreen() {
       if (!probe.success) {
         await clearLinkedSession();
         setLinkedSession(null);
-        if (!isBusiness) {
-          setBusinessSheetOpen(true);
-          return;
-        }
-        Alert.alert(switchTitle, t("profile.businessSwitchFailed"));
+        setBusinessSheetOpen(true);
         return;
       }
       await applySwitchedSession({
@@ -825,7 +819,7 @@ export default function ProfileScreen() {
             <View style={styles.switchBlock}>
               {showSwitchRow ? (
                 <Pressable
-                  onPress={() => void switchAccount()}
+                  onPress={() => setSwitchChooserOpen(true)}
                   disabled={switchingAccount}
                   style={({ pressed }) => [
                     styles.row,
@@ -867,7 +861,13 @@ export default function ProfileScreen() {
         </ScrollView>
       )}
     </FeedShell>
+      <SwitchAccountSheet visible={switchChooserOpen} current={isBusiness ? "business" : "personal"} onClose={() => setSwitchChooserOpen(false)} onSelect={(type) => {
+        setSwitchChooserOpen(false);
+        if (type === "agent") router.push("/agents" as never);
+        else void switchAccount();
+      }} />
       <BusinessAccountSheet
+        mode={isBusiness ? "personal" : "business"}
         visible={businessSheetOpen}
         initialEmail={accountEmail(user)}
         onClose={() => setBusinessSheetOpen(false)}

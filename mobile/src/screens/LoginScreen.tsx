@@ -26,14 +26,13 @@ import {
   resetPasswordWithOtp,
   verifyPasswordResetOtp,
 } from "../api/auth";
-import AccountTypeToggle from "../components/AccountTypeToggle";
+import AccountTypeToggle, { type LoginAccountType } from "../components/AccountTypeToggle";
 import { LEGAL, openExternalUrl } from "../constants/legal";
 import { registerPushTokenAfterLogin } from "../push/pushNotifications";
 import {
   isBusinessAccountType,
   isPersonalAccountType,
   saveSession,
-  type AccountType,
 } from "../storage/session";
 import { colors } from "../theme/colors";
 import { friendlyError } from "../utils/errors";
@@ -44,8 +43,8 @@ export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const incomingEmail = Array.isArray(params.email) ? params.email[0] : params.email;
   const incomingType = Array.isArray(params.type) ? params.type[0] : params.type;
-  const [accountType, setAccountType] = useState<AccountType>(
-    incomingType === "business" ? "business" : "personal"
+  const [accountType, setAccountType] = useState<LoginAccountType>(
+    incomingType === "agent" ? "agent" : incomingType === "business" ? "business" : "personal"
   );
   const [email, setEmail] = useState(incomingEmail ?? "");
   const [password, setPassword] = useState("");
@@ -70,10 +69,15 @@ export default function LoginScreen() {
   }, [incomingEmail]);
 
   useEffect(() => {
-    if (incomingType === "business") setAccountType("business");
+    if (incomingType === "business" || incomingType === "personal" || incomingType === "agent") setAccountType(incomingType);
   }, [incomingType]);
 
   useEffect(() => {
+    if (accountType === "agent") {
+      setActivationRequired(false);
+      setTwoFactorRequired(false);
+      return;
+    }
     const normalized = email.toLowerCase().trim();
     if (!normalized.includes("@")) {
       setActivationRequired(false);
@@ -90,6 +94,7 @@ export default function LoginScreen() {
   }, [accountType, email]);
 
   const onLogin = async () => {
+    if (accountType === "agent") { router.push("/agents" as never); return; }
     setError(null);
     setMessage(null);
     if (!email.trim() || !password.trim()) {
@@ -155,6 +160,7 @@ export default function LoginScreen() {
   };
 
   const onForgot = async () => {
+    if (accountType === "agent") return;
     setError(null);
     setMessage(null);
     setForgotLoading(true);
@@ -201,6 +207,7 @@ export default function LoginScreen() {
   };
 
   const onResendActivation = async () => {
+    if (accountType === "agent") return;
     setError(null);
     setMessage(null);
     const normalized = email.toLowerCase().trim();
@@ -254,7 +261,17 @@ export default function LoginScreen() {
             <Text style={styles.title}>Welcome back</Text>
             <Text style={styles.subtitle}>Log in to continue with JOSCITY.</Text>
             <View style={styles.toggle}>
-              <AccountTypeToggle value={accountType} onChange={setAccountType} />
+              <AccountTypeToggle value={accountType} onChange={(value) => {
+                setAccountType(value);
+                setError(null);
+                setMessage(null);
+                setActivationRequired(false);
+                setTwoFactorRequired(false);
+                setActivationCode("");
+                setTwoFactorCode("");
+                setForgot(false);
+              }} />
+              {accountType === "agent" && <Text style={styles.subtitle}>Agent login is coming soon. Explore the dashboard preview; your credentials will not be submitted.</Text>}
             </View>
           </FadeIn>
 
@@ -381,6 +398,7 @@ export default function LoginScreen() {
                   )}
                   <Pressable
                     onPress={() => {
+                      if (accountType === "agent") { setMessage("Agent password recovery is coming soon."); return; }
                       setForgot(true);
                       setForgotEmail(email);
                       setForgotStep("email");
@@ -395,7 +413,7 @@ export default function LoginScreen() {
                 {error ? <ErrorBanner message={error} /> : null}
                 {message ? <Text style={styles.success}>{message}</Text> : null}
                 <AppButton
-                  label="Log in"
+                  label={accountType === "agent" ? "Preview agent dashboard" : "Log in"}
                   onPress={() => void onLogin()}
                   loading={loading}
                 />

@@ -1,6 +1,6 @@
 import "react-native-gesture-handler";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Keyboard, Platform, Text, View } from "react-native";
+import { AppState, Keyboard, Platform, Text, View } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -33,6 +33,7 @@ import { I18nProvider } from "../src/i18n/I18nProvider";
 import { NoticeHost } from "../src/components/AppNotice";
 import RatingPromptHost from "../src/components/RatingPromptHost";
 import { startScheduledPostNoticeWatcher } from "../src/state/scheduledPostNotice";
+import { startForegroundInterval } from "../src/utils/foregroundInterval";
 import { getNotificationsModule } from "../src/utils/optionalNativeModules";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
@@ -73,7 +74,14 @@ export default function RootLayout() {
     const timer = setTimeout(() => {
       void bootstrapPushNotifications();
     }, 600);
-    return () => clearTimeout(timer);
+    const resumed = AppState.addEventListener("change", state => {
+      if (state === "active") void bootstrapPushNotifications();
+    });
+    const unsubscribe = subscribeNetworkOnline(online => {
+      if (online && AppState.currentState === "active") void bootstrapPushNotifications();
+    });
+    const stopRetry = startForegroundInterval(() => void bootstrapPushNotifications(), 60000);
+    return () => { clearTimeout(timer); resumed.remove(); unsubscribe(); stopRetry(); };
   }, [fontsLoaded]);
 
   useEffect(() => {

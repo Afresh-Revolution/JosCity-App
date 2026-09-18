@@ -1,9 +1,10 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useRouter, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import BusinessTabBar, { type BusinessTab } from "../business/BusinessTabBar";
+import AgentTabBar from "../agents/AgentTabBar";
 import FeedHeader from "./FeedHeader";
 import FeedTabBar, { type FeedTab } from "./FeedTabBar";
 import { getChatUnreadCount } from "../../api/chat";
@@ -47,6 +48,7 @@ export default function FeedShell({
 }: Props) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const agentFeed = usePathname().startsWith("/agents/");
   const { colors, scheme } = useTheme();
   const { t } = useI18n();
   const [mode, setMode] = useState<"unknown" | "personal" | "business">("unknown");
@@ -91,6 +93,7 @@ export default function FeedShell({
   );
 
   const pingUnread = useCallback(async () => {
+    if (agentFeed) return;
     try {
       const next = await getChatUnreadCount();
       const previous = prevUnread.current;
@@ -106,7 +109,7 @@ export default function FeedShell({
     } catch {
       // Badge polling must not crash the feed.
     }
-  }, [t, tab]);
+  }, [t, tab, agentFeed]);
 
   useFocusEffect(
     useCallback(() => {
@@ -146,16 +149,16 @@ export default function FeedShell({
         <View style={{ paddingTop: insets.top, backgroundColor: colors.background }}>
           {header ?? (
             <FeedHeader
-              unreadCount={unreadCount}
+              unreadCount={agentFeed ? 0 : unreadCount}
               searchActive={searchActive}
               onSearch={onSearch}
-              onNotifications={() => router.push("/notifications")}
+              onNotifications={() => router.push((agentFeed ? "/agents/notifications" : "/notifications") as never)}
             />
           )}
         </View>
       )}
       <View style={styles.body}>{children}</View>
-      {showTabBar && mode !== "unknown" ? (
+      {showTabBar && agentFeed ? <AgentTabBar active="feed" /> : showTabBar && mode !== "unknown" ? (
         mode === "business" ? (
           <BusinessTabBar active={toBusinessTab(tab)} messageUnread={chatUnread} />
         ) : (

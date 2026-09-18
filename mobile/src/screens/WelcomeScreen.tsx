@@ -120,6 +120,7 @@ export default function WelcomeScreen() {
           setSheetOpen(false);
           router.push("/register/personal");
         }}
+        onAgent={() => { setSheetOpen(false); router.push("/register/agent" as never); }}
         onBusiness={() => {
           setSheetOpen(false);
           router.push("/register/business");

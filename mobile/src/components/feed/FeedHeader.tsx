@@ -9,6 +9,7 @@ type Props = {
   unreadCount?: number;
   searchActive?: boolean;
   onSearch?: () => void;
+  showSearch?: boolean;
   onNotifications?: () => void;
 };
 
@@ -18,6 +19,7 @@ export default function FeedHeader({
   unreadCount = 0,
   searchActive = false,
   onSearch,
+  showSearch = true,
   onNotifications,
 }: Props) {
   const { colors } = useTheme();
@@ -33,7 +35,7 @@ export default function FeedHeader({
           <Text style={styles.title}>JOSCITY</Text>
         </View>
         <View style={styles.actions}>
-          <Pressable
+          {showSearch && <Pressable
             accessibilityRole="button"
             accessibilityLabel={t("common.search")}
             hitSlop={8}
@@ -45,7 +47,7 @@ export default function FeedHeader({
               size={22}
               color={colors.text}
             />
-          </Pressable>
+          </Pressable>}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t("common.notifications")}

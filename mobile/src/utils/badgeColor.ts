@@ -1,4 +1,5 @@
 /** Matches New_Joscity/utils/badgeColor.js display fallbacks. */
+export const BADGE_AGENT = "#8B5CF6";
 export const BADGE_CAC = "#16A34A";
 export const BADGE_NO_CAC = "#F97316";
 export const BADGE_VERIFIED = "#1D9BF0";
@@ -40,6 +41,6 @@ export function resolveAccountBadgeColor(account?: BadgeAccount | null): string 
 
   const isBusiness = String(account.account_type || "").toLowerCase() === "business";
   if (isBusiness) return account.cac_verified ? BADGE_CAC : BADGE_NO_CAC;
-  if (account.verified || account.user_verified) return BADGE_VERIFIED;
+  if (account.verified || account.user_verified) return ["agent", "agents"].includes(String(account.account_type).toLowerCase()) ? BADGE_AGENT : BADGE_VERIFIED;
   return null;
 }

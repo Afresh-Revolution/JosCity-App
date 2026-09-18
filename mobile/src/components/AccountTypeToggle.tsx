@@ -2,15 +2,17 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { AccountType } from "../storage/session";
 import { colors } from "../theme/colors";
 
+export type LoginAccountType = AccountType | "agent";
+
 type Props = {
-  value: AccountType;
-  onChange: (value: AccountType) => void;
+  value: LoginAccountType;
+  onChange: (value: LoginAccountType) => void;
 };
 
 export default function AccountTypeToggle({ value, onChange }: Props) {
   return (
     <View style={styles.track} accessibilityRole="tablist">
-      {(["personal", "business"] as const).map((option) => {
+      {(["personal", "business", "agent"] as const).map((option) => {
         const active = value === option;
         return (
           <Pressable
@@ -21,7 +23,7 @@ export default function AccountTypeToggle({ value, onChange }: Props) {
             style={[styles.tab, active && styles.tabActive]}
           >
             <Text style={[styles.label, active && styles.labelActive]}>
-              {option === "personal" ? "Personal" : "Business"}
+              {option === "personal" ? "Personal" : option === "business" ? "Business" : "Agent"}
             </Text>
           </Pressable>
         );

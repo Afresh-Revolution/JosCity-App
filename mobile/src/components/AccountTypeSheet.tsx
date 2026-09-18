@@ -17,6 +17,7 @@ type Props = {
   onClose: () => void;
   onPersonal: () => void;
   onBusiness: () => void;
+  onAgent: () => void;
 };
 
 export default function AccountTypeSheet({
@@ -24,6 +25,7 @@ export default function AccountTypeSheet({
   onClose,
   onPersonal,
   onBusiness,
+  onAgent,
 }: Props) {
   const insets = useSafeAreaInsets();
   const overlay = useRef(new Animated.Value(0)).current;
@@ -70,7 +72,7 @@ export default function AccountTypeSheet({
           <View style={styles.handle} />
           <Text style={styles.title}>What are you joining as?</Text>
           <Text style={styles.subtitle}>
-            Personal and business accounts are registered differently on JOSCITY.
+            Choose how you want to be part of JOSCITY.
           </Text>
 
           <Pressable
@@ -103,6 +105,14 @@ export default function AccountTypeSheet({
               <Text style={styles.cardBody}>
                 List your shop, get discovered in Jos, and manage your business on JOSCITY.
               </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={onAgent} style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}>
+            <View style={styles.iconWrap}><Ionicons name="bicycle-outline" size={22} color="#8B5CF6" /></View>
+            <View style={styles.cardCopy}>
+              <Text style={styles.cardTitle}>Agents</Text>
+              <Text style={styles.cardBody}>Help people buy and deliver across the city. Explore the preview.</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </Pressable>

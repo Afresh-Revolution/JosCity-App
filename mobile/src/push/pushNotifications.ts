@@ -104,9 +104,9 @@ export async function getInstallationId(): Promise<string> {
 
 export async function configurePushNotifications(): Promise<void> {
   if (configured || Platform.OS === "web") return;
-  configured = true;
   const Notifications = await getNotificationsModule();
   if (!Notifications) return;
+  configured = true;
   Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
       const data = notification.request.content.data as {
@@ -119,8 +119,8 @@ export async function configurePushNotifications(): Promise<void> {
       const scheduledLive = data?.kind === "scheduled_post_published";
       const inForeground = AppState.currentState === "active";
       const viewingThread =
-        data?.screen === "messages" && isPushFocused("messages", data.entityId);
-      const key = pushDedupeKey(data);
+        inForeground && data?.screen === "messages" && isPushFocused("messages", data.entityId);
+      const key = data?.eventId ? pushDedupeKey(data) : notification.request.identifier;
       const duplicate = wasPresented(key);
       if (!duplicate) markPresented(key);
       const suppressBanner = (scheduledLive && inForeground) || viewingThread || duplicate;
@@ -298,28 +298,28 @@ async function storedPushToken(): Promise<string | null> {
 async function syncTokenWithApi(token: string): Promise<void> {
   if (!(await getAuthToken())) return;
   const installationId = await getInstallationId();
-  await registerPushToken({
+  const registered = await registerPushToken({
     token,
     platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : "unknown",
     installationId,
     appVersion: appVersion(),
   });
+  if (!registered) throw new Error("Push token registration failed");
 }
 
 async function listenForTokenChanges(): Promise<void> {
   if (tokenListener || Platform.OS === "web") return;
   const Notifications = await getNotificationsModule();
   if (!Notifications) return;
-  tokenListener = Notifications.addPushTokenListener((event) => {
-    const token = String(event.data || "").trim();
-    if (!token) return;
-    void AsyncStorage.setItem(STORED_TOKEN_KEY, token);
-    void syncTokenWithApi(token);
+  tokenListener = Notifications.addPushTokenListener(() => {
+    // This event contains an APNs/FCM token, not an Expo push token.
+    // Resolve the Expo token again before registering it with our Expo endpoint.
+    void registerPushTokenAfterLogin();
   });
 }
 
 export async function bootstrapPushNotifications(): Promise<void> {
-  if (Platform.OS === "web") return;
+  if (Platform.OS === "web" || !(await getAuthToken())) return;
   if (bootstrapPromise) return bootstrapPromise;
 
   bootstrapPromise = (async () => {
@@ -329,23 +329,16 @@ export async function bootstrapPushNotifications(): Promise<void> {
     if (!granted) return;
     const token = await getExpoPushToken();
     if (token) await syncTokenWithApi(token);
-  })().catch(() => undefined);
+  })().catch(() => {
+    console.warn("Push registration failed; it will retry when the app resumes or reconnects.");
+  }).finally(() => { bootstrapPromise = null; });
 
   return bootstrapPromise;
 }
 
 export async function registerPushTokenAfterLogin(): Promise<void> {
   if (Platform.OS === "web") return;
-  try {
-    await configurePushNotifications();
-    await listenForTokenChanges();
-    const granted = await requestPushPermissionOnLaunch();
-    if (!granted) return;
-    const token = (await getExpoPushToken()) || (await storedPushToken());
-    if (token) await syncTokenWithApi(token);
-  } catch {
-    // Login should not fail because push registration failed.
-  }
+  await bootstrapPushNotifications();
 }
 
 export async function unregisterPushTokenOnLogout(): Promise<void> {

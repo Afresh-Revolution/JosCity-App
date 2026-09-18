@@ -1,6 +1,7 @@
 import { useMemo, useCallback, useEffect, useState } from "react";
 import {
   Alert,
+  AppState,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -148,6 +149,13 @@ export default function NotificationSettingsScreen() {
     if (!allowed) return;
     void load();
   }, [allowed, load]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", state => {
+      if (state === "active") void getNotificationPermissionGranted().then(setOsGranted);
+    });
+    return () => subscription.remove();
+  }, []);
 
   const onToggle = (key: NotificationPreferenceKey, value: boolean) => {
     const previous = prefs[key];

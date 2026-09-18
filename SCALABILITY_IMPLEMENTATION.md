@@ -1,297 +1,270 @@
-# JOSCity scalability implementation
+# JosRide and JosRide Driver scalability implementation
 
-This report follows `scalability.md`. Work landed in the live API (`../New_Joscity`), the live website (`../JOSCITY`), and the mobile app (`mobile/`). The architecture stays a **modular monolith**. Redis is optional.
+This report covers the passenger app (`JosRide-App/josride_app/`), driver app (`JosRide-App/Driver/`), FastAPI backend (`JCRide-back/`), and Flask website/admin portal (`JCRide-front/`). The recommended architecture remains a **modular monolith** backed by PostgreSQL. Redis and a durable job queue should be added before horizontally scaling the API.
 
-## 1. Existing architecture
+## 1. Current architecture
 
-| Layer | What we found |
+| Layer | Current implementation |
 | --- | --- |
-| Website | React + Vite SPA (`../JOSCITY`), JWT in `localStorage`, polling + Socket.IO for chat |
-| Mobile | Expo/React Native (`mobile/`), already paginated feed (page size 10) and `apiFetch` timeouts |
-| API | Express on Node (`server.js`), JWT auth, Socket.IO, Cloudinary uploads |
-| Data | PostgreSQL via `pg` Pool (not an ORM). Marketplace also has a MySQL debug entry (`src/index.js`) that is not the main process |
-| Payments | Paystack + Safe Haven webhooks; wallet and CAC-edit flows in Postgres |
-| Jobs | In-process `setInterval` for expired stories and scheduled posts |
-| Cache / queues | None before this work. No Bull/BullMQ |
-| Hosting | Process listens on `LISTEN_HOST`/`PORT`; DigitalOcean-style `DATABASE_URL` already in `.env.example` |
-
-This is the right shape for current scale: one API, one Postgres, object storage off-box.
-
-## 2. Scalability problems found
+| Passenger app | Expo/React Native: rides, bike delivery, wallet, tracking, chat, calls, ratings and safety |
+| Driver app | Expo/React Native: onboarding, availability, offers, navigation, location, earnings and withdrawals |
+| Website/admin | Flask passenger web experience, driver portal and operations console |
+| API | FastAPI/Uvicorn REST API with authenticated WebSockets |
+| Data | PostgreSQL/Supabase through `psycopg_pool.ConnectionPool` |
+| Realtime | In-process WebSocket manager for offers, trip state, location, chat, calls and notifications |
+| Payments | Paystack plus an internal wallet ledger |
+| Media | Cloudinary driver-document and media storage |
+| Background work | In-process scheduled-ride reminder/dispatch loop |
 
 ```text
-Problem
-News feed website drained every page until a 3-month cutoff (100 items per request).
-Impact
-Unbounded DB/CPU/network on every home load; first-paint delayed; connection pool exhaustion.
-Severity
-CRITICAL
-Solution implemented
-One page of 20 on load; infinite scroll fetches the next page. API default/max limits 20/100.
-
-Problem
-JSON body parser accepted 150MB on every route.
-Impact
-Easy memory DoS against a single Node process.
-Severity
-CRITICAL
-Solution implemented
-Default JSON/urlencoded limit is 2mb (`JSON_BODY_LIMIT`). Multipart uploads still use multer/Cloudinary limits.
-
-Problem
-JWT verify used `JWT_SECRET || "fallback_secret"` on sockets and chat.
-Impact
-Forged tokens if the secret is missing.
-Severity
-CRITICAL
-Solution implemented
-`utils/jwtSecret.js` requires a real secret. Verify fails closed.
-
-Problem
-Idle Postgres pool errors called `process.exit(-1)`.
-Impact
-A single idle-client error killed the whole API.
-Severity
-HIGH
-Solution implemented
-Log the error. Do not exit. Pool size/timeouts are env-driven.
-
-Problem
-No rate limiting.
-Impact
-Login/signup/forgot-password and list endpoints can be abused.
-Severity
-HIGH
-Solution implemented
-Per-IP/user limiter (Redis when `REDIS_URL` is set, memory otherwise). Stricter cap on auth routes.
-
-Problem
-Auth middleware queried `users` on every request. Health was `/api/ping` with no DB check. No SIGTERM drain.
-Impact
-DB load, false-healthy deploys, dropped in-flight requests on restart.
-Severity
-HIGH
-Solution implemented
-30s user-row cache; `/health/live` and `/health/ready`; graceful shutdown.
-
-Problem
-Socket.IO and rate limits were process-local. Story/scheduled jobs would duplicate on multiple instances.
-Impact
-Broken chat fan-out and double-publish behind a load balancer.
-Severity
-HIGH (multi-instance)
-Solution implemented
-Optional Redis adapter + cache/rate-limit/job lock. Without Redis, single-instance behavior is unchanged.
-
-Problem
-Website `fetchWithTimeout` ignored its timeout. Marketplace/forums `fetch` had none. Chat/notification polls ran in background tabs.
-Impact
-Hung UI, wasted bandwidth on hidden tabs.
-Severity
-MEDIUM
-Solution implemented
-AbortController timeouts; pause polls while `document.hidden`. Mobile polls skip when the app is not `active`.
+Passenger app ─┐
+Driver app ────┼── HTTPS + WebSocket ──► FastAPI ──► PostgreSQL
+Website/admin ─┘                           ├── Paystack
+                                          ├── Cloudinary
+                                          └── email, maps, push and calling services
 ```
 
-## 3. Changes made
+## 2. Existing scalability safeguards
 
-### API (`../New_Joscity`)
+- PostgreSQL connection pooling plus acquisition, connection and statement timeouts.
+- Supabase session-pooler URLs on port 5432 are redirected to transaction pooling on 6543.
+- Database pool closes during application shutdown.
+- `/health` endpoint for host monitoring.
+- Timeouts on Paystack, email, push and JosCity integration calls.
+- Paginated scheduled-ride endpoints and mobile histories.
+- WebSockets reduce continuous HTTP polling during active trips.
+- Driver location/map lookups include abortable timeouts.
+- Wallet settlement and withdrawal paths use server-side checks and transactions.
+- Uploads use Cloudinary rather than API-container storage.
 
-- `server.js` — request IDs, JSON limit, `/api` rate limit, health routes, graceful shutdown, Redis job locks
-- `config/database.js` — configurable pool; no process exit on idle errors
-- `infrastructure/cache.js` — Redis with in-memory fallback; `tryLock`
-- `infrastructure/health.js`, `infrastructure/shutdown.js`
-- `middleware/rateLimit.js`, `middleware/requestContext.js`, `middleware/authMiddleware.js`
-- `utils/pagination.js`, `utils/jwtSecret.js`
-- `controller/feedController.js`, `chatController.js`, `commentController.js`, `reactionController.js`
-- `routes/authRoute.js` — tighter auth burst limit
-- `services/socketService.js` — Redis adapter when `REDIS_URL` is set
-- `migrations/050_scalability_indexes.sql` (applied)
-- `Dockerfile`, `.dockerignore`, `loadtest/k6-api.js`
-- `.env.example` — new ops variables
-- `package.json` — `ioredis`, `@socket.io/redis-adapter`
+## 3. Main risks and required work
 
-### Website (`../JOSCITY`)
+### Persistent rate limiting — critical
 
-- `NewsFeed.tsx` — page size 20, load-more sentinel
-- `feedApi.ts` — default limit 20
-- `fetchWithTimeout.ts`, `marketplaceApi.ts`, `forumsApi.ts` — request timeouts
-- `visibleInterval.ts` — used by newsfeed, forums, chat, notifications
+The backend contains a production TODO for persistent login rate limiting. Add a Redis-backed limiter by IP and authenticated account. Apply stricter limits to login, OTP, wallet funding, transfers, withdrawals, ride creation, SOS and uploads.
 
-### Mobile (`mobile/`)
+### Process-local realtime — critical before multiple instances
 
-- Already paginated. Added `foregroundInterval.ts` so badge/presence polls do not run while backgrounded.
+Connected passengers and drivers live in one Python process. An event created on one instance cannot reliably reach a client connected to another. Before adding API instances, introduce Redis Pub/Sub or a managed broker, shared presence with TTLs, WebSocket-aware load balancing and event IDs/ride versions. Sticky sessions alone are insufficient.
 
-## 4. Database improvements
+### In-process scheduled worker — high
 
-- Indexes (idempotent): `users(account_status)`, `users(account_type)`, `posts(time DESC)`, `posts(user_id)`, `messages(conversation_id, created_at DESC)`, `post_comments(post_id, created_at DESC)`, `notifications(to_user_id, time DESC)`
-- Migration: `migrations/050_scalability_indexes.sql` (ran successfully)
-- Query: feed/chat/comments/reactions now clamp `limit` (default 20, max 100)
-- Pool: `DB_POOL_MAX` (default 5, appropriate for Neon session mode)
-- Transactions: payment/wallet paths were already transactional; not rewritten
-- Concurrency: Redis `SET NX` locks for story cleanup and scheduled posts when Redis is up
+Every API instance can start the scheduled-ride loop, risking duplicate reminders or dispatch. Keep one scheduler until work is claimed atomically with PostgreSQL locks, or move scheduling to a dedicated durable worker.
 
-## 5. Caching
+### Driver-location volume — high
 
-| Key | TTL | Why |
+Throttle GPS updates, broadcast only meaningful movement, keep the latest active position in Redis with a short TTL, and persist only samples required for trip history or safety. Do not retain every heartbeat indefinitely.
+
+### Nearby-driver matching — high
+
+As the fleet grows, use PostGIS or Redis GEO instead of scanning drivers and calculating all distances in application code. Query only approved, eligible, online drivers within a controlled radius.
+
+### Payment idempotency — high
+
+Paystack webhooks and client requests may be retried. Keep provider references unique, verify webhook signatures, lock wallet rows, maintain an immutable ledger and reject duplicate funding, payout or trip settlement. Repeated idempotency keys should return the stored result.
+
+### Growing lists and third-party calls — medium
+
+Keep strict provider timeouts and move non-blocking email, push, document and reconciliation work to a durable queue as volume grows. Enforce maximum page sizes on trips, notifications, wallet records, drivers and reports. Use cursor pagination for large tables.
+
+## 4. Database plan
+
+Verify indexes against the deployed schema and query plans. Maintain equivalents of:
+
+```text
+rides(customer_id, created_at DESC)
+rides(driver_id, created_at DESC)
+rides(status, created_at DESC)
+drivers(status, is_online)
+driver_locations(driver_id, updated_at DESC)
+notifications(user_id, created_at DESC)
+wallet_transactions(wallet_id, created_at DESC)
+wallet_transactions(reference) UNIQUE
+withdrawals(user_id, created_at DESC)
+scheduled_rides(status, scheduled_for)
+messages(ride_id, created_at DESC)
+ratings(driver_id, created_at DESC)
+```
+
+Use a geospatial index for proximity queries. Keep each instance's pool small and budget the combined pool against the database limit. Make ride acceptance atomic so only one driver wins. Set unique constraints for all retryable money operations. Archive or partition old location/event data when retention grows.
+
+## 5. Redis design
+
+Redis is optional for one API instance but required for safe multi-instance realtime operation.
+
+| Key | TTL | Purpose |
 | --- | --- | --- |
-| `joscity:auth:{userId}` | 30s | Cuts a `users` lookup on every authenticated request |
-| `joscity:rl:*` | window (`RATE_LIMIT_WINDOW_MS`) | Rate-limit counters |
-| `joscity:lock:*` | job interval | Single-leader in-process jobs |
+| `josride:presence:user:{id}` | 60–120s | Passenger presence |
+| `josride:presence:driver:{id}` | 30–60s | Driver heartbeat |
+| `josride:driver-location:{id}` | 30–60s | Latest dispatch/tracking position |
+| `josride:geo:drivers:{city}` | heartbeat refreshed | Nearby-driver lookup |
+| `josride:ride:{id}:state` | trip plus grace period | Hot trip state |
+| `josride:rate-limit:*` | limiter window | Shared abuse protection |
+| `josride:idempotency:*` | 24–72h | Safe retry results |
+| `josride:lock:scheduled-dispatch` | worker interval | Single scheduler leader |
 
-Invalidation is TTL-only. Account status changes can lag up to 30s. That is intentional.
+PostgreSQL remains the source of truth. Redis must never be the only copy of balances, settlements or completed trips.
 
-Without `REDIS_URL`, all of this is per-process memory. That is correct for one API instance and **wrong** for two.
+## 6. Realtime requirements
 
-## 6. Queue architecture
+- Authenticate sockets and authorise each ride/channel subscription.
+- Heartbeat connections and expire stale driver presence.
+- Reconnect with exponential backoff and jitter.
+- After reconnecting, fetch authoritative ride state over REST.
+- Include event IDs or increasing ride versions to discard duplicates and stale events.
+- Use push notifications for important events while apps are backgrounded or disconnected.
+- Never log access tokens, bank details or precise coordinates unnecessarily.
 
-Still no dedicated queue (Bull/SQS). Existing async work:
+## 7. Queue plan
 
-| Job | Trigger | Multi-instance |
-| --- | --- | --- |
-| Expired story cleanup | hourly `setInterval` | Redis lock if configured |
-| Publish scheduled posts | every 60s | Redis lock if configured |
-| Paystack/Safe Haven | HTTP webhooks | already request-driven |
-| Email (Resend) | inline on the request | unchanged |
+Use a durable worker system when multiple instances or traffic justify it.
 
-A real queue is listed under remaining work, not invented here.
+| Job | Idempotency key |
+| --- | --- |
+| Scheduled reminder | scheduled ride + reminder type |
+| Scheduled dispatch | scheduled ride ID |
+| Push notification | event/notification ID |
+| Email/OTP | message attempt ID |
+| Payment reconciliation | Paystack reference |
+| Failed-payout refund/review | withdrawal/reference ID |
+| Document processing | document ID/version |
 
-## 7. Security improvements
+Money jobs need bounded retries, recorded attempts and a dead-letter/manual-review path. A retry must never produce another debit or credit.
 
-- Removed JWT `fallback_secret`
-- Capped JSON body size
-- Rate limits on `/api` and auth login/signup/reset
-- Structured request logs with `X-Request-Id` (health/ping omitted)
-- `trust proxy` was already on (needed for correct client IP behind a load balancer)
+## 8. Security and privacy
 
-## 8. Infrastructure requirements
+- Keep `SECRET_KEY`, Paystack, Cloudinary, email and TURN credentials outside source control.
+- Disable development bypass flags and remove demo credentials from public production material.
+- Enforce passenger, driver and admin roles on the server.
+- Verify driver approval, documents, vehicle and availability before dispatch.
+- Verify Paystack webhook signatures and unique transaction references.
+- Limit JSON/multipart sizes and validate uploads.
+- Restrict web CORS origins; mobile security still depends on authentication, not CORS.
+- Redact tokens, bank data, identity documents and exact locations from logs.
+- Audit wallet adjustments, approvals, trip-state changes, SOS actions and admin operations.
+- Define retention for precise location data and identity documents.
 
-Required today:
+## 9. Reliability and observability
 
-```text
-PostgreSQL
-Object storage (Cloudinary — already in use)
-```
-
-Optional, required before running more than one API process:
-
-```text
-Redis (REDIS_URL)
-```
-
-Already used, not added by this work: email (Resend), Paystack, Safe Haven.
-
-Not required: Kafka, Elasticsearch, a second database, microservices.
-
-## 9. Environment variables
-
-Added or documented:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `REDIS_URL` | unset | Cache, rate limits, Socket.IO adapter, job locks |
-| `LISTEN_HOST` | `0.0.0.0` | Bind address |
-| `DB_POOL_MAX` | `5` | Postgres pool size |
-| `DB_IDLE_TIMEOUT_MS` | `10000` | Idle client timeout |
-| `DB_CONNECT_TIMEOUT_MS` | `8000` | Connect timeout |
-| `JSON_BODY_LIMIT` | `2mb` | Express JSON parser |
-| `URLENCODED_BODY_LIMIT` | same as JSON | Express urlencoded parser |
-| `RATE_LIMIT_API_MAX` | `120` | Requests per window per IP/user |
-| `RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window |
-| `RATE_LIMIT_AUTH_MAX` | `20` | Auth burst cap |
-| `RATE_LIMIT_AUTH_WINDOW_MS` | `900000` | Auth window (15 min) |
-| `HEALTH_REQUIRE_REDIS` | unset/false | 503 ready checks if Redis is down |
-| `CORS_ORIGINS` | existing | Already used; documented in `.env.example` |
-
-If a client posts large JSON (not multipart), raise `JSON_BODY_LIMIT`. Media uploads should stay multipart.
-
-## 10. Deployment architecture
-
-Recommended now:
+Split health checks:
 
 ```text
-[Browser / Expo] → HTTPS load balancer
-                 → N identical Node processes (start at 1)
-                 → PostgreSQL
-                 → Cloudinary
-                 → Redis (when N > 1)
+GET /health/live   process is running
+GET /health/ready  database and required dependencies are ready
 ```
 
-Health:
+Measure structured request logs, p50/p95/p99 latency, 5xx rate, pool wait time, slow queries, active sockets, reconnects, online-driver heartbeat freshness, request-to-offer/acceptance time, scheduled-job failures, payment/reconciliation failures and crash-free mobile sessions.
 
-- Load balancer liveness: `GET /health/live`
-- Readiness / deploy gate: `GET /health/ready` (Postgres; Redis only if `HEALTH_REQUIRE_REDIS=true`)
-- Legacy: `GET /api/ping`
+Alert on readiness failure, sustained errors, database saturation, stalled dispatch, abnormal payment failures and queue backlog.
 
-Container: `Dockerfile` (node:20-alpine, `node server.js`). SIGTERM drains HTTP then closes Redis and the pool.
+## 10. Deployment
 
-Do not put the Node process in charge of SSL or of storing uploads on local disk.
+Launch safely with one API instance, PostgreSQL transaction pooling, Cloudinary, Paystack and external providers. Before two or more API instances:
 
-## 11. Load testing
+1. Add shared Redis realtime fan-out and presence.
+2. Add persistent rate limiting.
+3. Make scheduled dispatch single-leader or move it to a worker.
+4. Verify atomic ride acceptance and payment idempotency under concurrency.
+5. Add dependency-aware readiness and graceful HTTP/WebSocket shutdown.
+6. Load-test staging with realistic REST and WebSocket traffic.
 
-k6 script: `../New_Joscity/loadtest/k6-api.js`
+Do not store durable state on an API container.
+
+## 11. Configuration
+
+Current core variables include `DATABASE_URL`, `HOST`, `PORT`, `DEBUG`, `CORS_ORIGINS`, `SECRET_KEY`, `JWT_EXPIRES_MINUTES`, email/Resend/SMTP variables, `CLOUDINARY_*`, `PAYSTACK_*`, `WEBRTC_*`, `SCHEDULED_WORKER_*`, `DRIVER_SEARCH_RADIUS_KM` and the public maps key.
+
+Recommended additions:
 
 ```text
-cd ../New_Joscity
-k6 run -e BASE_URL=http://localhost:3000 loadtest/k6-api.js
-k6 run -e BASE_URL=http://localhost:3000 -e TOKEN=<jwt> loadtest/k6-api.js
+REDIS_URL
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_AUTH_MAX
+RATE_LIMIT_RIDE_MAX
+RATE_LIMIT_WALLET_MAX
+MAX_JSON_BODY_BYTES
+MAX_UPLOAD_BYTES
+DB_POOL_MIN
+DB_POOL_MAX
+DB_POOL_TIMEOUT_SECONDS
+HEALTH_REQUIRE_REDIS
+WORKER_ENABLED
+LOG_LEVEL
+SENTRY_DSN (or equivalent)
 ```
 
-Never point this at production. Thresholds are smoke-level (`p95 < 1.5s`, error rate `< 5%`), not a capacity claim.
+Never expose server secrets with an `EXPO_PUBLIC_` prefix; those values are compiled into mobile builds.
 
-## 12. Scalability estimate
+## 12. Load testing
 
-Reasoned, not benchmarked:
+Test staging, never live payments. Cover login, fare estimates, ride creation, driver heartbeats, nearby-driver offers, concurrent acceptance, trip tracking, chat, histories, scheduled dispatch and replayed Paystack webhooks.
+
+Initial quality gates—not capacity promises:
 
 ```text
-1,000 users
-Current single Node + Postgres + Cloudinary is enough if the feed stays paginated.
-
-10,000 users
-First bottleneck: Postgres (feed queries + auth) and the single Socket.IO process.
-Enable REDIS_URL, run 2 API instances, watch pool wait time and p95 /api/feed.
-
-100,000 users
-Bottlenecks: chat fan-out, notification polling, scheduled-post interval, and feed formatPost N+1 work.
-Need a job queue, cursor pagination on feed, replica reads, and to stop HTTP-polling unread counts.
-
-1,000,000 users
-Need dedicated realtime (or Redis adapter + sticky sessions is not enough), CDN in front of the SPA, read replicas, and almost certainly a split of media/chat from the feed API.
-Do not start that rewrite now.
+REST p95 below 1.5 seconds for normal operations
+Unexpected error rate below 1%
+Realtime event p95 below 1 second in-region
+No duplicate acceptance, settlement, debit, credit or dispatch
+No database pool exhaustion
+Authoritative trip state survives an API restart
 ```
 
-## 13. Remaining recommendations
+Record instance/database size, socket count, driver update frequency, duration and dataset size with every result.
 
-```text
-DO NOW
-- Set JWT_SECRET in every environment (already required).
-- Confirm production JSON clients still work at 2mb; raise JSON_BODY_LIMIT only if a real payload needs it.
-- Point the load balancer at /health/ready.
+## 13. Scale stages
 
-DO BEFORE PUBLIC LAUNCH
-- Set REDIS_URL if you will run more than one API dyno/container.
-- Turn on request logging in your host (DigitalOcean/App Platform/Fly) rather than only stdout JSON.
-- Run the k6 smoke test against staging with a real JWT.
+These are planning estimates, not benchmarks.
 
-DO AT 10K+ ACTIVE USERS
-- Move story cleanup and scheduled posts to a worker (BullMQ or a cron container).
-- Replace notification HTTP polling with the existing Socket.IO channel.
-- Cursor pagination for feed (created_at, post_id) instead of OFFSET.
-- Reduce formatPost N+1 (batch reactions/comments).
+- **Up to 1,000 registered users:** one API instance may be sufficient after rate limiting, monitoring, backups and staging tests.
+- **Around 10,000:** likely pressure is location writes, proximity search, socket fan-out and DB connections. Add Redis, geospatial matching, shared realtime, a worker and multiple tested API instances.
+- **Around 100,000:** use cursor pagination, data retention/partitioning, autoscaling, query monitoring and replicas for suitable reporting reads.
+- **Around 1,000,000:** consider isolating realtime/dispatch, payments and reporting only where measurements justify it; add regional resilience and disaster-recovery exercises.
 
-DO AT 100K+ ACTIVE USERS
-- Postgres read replica for feed/list endpoints.
-- Sticky sessions or a fully Redis-backed presence map (connectedUsers is still in-memory).
-- CDN + long-cache hashed SPA assets.
+## 14. Priorities
 
-ONLY IF REQUIRED LATER
-- Split chat or media into a separate service.
-- Elasticsearch / OpenSearch for people search.
-- Kafka or similar event bus.
-```
+### Do now
 
-Already satisfied (not rewritten): JWT is stateless; Cloudinary holds blobs; mobile home feed was already paged; CORS origins are env-driven; marketplace checkout already uses transactions.
+- Add persistent limits to authentication and sensitive endpoints.
+- Confirm maximum page sizes on every growing list.
+- Verify unique references and transactional/idempotent wallet handling.
+- Add request IDs, structured logs, readiness and error monitoring.
+- Audit production builds for disabled bypass flags and embedded secrets.
+- Back up PostgreSQL and test restoration.
+
+### Before multiple API instances
+
+- Add Redis-backed fan-out, presence and latest locations.
+- Make the scheduled worker single-leader.
+- Concurrency-test ride acceptance and payment paths.
+- Configure graceful shutdown and WebSocket-aware load balancing.
+- Run mixed REST/WebSocket staging tests.
+
+### At sustained growth
+
+- Add PostGIS or Redis GEO.
+- Move non-blocking work to a durable queue.
+- Optimise measured slow queries and adopt cursor pagination.
+- Apply location retention/partitioning.
+- Add replicas or service separation only when metrics justify them.
+
+## 15. Status summary
+
+| Area | Status |
+| --- | --- |
+| Passenger and driver mobile clients | Implemented |
+| Shared FastAPI/PostgreSQL backend | Implemented |
+| Database pool and timeouts | Implemented |
+| Cloud object storage | Implemented |
+| Paystack funding/withdrawal | Implemented; reconciliation must be monitored |
+| Single-instance WebSocket trips/chat/calls | Implemented |
+| Scheduled-ride loop | Implemented in process; unsafe to duplicate without locking |
+| Shared Redis presence/pub-sub | Not found in inspected dependencies/configuration |
+| Persistent distributed rate limiting | Not implemented; required hardening |
+| Durable job queue | Not implemented |
+| Multi-instance realtime | Not ready until shared fan-out/presence is added |
+| Capacity benchmark | Not established; staging load tests required |
 
 ---
 
-Website UI changes (feed load-more, timeouts, pause-on-hidden) were implemented on the live Vite app in `../JOSCITY`. They were not click-tested in a browser from this session; after a refresh, the home feed should load one page of ~20 posts and fetch more as you scroll.
+This document separates verified current behavior from recommendations. Scaling decisions should follow measured latency, database pressure, socket volume, dispatch time and payment reliability—not registered-user count alone.

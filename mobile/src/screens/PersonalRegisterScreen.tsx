@@ -16,6 +16,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import AppButton from "../components/AppButton";
 import FadeIn from "../components/FadeIn";
 import { ErrorBanner } from "../components/AppNotice";
+import { updateAgentPreview } from "../state/agentPreview";
 import TextField from "../components/TextField";
 import { friendlyError } from "../utils/errors";
 import { registerPersonal } from "../api/auth";
@@ -24,11 +25,14 @@ import { colors } from "../theme/colors";
 
 type Gender = "male" | "female" | "";
 
-export default function PersonalRegisterScreen() {
+export default function PersonalRegisterScreen({ agent = false }: { agent?: boolean }) {
   const router = useRouter();
   const params = useLocalSearchParams<{ ref?: string | string[] }>();
   const referralCode = (Array.isArray(params.ref) ? params.ref[0] : params.ref || "").trim();
   const insets = useSafeAreaInsets();
+  const [agentBio, setAgentBio] = useState("");
+  const [agentCategories, setAgentCategories] = useState("");
+  const [services, setServices] = useState(["Help me buy"]);
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -81,6 +85,12 @@ export default function PersonalRegisterScreen() {
   };
 
   const onContinue = async () => {
+    if (agent) {
+      if (step < 3) { setStep(step + 1); return; }
+      updateAgentPreview({ services: services.map(s => s.toLowerCase() === "help me deliver" ? "Help me deliver" : "Help me buy"), bio: agentBio, category: agentCategories });
+      router.push("/agents" as never);
+      return;
+    }
     const message = validateStep();
     if (message) {
       setError(message);
@@ -202,6 +212,17 @@ export default function PersonalRegisterScreen() {
                 </Text>
               </FadeIn>
 
+              {agent && <View>
+                <TextField label="Agent bio" value={agentBio} onChangeText={setAgentBio} placeholder="Tell customers how you can help" multiline />
+                <TextField label="Categories / specialties" value={agentCategories} onChangeText={setAgentCategories} placeholder="Electronics, groceries, fashion..." />
+                <Text style={styles.subtitle}>Agent preview ? Choose one or both services. Details are not submitted.</Text>
+                <View style={{ flexDirection: "row", gap: 10, marginBottom: 20 }}>
+                  {["Help me buy", "Help me Deliver"].map(service => <Pressable key={service} accessibilityRole="checkbox" accessibilityState={{ checked: services.includes(service) }} onPress={() => setServices(current => current.includes(service) ? current.filter(item => item !== service) : [...current, service])} style={{ flex: 1, minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: colors.primary, backgroundColor: services.includes(service) ? colors.iconSoft : colors.white, alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: colors.primary, fontFamily: "Montserrat_600SemiBold" }}>{services.includes(service) ? "? " : ""}{service}</Text>
+                  </Pressable>)}
+                </View>
+                <Pressable onPress={() => router.push("/agents" as never)}><Text style={[styles.loginLink, { marginBottom: 20 }]}>Explore agent dashboard ?</Text></Pressable>
+              </View>}
               <FadeIn replayKey={step} delay={200} style={styles.form}>
                 {step === 1 ? (
                   <>
@@ -345,10 +366,10 @@ export default function PersonalRegisterScreen() {
                   <Text style={styles.loginLink}>Log in</Text>
                 </Pressable>
                 <AppButton
-                  label={step === 3 ? "Create account" : "Continue"}
+                  label={step === 3 ? (agent ? "Preview agent dashboard" : "Create account") : "Continue"}
                   onPress={() => void onContinue()}
                   loading={loading}
-                  disabled={step === 3 && !agreed}
+                  disabled={!agent && step === 3 && !agreed}
                 />
               </FadeIn>
             </>
@@ -389,6 +410,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
+    width: "100%",
+    maxWidth: 620,
+    alignSelf: "center",
     paddingHorizontal: 24,
     flexGrow: 1,
   },

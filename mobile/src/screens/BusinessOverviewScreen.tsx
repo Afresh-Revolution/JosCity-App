@@ -10,6 +10,7 @@ import {
 import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import AgentQuickActions from "../components/agents/AgentQuickActions";
 import FadeIn from "../components/FadeIn";
 import { ErrorBanner } from "../components/AppNotice";
 import AvatarCircle from "../components/feed/AvatarCircle";
@@ -166,6 +167,7 @@ export default function BusinessOverviewScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={() => void load("refresh")} />
           }
         >
+          <AgentQuickActions />
           {error ? <ErrorBanner message={error} /> : null}
 
           <FadeIn>
