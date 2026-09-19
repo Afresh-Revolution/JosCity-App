@@ -21,6 +21,7 @@ import {
 } from "./colors";
 
 const STORAGE_KEY = "joscity.appearance";
+const DEFAULT_MIGRATION_KEY = "joscity.appearanceDefaultV2";
 
 type ThemeContextValue = {
   appearance: AppearancePreference;
@@ -30,19 +31,27 @@ type ThemeContextValue = {
 };
 
 const ThemeContext = createContext<ThemeContextValue>({
-  appearance: "system",
+  appearance: "light",
   scheme: "light",
   colors: lightColors,
   setAppearance: () => undefined,
 });
 
 function resolveScheme(appearance: AppearancePreference, system: ColorScheme | null): ColorScheme {
-  if (appearance === "light" || appearance === "dark") return appearance;
-  return system === "dark" ? "dark" : "light";
+  if (appearance === "dark") return "dark";
+  if (appearance === "system") return system === "dark" ? "dark" : "light";
+  return "light";
+}
+
+function applyNativeScheme(appearance: AppearancePreference) {
+  const setter = (Appearance as { setColorScheme?: (value: ColorScheme | null) => void }).setColorScheme;
+  if (!setter) return;
+  if (appearance === "system") setter(null);
+  else setter(appearance === "dark" ? "dark" : "light");
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [appearance, setAppearanceState] = useState<AppearancePreference>("system");
+  const [appearance, setAppearanceState] = useState<AppearancePreference>("light");
   const [system, setSystem] = useState<ColorScheme | null>(Appearance.getColorScheme() === "dark" ? "dark" : "light");
   const [ready, setReady] = useState(false);
 
@@ -50,21 +59,32 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     void (async () => {
       try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
-        if (!cancelled && (stored === "light" || stored === "dark" || stored === "system")) {
-          setAppearanceState(stored);
+        const [stored, migrated] = await Promise.all([
+          AsyncStorage.getItem(STORAGE_KEY),
+          AsyncStorage.getItem(DEFAULT_MIGRATION_KEY),
+        ]);
+        let next: AppearancePreference = "light";
+        if (!migrated) {
+          next = stored === "dark" ? "dark" : "light";
+          await AsyncStorage.setItem(STORAGE_KEY, next);
+          await AsyncStorage.setItem(DEFAULT_MIGRATION_KEY, "1");
+        } else if (stored === "dark" || stored === "system") {
+          next = stored;
+        } else {
+          next = "light";
         }
+        if (!cancelled) setAppearanceState(next);
+
         const token = await getAuthToken();
-        if (token) {
-          const prefs = await getPreferences();
-          const appearance = prefs.data?.appearance;
-          if (
-            !cancelled &&
-            (appearance === "light" || appearance === "dark" || appearance === "system")
-          ) {
-            setAppearanceState(appearance);
-            await AsyncStorage.setItem(STORAGE_KEY, appearance);
-          }
+        if (!token) return;
+        const prefs = await getPreferences();
+        const remote = prefs.data?.appearance;
+        if (cancelled) return;
+        if (remote === "dark" || remote === "light") {
+          setAppearanceState(remote);
+          await AsyncStorage.setItem(STORAGE_KEY, remote);
+        } else if (remote === "system" && next === "system") {
+          setAppearanceState("system");
         }
       } finally {
         if (!cancelled) setReady(true);
@@ -85,14 +105,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const setAppearance = useCallback((value: AppearancePreference) => {
     setAppearanceState(value);
     void AsyncStorage.setItem(STORAGE_KEY, value);
+    void AsyncStorage.setItem(DEFAULT_MIGRATION_KEY, "1");
+    applyNativeScheme(value);
   }, []);
 
   const scheme = resolveScheme(appearance, system);
   const palette = scheme === "dark" ? darkColors : lightColors;
 
   useEffect(() => {
+    applyNativeScheme(appearance);
     void SystemUI.setBackgroundColorAsync(palette.background);
-  }, [palette.background]);
+  }, [appearance, palette.background]);
 
   const value = useMemo(
     () => ({
@@ -104,7 +127,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     [appearance, palette, scheme, setAppearance]
   );
 
-  if (!ready) return null;
+  if (!ready) {
+    return <View style={{ flex: 1, backgroundColor: lightColors.background }} />;
+  }
 
   return (
     <ThemeContext.Provider value={value}>

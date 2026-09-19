@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -17,11 +17,15 @@ import AppButton from "../components/AppButton";
 import FadeIn from "../components/FadeIn";
 import { ErrorBanner } from "../components/AppNotice";
 import { updateAgentPreview } from "../state/agentPreview";
+import { savePendingAgentApplication } from "../storage/pendingAgent";
+import { DEFAULT_AGENT_SERVICES, HELP_ME_BUY, HELP_ME_DELIVER, toggleAgentServices } from "../api/agentSignup";
+import { clearSignupDraft, loadSignupDraft, saveSignupDraft } from "../storage/signupDraft";
 import TextField from "../components/TextField";
 import { friendlyError } from "../utils/errors";
 import { registerPersonal } from "../api/auth";
 import { LEGAL, openExternalUrl } from "../constants/legal";
-import { colors } from "../theme/colors";
+import { useTheme } from "../theme/ThemeProvider";
+import type { Palette } from "../theme/colors";
 
 type Gender = "male" | "female" | "";
 
@@ -30,9 +34,11 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
   const params = useLocalSearchParams<{ ref?: string | string[] }>();
   const referralCode = (Array.isArray(params.ref) ? params.ref[0] : params.ref || "").trim();
   const insets = useSafeAreaInsets();
+  const { colors, scheme } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [agentBio, setAgentBio] = useState("");
   const [agentCategories, setAgentCategories] = useState("");
-  const [services, setServices] = useState(["Help me buy"]);
+  const [services, setServices] = useState(DEFAULT_AGENT_SERVICES);
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -50,11 +56,71 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const draftReady = useRef(false);
+  const skipDraftSave = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void loadSignupDraft().then((draft) => {
+      if (!active) return;
+      if (draft && (agent ? draft.kind === "agent" : draft.kind === "personal")) {
+        setStep(Math.min(3, Math.max(1, draft.step || 1)));
+        setEmail(draft.email || "");
+        setPhone(draft.phone || "");
+        setPassword(draft.password || "");
+        setConfirm(draft.confirm || "");
+        setFirstName(draft.firstName || "");
+        setLastName(draft.lastName || "");
+        setGender((draft.gender === "male" || draft.gender === "female" ? draft.gender : "") as Gender);
+        setAddress(draft.address || "");
+        setNin(draft.nin || "");
+        setAgreed(Boolean(draft.agreed));
+        setAgentBio(draft.agentBio || "");
+        setAgentCategories(draft.agentCategories || "");
+        if (draft.services?.length) {
+          const next = [...draft.services];
+          if (next.includes(HELP_ME_BUY) && !next.includes(HELP_ME_DELIVER)) next.push(HELP_ME_DELIVER);
+          setServices(next);
+        }
+      }
+      draftReady.current = true;
+    });
+    return () => {
+      active = false;
+    };
+  }, [agent]);
+
+  useEffect(() => {
+    if (!draftReady.current || done || skipDraftSave.current) return;
+    void saveSignupDraft({
+      kind: agent ? "agent" : "personal",
+      step,
+      email,
+      phone,
+      password,
+      confirm,
+      firstName,
+      lastName,
+      gender,
+      address,
+      nin,
+      agreed,
+      agentBio,
+      agentCategories,
+      services,
+    });
+  }, [agent, step, email, phone, password, confirm, firstName, lastName, gender, address, nin, agreed, agentBio, agentCategories, services, done]);
 
   const labelColor = colors.primary;
 
   const validateStep = () => {
     if (step === 1) {
+      if (agent && !agentBio.trim()) {
+        return "Tell customers how you can help.";
+      }
+      if (agent && !agentCategories.trim()) {
+        return "Add at least one category or specialty.";
+      }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
         return "Enter a valid email address.";
       }
@@ -85,15 +151,13 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
   };
 
   const onContinue = async () => {
-    if (agent) {
-      if (step < 3) { setStep(step + 1); return; }
-      updateAgentPreview({ services: services.map(s => s.toLowerCase() === "help me deliver" ? "Help me deliver" : "Help me buy"), bio: agentBio, category: agentCategories });
-      router.push("/agents" as never);
-      return;
-    }
     const message = validateStep();
     if (message) {
       setError(message);
+      return;
+    }
+    if (agent && step === 1 && services.length === 0) {
+      setError("Choose Help me buy, Help me deliver, or both.");
       return;
     }
     setError(null);
@@ -114,11 +178,37 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
         address,
         user_password: password,
         referral_code: referralCode || undefined,
+        signup_intent: agent ? "agent" : "personal",
       });
       if (!result.success) {
         setError(friendlyError(result.message || "Registration failed."));
         return;
       }
+      if (agent) {
+        const pending = {
+          bio: agentBio,
+          category: agentCategories,
+          services: services.map((s) =>
+            s.toLowerCase().includes("deliver") ? "Help me deliver" : "Help me buy"
+          ),
+          nin: nin.replace(/\D/g, ""),
+        };
+        await savePendingAgentApplication(pending);
+        updateAgentPreview({
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          email: email.trim(),
+          phone,
+          gender,
+          address,
+          bio: pending.bio,
+          category: pending.category,
+          services: pending.services,
+          nin: pending.nin,
+        });
+      }
+      skipDraftSave.current = true;
+      await clearSignupDraft();
       setDone(true);
     } catch {
       setError(friendlyError("offline"));
@@ -144,7 +234,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 4 }]}>
-      <StatusBar style="dark" />
+      <StatusBar style={scheme === "dark" ? "light" : "dark"} />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -154,7 +244,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
             styles.content,
             { paddingBottom: Math.max(insets.bottom, 20) },
           ]}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
           <FadeIn replayKey={step} delay={40} style={styles.topRow}>
@@ -184,12 +274,14 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
             <FadeIn delay={120}>
               <Text style={styles.title}>Account created</Text>
               <Text style={styles.subtitle}>
-                Check your email for an activation code, then log in to continue with JOSCITY.
+                {agent
+                  ? "Check your email for an activation code, then log in as an agent. Your services, specialties and NIN from this page are already saved."
+                  : "Check your email for an activation code, then log in to continue with JOSCITY."}
               </Text>
               <AppButton
                 label="Go to login"
                 onPress={() =>
-                  router.replace({ pathname: "/login", params: { email } })
+                  router.replace({ pathname: "/login", params: { email, type: agent ? "agent" : "personal" } })
                 }
               />
             </FadeIn>
@@ -198,31 +290,32 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
               <FadeIn replayKey={step} delay={120}>
                 <Text style={styles.title}>
                   {step === 1
-                    ? "Account details"
+                    ? agent ? "Agent account" : "Account details"
                     : step === 2
                       ? "Personal information"
                       : "Verification"}
                 </Text>
                 <Text style={styles.subtitle}>
                   {step === 1
-                    ? "Start with how you’ll sign in to JOSCITY."
+                    ? agent
+                      ? "Create your JosCity agent account with the services and specialties you already offer."
+                      : "Start with how you’ll sign in to JOSCITY."
                     : step === 2
                       ? "Tell us who you are — this appears on your membership ID. Gender and address are optional."
                       : "You can add your NIN now or skip it, then agree to the terms."}
                 </Text>
               </FadeIn>
 
-              {agent && <View>
-                <TextField label="Agent bio" value={agentBio} onChangeText={setAgentBio} placeholder="Tell customers how you can help" multiline />
-                <TextField label="Categories / specialties" value={agentCategories} onChangeText={setAgentCategories} placeholder="Electronics, groceries, fashion..." />
-                <Text style={styles.subtitle}>Agent preview ? Choose one or both services. Details are not submitted.</Text>
+              {agent ? <View>
+                <TextField label="Agent bio" labelColor={labelColor} value={agentBio} onChangeText={setAgentBio} placeholder="Tell customers how you can help" multiline />
+                <TextField label="Categories / specialties" labelColor={labelColor} value={agentCategories} onChangeText={setAgentCategories} placeholder="Electronics, groceries, fashion..." />
+                <Text style={styles.subtitle}>Help me buy also includes Help me deliver.</Text>
                 <View style={{ flexDirection: "row", gap: 10, marginBottom: 20 }}>
-                  {["Help me buy", "Help me Deliver"].map(service => <Pressable key={service} accessibilityRole="checkbox" accessibilityState={{ checked: services.includes(service) }} onPress={() => setServices(current => current.includes(service) ? current.filter(item => item !== service) : [...current, service])} style={{ flex: 1, minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: colors.primary, backgroundColor: services.includes(service) ? colors.iconSoft : colors.white, alignItems: "center", justifyContent: "center" }}>
-                    <Text style={{ color: colors.primary, fontFamily: "Montserrat_600SemiBold" }}>{services.includes(service) ? "? " : ""}{service}</Text>
+                  {[HELP_ME_BUY, HELP_ME_DELIVER].map(service => <Pressable key={service} accessibilityRole="checkbox" accessibilityState={{ checked: services.includes(service) }} onPress={() => setServices(current => toggleAgentServices(current, service))} style={{ flex: 1, minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: colors.primary, backgroundColor: services.includes(service) ? colors.iconSoft : colors.card, alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: colors.primary, fontFamily: "Montserrat_600SemiBold" }}>{services.includes(service) ? "✓ " : ""}{service}</Text>
                   </Pressable>)}
                 </View>
-                <Pressable onPress={() => router.push("/agents" as never)}><Text style={[styles.loginLink, { marginBottom: 20 }]}>Explore agent dashboard ?</Text></Pressable>
-              </View>}
+              </View> : null}
               <FadeIn replayKey={step} delay={200} style={styles.form}>
                 {step === 1 ? (
                   <>
@@ -361,15 +454,15 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
               <View style={styles.spacer} />
 
               <FadeIn replayKey={step} delay={280}>
-                <Pressable onPress={() => router.push("/login")} style={styles.loginRow}>
+                <Pressable onPress={() => router.push({ pathname: "/login", params: { type: agent ? "agent" : "personal" } })} style={styles.loginRow}>
                   <Text style={styles.loginText}>Already have an account? </Text>
                   <Text style={styles.loginLink}>Log in</Text>
                 </Pressable>
                 <AppButton
-                  label={step === 3 ? (agent ? "Preview agent dashboard" : "Create account") : "Continue"}
+                  label={step === 3 ? "Create account" : "Continue"}
                   onPress={() => void onContinue()}
                   loading={loading}
-                  disabled={!agent && step === 3 && !agreed}
+                  disabled={step === 3 && !agreed}
                 />
               </FadeIn>
             </>
@@ -401,10 +494,11 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.cream,
+    backgroundColor: c.cream,
   },
   flex: {
     flex: 1,
@@ -431,7 +525,7 @@ const styles = StyleSheet.create({
     fontFamily: "Montserrat_600SemiBold",
     fontSize: 11,
     letterSpacing: 1.2,
-    color: colors.textMuted,
+    color: c.textMuted,
   },
   progressRow: {
     flexDirection: "row",
@@ -444,22 +538,22 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   progressOn: {
-    backgroundColor: colors.primary,
+    backgroundColor: c.primary,
   },
   progressOff: {
-    backgroundColor: "#E4E0D8",
+    backgroundColor: c.fieldBorder,
   },
   title: {
     fontFamily: "PlayfairDisplay_700Bold",
     fontSize: 32,
-    color: colors.text,
+    color: c.text,
     marginBottom: 8,
   },
   subtitle: {
     fontFamily: "Montserrat_400Regular",
     fontSize: 15,
     lineHeight: 22,
-    color: colors.textMuted,
+    color: c.textMuted,
     marginBottom: 22,
   },
   form: {
@@ -476,31 +570,31 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 11,
     borderWidth: 1.5,
-    borderColor: colors.fieldBorder,
+    borderColor: c.fieldBorder,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 2,
   },
   checkOn: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: c.primary,
+    borderColor: c.primary,
   },
   termsText: {
     flex: 1,
     fontFamily: "Montserrat_400Regular",
     fontSize: 13,
     lineHeight: 19,
-    color: colors.textMuted,
+    color: c.textMuted,
   },
   termsLink: {
     fontFamily: "Montserrat_600SemiBold",
-    color: colors.text,
+    color: c.text,
     textDecorationLine: "underline",
   },
   error: {
     marginTop: 8,
     fontFamily: "Montserrat_400Regular",
-    color: colors.error,
+    color: c.error,
     fontSize: 13,
   },
   spacer: {
@@ -516,12 +610,12 @@ const styles = StyleSheet.create({
   loginText: {
     fontFamily: "Montserrat_400Regular",
     fontSize: 14,
-    color: colors.textMuted,
+    color: c.textMuted,
   },
   loginLink: {
     fontFamily: "Montserrat_700Bold",
     fontSize: 14,
-    color: colors.text,
+    color: c.text,
   },
   pickerDim: {
     flex: 1,
@@ -529,7 +623,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   picker: {
-    backgroundColor: colors.white,
+    backgroundColor: c.card,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 12,
@@ -542,6 +636,7 @@ const styles = StyleSheet.create({
   pickerLabel: {
     fontFamily: "Montserrat_600SemiBold",
     fontSize: 16,
-    color: colors.text,
+    color: c.text,
   },
 });
+}

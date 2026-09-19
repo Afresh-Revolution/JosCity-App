@@ -18,6 +18,7 @@ import { getBusinessPage, updateBusinessHours } from "../api/marketplace";
 import { useI18n } from "../i18n/I18nProvider";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
 import { unregisterPushTokenOnLogout } from "../push/pushNotifications";
+import { disableBiometricLogin } from "../biometrics/biometrics";
 import {
   clearSession,
   getUser,
@@ -188,6 +189,7 @@ export default function AccountSettingsScreen() {
         );
         return;
       }
+      await disableBiometricLogin();
       await clearSession();
       router.replace("/welcome");
       return;
@@ -205,6 +207,7 @@ export default function AccountSettingsScreen() {
       tone: "success",
     });
     await unregisterPushTokenOnLogout();
+    await disableBiometricLogin();
     await clearSession();
     router.replace("/welcome");
   };

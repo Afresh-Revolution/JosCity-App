@@ -112,7 +112,7 @@ export default function AccountTypeSheet({
             <View style={styles.iconWrap}><Ionicons name="bicycle-outline" size={22} color="#8B5CF6" /></View>
             <View style={styles.cardCopy}>
               <Text style={styles.cardTitle}>Agents</Text>
-              <Text style={styles.cardBody}>Help people buy and deliver across the city. Explore the preview.</Text>
+              <Text style={styles.cardBody}>Help people buy and deliver across the city with your JosCity account.</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </Pressable>

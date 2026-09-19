@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { AccountType } from "../storage/session";
 import { colors } from "../theme/colors";
 
-export type LoginAccountType = AccountType | "agent";
+export type LoginAccountType = AccountType;
 
 type Props = {
   value: LoginAccountType;

@@ -51,6 +51,7 @@ import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { absoluteUrl, formatNaira } from "../utils/format";
 import { formatDurationNote } from "../utils/listingDisplay";
+import { isPaystackFundingEnabled } from "../utils/paystackFunding";
 import type { FeedTab } from "../components/feed/FeedTabBar";
 
 function buyerName(user: StoredUser | null): string {
@@ -187,7 +188,7 @@ export default function ListingDetailScreen() {
     : t("listing.qty");
   const cta = isService ? t("listing.book") : t("listing.buy");
   const total = (listing?.price || 0) * qty;
-  const paystackOn = Boolean(funding?.paystack?.enabled);
+  const paystackOn = isPaystackFundingEnabled(funding);
   const safehavenOn = Boolean(funding?.safehaven?.enabled);
   const manualOn = Boolean(funding?.manual?.enabled);
   const payBank = funding?.manual;

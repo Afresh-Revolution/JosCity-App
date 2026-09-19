@@ -283,3 +283,9 @@ export async function getStoryViewsCount(storyId: number): Promise<number> {
   const result = await getStoryViews(storyId);
   return result.count;
 }
+
+export async function reactToStory(storyId: number): Promise<void> {
+  const response = await apiFetch(`/stories/${storyId}/react`, { method: "POST", auth: true });
+  const data = await readJson<{ success?: boolean; message?: string }>(response);
+  if (!response.ok || data.success === false) throw new Error(data.message || "Could not react to status.");
+}

@@ -1059,6 +1059,7 @@ export type BusinessWallet = {
   lifetime_sales: number;
   currency: string;
   payout_account: BusinessPayoutAccount | null;
+  funding?: WalletFundingOptions | null;
   transactions: BusinessWalletTx[];
 };
 
@@ -1181,14 +1182,17 @@ export async function updateBusinessPayoutAccount(input: {
   return { success: false, message: result.message || "Could not save payout account." };
 }
 
-export async function withdrawBusinessWallet(amount: number): Promise<{
+export async function withdrawBusinessWallet(
+  amount: number,
+  method?: "paystack" | "manual"
+): Promise<{
   success: boolean;
   message?: string;
   data?: BusinessWallet;
 }> {
   const result = await marketplaceRequest<BusinessWallet>("/marketplace/business/wallet/withdraw", {
     method: "POST",
-    body: JSON.stringify({ amount }),
+    body: JSON.stringify({ amount, method: method || "manual" }),
   });
   if (result.success) {
     return {

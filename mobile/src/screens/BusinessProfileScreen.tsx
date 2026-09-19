@@ -44,6 +44,7 @@ import {
   getLinkedSession,
   getUser,
   hasSession,
+  homeRouteForAccount,
   isBusinessAccountType,
   switchToSession,
   type StoredSession,
@@ -114,7 +115,7 @@ export default function BusinessProfileScreen() {
         const type = await getAccountType();
         if (cancelled) return;
         if (!isBusinessAccountType(type)) {
-          router.replace("/home");
+          router.replace(homeRouteForAccount(type));
           return;
         }
       }
@@ -177,53 +178,16 @@ export default function BusinessProfileScreen() {
   const isActualOwner = Boolean(profile?.is_owner);
   const owner = isActualOwner && !customerView;
   const deactivated = accountStatusKind(profile) === "deactivated";
-  const linkedIsBusiness = isBusinessAccountType(linkedSession?.accountType);
-  const switchTarget = linkedSession && !linkedIsBusiness ? linkedSession : null;
-  const switchTitle = t("profile.personalAccount");
-  const switchSubtitle = switchTarget
-    ? displayNameFor(switchTarget.user)
-    : t("profile.businessAccountSub");
-
   const applySwitchedSession = useCallback(
     async (session: StoredSession) => {
       await unregisterPushTokenOnLogout();
       await switchToSession(session);
       setPersonalSheetOpen(false);
       void registerPushTokenAfterLogin();
-      router.replace(
-        (isBusinessAccountType(session.accountType) ? "/business" : "/home") as never
-      );
+      router.replace(homeRouteForAccount(session.accountType) as never);
     },
     [router]
   );
-
-  const switchAccount = useCallback(async () => {
-    if (switchingAccount) return;
-    if (!switchTarget) {
-      setPersonalSheetOpen(true);
-      return;
-    }
-
-    setSwitchingAccount(true);
-    try {
-      const probe = await getUserProfile({
-        token: switchTarget.token,
-        skipUnauthorized: true,
-      });
-      if (!probe.success) {
-        await clearLinkedSession();
-        setLinkedSession(null);
-        setPersonalSheetOpen(true);
-        return;
-      }
-      await applySwitchedSession({
-        ...switchTarget,
-        user: { ...switchTarget.user, ...(probe.user || {}) },
-      });
-    } finally {
-      setSwitchingAccount(false);
-    }
-  }, [applySwitchedSession, switchTarget, switchingAccount]);
 
   const confirmSignOut = async () => {
     if (signingOut) return;

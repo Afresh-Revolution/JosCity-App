@@ -99,7 +99,7 @@ export async function checkActivationRequired(
     timeoutMs: 15000,
     body: JSON.stringify({
       email: email.toLowerCase().trim(),
-      account_type: accountType,
+      account_type: accountType === "business" ? "business" : "personal",
     }),
   });
   return parseAuth(response);
@@ -114,7 +114,7 @@ export async function resendActivation(
     timeoutMs: 30000,
     body: JSON.stringify({
       email: email.toLowerCase().trim(),
-      account_type: accountType,
+      account_type: accountType === "business" ? "business" : "personal",
     }),
   });
   return parseAuth(response);
@@ -189,7 +189,7 @@ export async function requestPasswordResetOtp(
     timeoutMs: 30000,
     body: JSON.stringify({
       email: email.toLowerCase().trim(),
-      account_type: accountType,
+      account_type: accountType === "business" ? "business" : "personal",
     }),
   });
   return parseAuth(response);
@@ -220,6 +220,7 @@ export async function registerPersonal(params: {
   address?: string;
   user_password: string;
   referral_code?: string;
+  signup_intent?: "personal" | "agent";
 }): Promise<AuthResult> {
   const response = await apiFetch("/auth/personal/signup", {
     method: "POST",
@@ -234,6 +235,7 @@ export async function registerPersonal(params: {
       address: params.address?.trim() || "",
       user_password: params.user_password,
       referral_code: params.referral_code?.trim() || "",
+      signup_intent: params.signup_intent || "personal",
     }),
   });
   return parseAuth(response);

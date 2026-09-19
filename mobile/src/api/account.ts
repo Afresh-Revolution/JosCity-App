@@ -200,6 +200,14 @@ export type WalletInfo = {
   transactions: WalletTransaction[];
 };
 
+export type WalletWithdrawOptions = {
+  min_amount?: number;
+  max_amount?: number;
+  daily_limit?: number;
+  paystack?: { enabled: boolean };
+  manual?: { enabled: boolean };
+};
+
 export type WalletFundingOptions = {
   currency?: string;
   min_amount?: number;
@@ -211,6 +219,7 @@ export type WalletFundingOptions = {
     account_name?: string;
     account_number?: string;
   };
+  withdraw?: WalletWithdrawOptions | null;
 };
 
 export type WalletCheckout = {
@@ -303,10 +312,10 @@ export const fundWallet = (amount: number) =>
     method: "POST",
     body: JSON.stringify({ amount }),
   });
-export const withdrawWallet = (amount: number) =>
+export const withdrawWallet = (amount: number, method?: "paystack" | "manual") =>
   readAccount<WalletTransaction>("/account/wallet/withdraw", {
     method: "POST",
-    body: JSON.stringify({ amount }),
+    body: JSON.stringify({ amount, method: method || "manual" }),
   });
 export const updatePayoutAccount = (input: {
   bank_name: string;

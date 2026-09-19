@@ -29,13 +29,15 @@ import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
 import { useI18n } from "../i18n/I18nProvider";
 import { registerPushTokenAfterLogin, unregisterPushTokenOnLogout } from "../push/pushNotifications";
 import {
-  clearLinkedSession,
   clearSession,
-  getLinkedSession,
+  getAccountType,
   getUser,
+  homeRouteForAccount,
   isBusinessAccountType,
+  isDedicatedAgentAccount,
   setUser,
   switchToSession,
+  type AccountType,
   type StoredSession,
   type StoredUser,
 } from "../storage/session";
@@ -90,10 +92,6 @@ function displayNameFor(user: ProfileUser | StoredUser | null): string {
       .trim() ||
     "JosCity member"
   );
-}
-
-function accountEmail(user: ProfileUser | StoredUser | null): string {
-  return String(user?.user_email || user?.email || user?.business_email || "").trim();
 }
 
 function MenuItem({
@@ -154,12 +152,14 @@ export default function ProfileScreen() {
   const [switchingAccount, setSwitchingAccount] = useState(false);
   const [switchChooserOpen, setSwitchChooserOpen] = useState(false);
   const [businessSheetOpen, setBusinessSheetOpen] = useState(false);
-  const [linkedSession, setLinkedSession] = useState<StoredSession | null>(null);
+  const [switchLoginType, setSwitchLoginType] = useState<AccountType>("business");
+  const [accountType, setAccountType] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const load = useCallback(async () => {
     const stored = (await getUser()) as ProfileUser | null;
     if (stored) setProfileUser(stored);
+    setAccountType(await getAccountType());
 
     const [profile, saved, wallet, points, account] = await Promise.all([
       getUserProfile().catch(() => null),
@@ -192,8 +192,6 @@ export default function ProfileScreen() {
       setProfileUser(mergedUser);
       await setUser(mergedUser);
     }
-
-    setLinkedSession(await getLinkedSession());
   }, []);
 
   useFocusEffect(
@@ -302,20 +300,22 @@ export default function ProfileScreen() {
     (typeof user?.user_picture === "string" && user.user_picture) ||
     (typeof user?.picture === "string" && user.picture) ||
     null;
-  const hasNin = Boolean(String(user?.nin_number || "").trim());
-  const ninVerified =
-    isTruthyFlag(user?.nin_verified) ||
-    (hasNin && user?.nin_verified == null);
+  const hasNin = Boolean(String(user?.nin_number || "").replace(/\D/g, ""));
+  const ninVerified = hasNin && isTruthyFlag(user?.nin_verified);
   const cacVerified = isTruthyFlag(user?.cac_verified);
-  const isBusiness = isBusinessAccountType(String(user?.account_type));
-  const verified = isBusiness
-    ? cacVerified || isTruthyFlag(user?.user_verified) || isTruthyFlag(user?.is_verified)
-    : ninVerified || isTruthyFlag(user?.user_verified) || isTruthyFlag(user?.is_verified);
+  const isBusiness = isBusinessAccountType(String(user?.account_type || accountType));
+  const isAgent = isDedicatedAgentAccount(user, accountType);
+  const walletPath = isAgent ? "/agents/wallet" : "/profile/wallet";
+  const verified = isBusiness ? cacVerified : ninVerified;
   const badgeColor = resolveAccountBadgeColor({
     badge_color: typeof user?.badge_color === "string" ? user.badge_color : null,
-    account_type: String(user?.account_type || "personal"),
+    account_type: isAgent ? "agent" : String(user?.account_type || "personal"),
+    signup_intent: typeof user?.signup_intent === "string" ? user.signup_intent : null,
+    agent_type: typeof user?.agent_type === "string" ? user.agent_type : null,
     has_cac: Boolean(String(user?.CAC_number || user?.cac_number || "").trim()),
     cac_verified: Boolean(user?.cac_verified),
+    nin_number: typeof user?.nin_number === "string" ? user.nin_number : null,
+    nin_verified: ninVerified,
     verified,
   });
   const statusKind = accountStatusKind(user);
@@ -346,17 +346,10 @@ export default function ProfileScreen() {
     router.push("/profile/legal");
   };
 
-  const linkedIsBusiness = isBusinessAccountType(linkedSession?.accountType);
-  const switchTarget = isBusiness
-    ? linkedSession && !linkedIsBusiness
-      ? linkedSession
-      : null
-    : linkedSession && linkedIsBusiness
-      ? linkedSession
-      : null;
   const switchTitle = "Switch account";
-  const switchSubtitle = isBusiness ? "Personal or Agent" : "Business or Agent";
+  const switchSubtitle = "Sign in to the other account with its email and password, or biometrics.";
   const showSwitchRow = true;
+  const switchAllowed: AccountType[] = isBusiness ? ["personal", "agent"] : isAgent ? ["business"] : ["business", "agent"];
 
   const applySwitchedSession = useCallback(
     async (session: StoredSession) => {
@@ -364,48 +357,19 @@ export default function ProfileScreen() {
       await switchToSession(session);
       setProfileUser(session.user as ProfileUser);
       setBusinessSheetOpen(false);
+      setSwitchingAccount(false);
       void registerPushTokenAfterLogin();
       await load();
-      router.replace((isBusinessAccountType(session.accountType) ? "/business" : "/home") as never);
+      router.replace(homeRouteForAccount(session.accountType) as never);
     },
     [load, router]
   );
 
-  const switchAccount = useCallback(async () => {
-    if (switchingAccount) return;
-    if (!switchTarget) {
-      setBusinessSheetOpen(true);
-      return;
-    }
-    if (!switchTarget) return;
-
-    setSwitchingAccount(true);
-    try {
-      const probe = await getUserProfile({
-        token: switchTarget.token,
-        skipUnauthorized: true,
-      });
-      if (!probe.success) {
-        await clearLinkedSession();
-        setLinkedSession(null);
-        setBusinessSheetOpen(true);
-        return;
-      }
-      await applySwitchedSession({
-        ...switchTarget,
-        user: { ...switchTarget.user, ...(probe.user || {}) },
-      });
-    } finally {
-      setSwitchingAccount(false);
-    }
-  }, [
-    applySwitchedSession,
-    isBusiness,
-    switchTarget,
-    switchTitle,
-    switchingAccount,
-    t,
-  ]);
+  const openSwitchLogin = (type: AccountType) => {
+    setSwitchChooserOpen(false);
+    setSwitchLoginType(type);
+    setBusinessSheetOpen(true);
+  };
 
   const signOut = () => {
     if (signingOut) return;
@@ -493,7 +457,7 @@ export default function ProfileScreen() {
       ? {
           title: t("profile.wallet"),
           subtitle: t("profile.walletSub"),
-          onPress: () => router.push("/profile/wallet"),
+          onPress: () => router.push(walletPath),
         }
       : {
           title: t("profile.wallet"),
@@ -561,7 +525,7 @@ export default function ProfileScreen() {
       router.back();
       return;
     }
-    router.replace((isBusiness ? "/business/profile" : "/profile") as never);
+    router.replace((isAgent ? "/agents/profile" : isBusiness ? "/business/profile" : "/profile") as never);
   };
 
   return (
@@ -653,7 +617,7 @@ export default function ProfileScreen() {
           <FadeIn delay={60}>
             <View style={styles.stats}>
               <Pressable
-                onPress={walletLive ? () => router.push("/profile/wallet") : undefined}
+                onPress={walletLive ? () => router.push(walletPath) : undefined}
                 disabled={!walletLive}
                 style={styles.stat}
                 accessibilityRole={walletLive ? "button" : undefined}
@@ -717,7 +681,7 @@ export default function ProfileScreen() {
                 <View style={styles.copy}>
                   <Text style={styles.rowTitle}>{t("profile.statusAccount")}</Text>
                   <Text style={styles.rowDescription}>
-                    {isBusiness ? t("profile.statusBusiness") : t("profile.statusPersonal")}
+                    {isAgent ? "Agent" : isBusiness ? t("profile.statusBusiness") : t("profile.statusPersonal")}
                     {" · "}
                     {accountStatusCopy(statusKind, t)}
                   </Text>
@@ -861,15 +825,11 @@ export default function ProfileScreen() {
         </ScrollView>
       )}
     </FeedShell>
-      <SwitchAccountSheet visible={switchChooserOpen} current={isBusiness ? "business" : "personal"} onClose={() => setSwitchChooserOpen(false)} onSelect={(type) => {
-        setSwitchChooserOpen(false);
-        if (type === "agent") router.push("/agents" as never);
-        else void switchAccount();
-      }} />
+      <SwitchAccountSheet visible={switchChooserOpen} current={isAgent ? "agent" : isBusiness ? "business" : "personal"} allowed={switchAllowed} onClose={() => setSwitchChooserOpen(false)} onSelect={openSwitchLogin} />
       <BusinessAccountSheet
-        mode={isBusiness ? "personal" : "business"}
+        mode={switchLoginType}
         visible={businessSheetOpen}
-        initialEmail={accountEmail(user)}
+        initialEmail=""
         onClose={() => setBusinessSheetOpen(false)}
         onLinked={applySwitchedSession}
       />

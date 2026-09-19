@@ -13,7 +13,7 @@ import {
   View,
 } from "react-native";
 import JosCityLoader from "../components/JosCityLoader";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, usePathname, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
@@ -44,6 +44,7 @@ import {
   type WalletMember,
   type WalletTransaction,
 } from "../api/account";
+import { agentApi } from "../api/agent";
 import { useAppFeatures } from "../hooks/useAppFeatures";
 import { useI18n } from "../i18n/I18nProvider";
 import { useMembershipSettings } from "../hooks/useMembershipSettings";
@@ -52,6 +53,7 @@ import { getUser } from "../storage/session";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { formatMemberDisplayId, readNumericUserId } from "../utils/memberDisplayId";
+import { isPaystackFundingEnabled, isWithdrawMethodEnabled } from "../utils/paystackFunding";
 
 type DisplayTx = {
   id: string;
@@ -195,6 +197,8 @@ export default function WalletScreen() {
 
   const allowed = useRequirePersonalAccount();
   const router = useRouter();
+  const pathname = usePathname();
+  const agentWallet = pathname.startsWith("/agents");
   const { enabled, label } = useAppFeatures();
   const { t } = useI18n();
   const { personalEnabled } = useMembershipSettings();
@@ -220,17 +224,19 @@ export default function WalletScreen() {
   const [lookingUp, setLookingUp] = useState(false);
   const [proofUri, setProofUri] = useState<string | null>(null);
   const [paystackFailed, setPaystackFailed] = useState(false);
+  const [heldFees, setHeldFees] = useState(0);
 
   const load = useCallback(async () => {
     const user = await getUser();
     const numericId = readNumericUserId(user as Record<string, unknown> | null);
     if (numericId) setLocalMemberId(formatMemberDisplayId(numericId));
 
-    const [walletResult, pointsResult, membershipResult, activityResult] = await Promise.all([
+    const [walletResult, pointsResult, membershipResult, activityResult, agentStats] = await Promise.all([
       getWallet(),
       getPoints(),
       getMembership(),
       getActivity(),
+      agentWallet ? agentApi.dashboard().catch(() => null) : Promise.resolve(null),
     ]);
 
     if (!walletResult.success || !walletResult.data) {
@@ -247,7 +253,8 @@ export default function WalletScreen() {
     if (pointsResult.success && pointsResult.data) setPoints(pointsResult.data);
     if (membershipResult.success && membershipResult.data) setMembership(membershipResult.data);
     if (activityResult.success && activityResult.data) setActivity(activityResult.data);
-  }, []);
+    setHeldFees(Number(agentStats?.held_agent_fees || 0));
+  }, [agentWallet]);
 
   useFocusEffect(
     useCallback(() => {
@@ -331,10 +338,13 @@ export default function WalletScreen() {
   const available = Number(wallet?.balance || 0);
 
   const funding = wallet?.funding;
-  const paystackOn = Boolean(funding?.paystack?.enabled);
+  const paystackOn = isPaystackFundingEnabled(funding);
   const safehavenOn = Boolean(funding?.safehaven?.enabled);
   const manualOn = Boolean(funding?.manual?.enabled);
   const minFund = Number(funding?.min_amount || 100);
+  const withdrawPaystackOn = isWithdrawMethodEnabled(funding, "paystack");
+  const withdrawManualOn = isWithdrawMethodEnabled(funding, "manual");
+  const minWithdraw = Number(funding?.withdraw?.min_amount || 100);
 
   const openCheckout = async (url?: string) => {
     if (!url) return;
@@ -438,10 +448,14 @@ export default function WalletScreen() {
     continueFunding();
   };
 
-  const submitBankWithdraw = async () => {
+  const submitBankWithdraw = async (method: "paystack" | "manual") => {
     const amount = parseAmount();
     if (!Number.isFinite(amount) || amount <= 0) {
       Alert.alert(t("wallet.amountTitle"), t("wallet.amountBody"));
+      return;
+    }
+    if (amount < minWithdraw) {
+      Alert.alert(t("wallet.amountTitle"), t("wallet.withdrawMin", { amount: formatNaira(minWithdraw) }));
       return;
     }
     if (amount > available) {
@@ -449,14 +463,17 @@ export default function WalletScreen() {
       return;
     }
     setSubmitting(true);
-    const result = await withdrawWallet(amount);
+    const result = await withdrawWallet(amount, method);
     setSubmitting(false);
     if (!result.success) {
       Alert.alert(t("wallet.withdrawError"), result.message || t("wallet.tryAgain"));
       return;
     }
     closeSheet();
-    Alert.alert(t("wallet.submitted"), t("wallet.submittedBody"));
+    Alert.alert(
+      method === "paystack" ? t("wallet.withdrawSent") : t("wallet.submitted"),
+      method === "paystack" ? t("wallet.withdrawSentBody") : t("wallet.submittedBody")
+    );
     await load();
   };
 
@@ -642,7 +659,7 @@ export default function WalletScreen() {
             </Pressable>
             <Pressable
               onPress={() => {
-                if (!rewardsLive) {
+                if (!rewardsLive || agentWallet) {
                   Alert.alert("CBC points", rewardsSoon);
                   return;
                 }
@@ -690,6 +707,16 @@ export default function WalletScreen() {
           </View>
         </View>
 
+        {agentWallet ? (
+          <View style={styles.escrowCard}>
+            <Text style={styles.sectionTitle}>Protected in escrow</Text>
+            <Text style={styles.escrowValue}>{formatNaira(heldFees)}</Text>
+            <Text style={styles.sectionMeta}>
+              Held agent fees stay protected until the customer confirms delivery.
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.sectionHead}>
           <View style={styles.sectionCopy}>
             <Text style={styles.sectionTitle}>Recent transactions</Text>
@@ -697,14 +724,16 @@ export default function WalletScreen() {
               Every funding, order and payout on your account
             </Text>
           </View>
-          <Pressable
-            onPress={() => router.push("/profile/activity")}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="See all transactions"
-          >
-            <Text style={styles.seeAll}>See all</Text>
-          </Pressable>
+          {agentWallet ? null : (
+            <Pressable
+              onPress={() => router.push("/profile/activity")}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="See all transactions"
+            >
+              <Text style={styles.seeAll}>See all</Text>
+            </Pressable>
+          )}
         </View>
 
         {!transactions.length ? (
@@ -751,7 +780,7 @@ export default function WalletScreen() {
 
         <Text style={styles.accountHeading}>Account</Text>
         <View style={styles.accountList}>
-          {personalEnabled ? (
+          {personalEnabled && !agentWallet ? (
             <AccountRow
               title="Membership"
               subtitle={membershipLive ? membershipSubtitle : label("membership")}
@@ -760,7 +789,7 @@ export default function WalletScreen() {
               onPress={membershipLive ? () => router.push("/profile/membership") : undefined}
             />
           ) : null}
-          {personalEnabled ? (
+          {personalEnabled && !agentWallet ? (
             <AccountRow
               title="Digital membership ID"
               subtitle={memberId || "Your digital ID"}
@@ -774,14 +803,17 @@ export default function WalletScreen() {
             }
             comingSoon={!rewardsLive}
             soonLabel={rewardsSoon}
-            onPress={rewardsLive ? () => router.push("/profile/rewards") : undefined}
+            last={agentWallet}
+            onPress={rewardsLive && !agentWallet ? () => router.push("/profile/rewards") : undefined}
           />
-          <AccountRow
-            title="Referrals"
-            subtitle="Invite Jos residents and businesses"
-            last
-            onPress={() => router.push("/profile/referrals")}
-          />
+          {agentWallet ? null : (
+            <AccountRow
+              title="Referrals"
+              subtitle="Invite Jos residents and businesses"
+              last
+              onPress={() => router.push("/profile/referrals")}
+            />
+          )}
         </View>
 
         <Text style={styles.footnote}>
@@ -882,7 +914,7 @@ export default function WalletScreen() {
                   {sheet === "bank" ? t("wallet.withdraw") : t("wallet.fund")}
                 </Text>
                 <Text style={styles.modalMeta}>
-                  {sheet === "bank" ? t("wallet.withdrawHint") : t("wallet.fundHint")}
+                  {sheet === "bank" ? t("wallet.withdrawChooseHint") : t("wallet.fundHint")}
                 </Text>
                 {sheet === "bank" ? (
                   <Text style={styles.availableLine}>
@@ -901,21 +933,50 @@ export default function WalletScreen() {
                     editable={!submitting}
                   />
                 </View>
-                <Pressable
-                  onPress={() => void (sheet === "bank" ? submitBankWithdraw() : continueFunding())}
-                  disabled={submitting}
-                  style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
-                  accessibilityRole="button"
-                  accessibilityLabel={sheet === "bank" ? t("wallet.submitReview") : t("wallet.fund")}
-                >
-                  {submitting ? (
-                    <JosCityLoader color={colors.white} />
-                  ) : (
-                    <Text style={styles.submitText}>
-                      {sheet === "bank" ? t("wallet.submitReview") : t("wallet.fund")}
-                    </Text>
-                  )}
-                </Pressable>
+                {sheet === "bank" ? (
+                  <>
+                    {withdrawPaystackOn ? (
+                      <Pressable
+                        onPress={() => void submitBankWithdraw("paystack")}
+                        disabled={submitting}
+                        style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("wallet.withdrawPaystack")}
+                      >
+                        {submitting ? (
+                          <JosCityLoader color={colors.white} />
+                        ) : (
+                          <Text style={styles.submitText}>{t("wallet.withdrawPaystack")}</Text>
+                        )}
+                      </Pressable>
+                    ) : null}
+                    {withdrawManualOn ? (
+                      <Pressable
+                        onPress={() => void submitBankWithdraw("manual")}
+                        disabled={submitting}
+                        style={({ pressed }) => [styles.methodBtn, pressed && styles.pressed]}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("wallet.withdrawManual")}
+                      >
+                        <Text style={styles.methodBtnText}>{t("wallet.withdrawManual")}</Text>
+                      </Pressable>
+                    ) : null}
+                  </>
+                ) : (
+                  <Pressable
+                    onPress={() => void continueFunding()}
+                    disabled={submitting}
+                    style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("wallet.fund")}
+                  >
+                    {submitting ? (
+                      <JosCityLoader color={colors.white} />
+                    ) : (
+                      <Text style={styles.submitText}>{t("wallet.fund")}</Text>
+                    )}
+                  </Pressable>
+                )}
               </>
             ) : null}
 
@@ -950,6 +1011,15 @@ export default function WalletScreen() {
                     style={({ pressed }) => [styles.methodBtn, pressed && styles.pressed]}
                   >
                     <Text style={styles.methodBtnText}>{t("wallet.manualTransfer")}</Text>
+                  </Pressable>
+                ) : null}
+                {!paystackOn && !safehavenOn && !manualOn ? (
+                  <Pressable
+                    onPress={() => void payWithPaystack()}
+                    disabled={submitting}
+                    style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
+                  >
+                    {submitting ? <JosCityLoader color={colors.white} /> : <Text style={styles.submitText}>{t("wallet.paystack")}</Text>}
                   </Pressable>
                 ) : null}
               </>
@@ -1272,6 +1342,20 @@ function makeStyles(colors: Palette) {
     fontFamily: "Montserrat_400Regular",
     fontSize: 13,
     color: colors.textMuted,
+  },
+  escrowCard: {
+    marginBottom: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    padding: 16,
+  },
+  escrowValue: {
+    marginTop: 8,
+    fontFamily: "Montserrat_700Bold",
+    fontSize: 22,
+    color: colors.text,
   },
   seeAll: {
     marginTop: 4,

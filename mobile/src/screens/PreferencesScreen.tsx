@@ -49,13 +49,6 @@ export default function PreferencesScreen() {
     const result = await getPreferences();
     if (result.data) {
       setPrefs(result.data);
-      if (
-        result.data.appearance === "light" ||
-        result.data.appearance === "dark" ||
-        result.data.appearance === "system"
-      ) {
-        setAppearance(result.data.appearance);
-      }
     }
   }, [setAppearance]);
 
@@ -102,7 +95,7 @@ export default function PreferencesScreen() {
 
   const languageOptions = languages.length ? languages : prefs?.languages || [];
   const selectedLanguage = language || prefs?.language;
-  const selectedAppearance = appearance || prefs?.appearance || "system";
+  const selectedAppearance = appearance || prefs?.appearance || "light";
 
   return (
     <SettingsPage kicker={t("preferences.kicker")} title={t("preferences.title")} loading={loading}>

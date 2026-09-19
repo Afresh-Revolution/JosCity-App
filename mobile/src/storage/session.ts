@@ -5,6 +5,15 @@ import {
   periodForHour,
   type TimeGreeting,
 } from "../utils/format";
+import {
+  isAgentAccountType,
+  isBusinessAccountType,
+  isDedicatedAgentAccount,
+  isPersonalAccountType,
+  loginKindForUser,
+  loginMatchesAccount,
+  type AccountType as KindAccountType,
+} from "./accountKind";
 
 const TOKEN_KEY = "joscity.authToken";
 const ACCOUNT_TYPE_KEY = "joscity.accountType";
@@ -14,7 +23,7 @@ const LINKED_TOKEN_KEY = "joscity.linkedAuthToken";
 const LINKED_ACCOUNT_TYPE_KEY = "joscity.linkedAccountType";
 const LINKED_USER_KEY = "joscity.linkedUser";
 
-export type AccountType = "personal" | "business";
+export type AccountType = KindAccountType;
 
 export type StoredUser = {
   user_id?: number;
@@ -56,7 +65,7 @@ export async function setAuthToken(token: string): Promise<void> {
 export async function getAccountType(): Promise<AccountType | null> {
   try {
     const value = await SecureStore.getItemAsync(ACCOUNT_TYPE_KEY);
-    if (value === "personal" || value === "business") return value;
+    if (value === "personal" || value === "business" || value === "agent") return value;
     return null;
   } catch {
     return null;
@@ -126,16 +135,31 @@ export async function clearSession(): Promise<void> {
   await clearLinkedSession();
 }
 
-export function isPersonalAccountType(value?: string | null): boolean {
-  return String(value || "").trim().toLowerCase() === "personal";
-}
+export {
+  isAgentAccountType,
+  isBusinessAccountType,
+  isDedicatedAgentAccount,
+  isPersonalAccountType,
+  loginKindForUser,
+  loginMatchesAccount,
+};
 
-export function isBusinessAccountType(value?: string | null): boolean {
-  return String(value || "").trim().toLowerCase() === "business";
+export function loginMismatchMessage(intended: AccountType): string {
+  if (intended === "personal") return "That login is not a personal account. Use Business or Agent sign-in.";
+  if (intended === "business") return "That login is not a business account. Use Personal or Agent sign-in.";
+  return "That login is not an agent account. Use Personal or Business sign-in.";
 }
 
 export function normalizeAccountType(value?: string | null): AccountType {
+  if (isAgentAccountType(value)) return "agent";
   return isBusinessAccountType(value) ? "business" : "personal";
+}
+
+export function homeRouteForAccount(value?: string | null): "/home" | "/business" | "/agents" {
+  const type = normalizeAccountType(value);
+  if (type === "agent") return "/agents";
+  if (type === "business") return "/business";
+  return "/home";
 }
 
 export async function hasSession(): Promise<boolean> {
@@ -155,7 +179,7 @@ export async function getActiveSession(): Promise<StoredSession | null> {
   if (!token) return null;
   const user = (await getUser()) || {};
   const storedType = await getAccountType();
-  const accountType = normalizeAccountType(user.account_type || storedType);
+  const accountType = normalizeAccountType(storedType || user.account_type);
   return { token, accountType, user: { ...user, account_type: accountType } };
 }
 
@@ -166,7 +190,7 @@ export async function getLinkedSession(): Promise<StoredSession | null> {
     const typeValue = await SecureStore.getItemAsync(LINKED_ACCOUNT_TYPE_KEY);
     const raw = await AsyncStorage.getItem(LINKED_USER_KEY);
     const user = raw ? (JSON.parse(raw) as StoredUser) : {};
-    const accountType = normalizeAccountType(user.account_type || typeValue);
+    const accountType = normalizeAccountType(typeValue || user.account_type);
     return { token, accountType, user: { ...user, account_type: accountType } };
   } catch {
     return null;

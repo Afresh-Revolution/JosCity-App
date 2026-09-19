@@ -168,6 +168,7 @@ export default function BusinessOverviewScreen() {
           }
         >
           <AgentQuickActions />
+          <Pressable accessibilityRole="button" onPress={() => router.push("/business/map" as never)} style={{ padding: 18, margin: 16, borderRadius: 16, backgroundColor: colors.card, flexDirection: "row", gap: 12 }}><Ionicons name="map-outline" size={22} color={colors.primary} /><Text style={{ color: colors.text, fontFamily: "Montserrat_600SemiBold" }}>Map - Your business location</Text></Pressable>
           {error ? <ErrorBanner message={error} /> : null}
 
           <FadeIn>

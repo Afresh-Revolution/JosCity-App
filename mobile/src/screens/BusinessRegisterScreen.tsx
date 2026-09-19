@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -25,6 +25,7 @@ import {
 } from "../constants/businessCategories";
 import { LEGAL, openExternalUrl } from "../constants/legal";
 import { colors } from "../theme/colors";
+import { clearSignupDraft, loadSignupDraft, saveSignupDraft } from "../storage/signupDraft";
 
 export default function BusinessRegisterScreen() {
   const router = useRouter();
@@ -47,6 +48,8 @@ export default function BusinessRegisterScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const draftReady = useRef(false);
+  const skipDraftSave = useRef(false);
 
   const labelColor = colors.primary;
   const selectedType = categories.find((item) => item.slug === businessType);
@@ -60,6 +63,48 @@ export default function BusinessRegisterScreen() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    void loadSignupDraft().then((draft) => {
+      if (!active) return;
+      if (draft?.kind === "business") {
+        setStep(Math.min(4, Math.max(1, draft.step || 1)));
+        setBusinessName(draft.businessName || "");
+        setBusinessType(draft.businessType || "");
+        setDescription(draft.description || "");
+        setAddress(draft.address || "");
+        setEmail(draft.email || "");
+        setPhone(draft.phone || "");
+        setPassword(draft.password || "");
+        setConfirm(draft.confirm || "");
+        setCac(draft.cac || "");
+        setAgreed(Boolean(draft.agreed));
+      }
+      draftReady.current = true;
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!draftReady.current || done || skipDraftSave.current) return;
+    void saveSignupDraft({
+      kind: "business",
+      step,
+      businessName,
+      businessType,
+      description,
+      address,
+      email,
+      phone,
+      password,
+      confirm,
+      cac,
+      agreed,
+    });
+  }, [step, businessName, businessType, description, address, email, phone, password, confirm, cac, agreed, done]);
 
   const validateStep = () => {
     if (step === 1) {
@@ -130,6 +175,8 @@ export default function BusinessRegisterScreen() {
         setError(friendlyError(result.message || "Registration failed."));
         return;
       }
+      skipDraftSave.current = true;
+      await clearSignupDraft();
       setDone(true);
     } catch {
       setError(friendlyError("offline"));
@@ -178,7 +225,7 @@ export default function BusinessRegisterScreen() {
             styles.content,
             { paddingBottom: Math.max(insets.bottom, 20) },
           ]}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
           <FadeIn replayKey={step} delay={40} style={styles.topRow}>

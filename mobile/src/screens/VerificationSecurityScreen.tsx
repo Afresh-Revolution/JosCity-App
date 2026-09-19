@@ -5,8 +5,10 @@ import AppButton from "../components/AppButton";
 import FadeIn from "../components/FadeIn";
 import SettingsPage, { useSettingsStyles } from "../components/SettingsPage";
 import TextField from "../components/TextField";
+import BiometricSettingsCard from "../components/BiometricSettingsCard";
 import { changePassword, getSecurity, updateTwoFactor, type SecurityInfo } from "../api/account";
 import { getUserProfile } from "../api/auth";
+import { updateBiometricPassword } from "../biometrics/biometrics";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
 import {
   getAccountType,
@@ -78,10 +80,9 @@ export default function VerificationSecurityScreen() {
     setInfo({
       account_type: accountType,
       nin_number: nin,
-      nin_verified: business
-        ? false
-        : Boolean(security.data?.nin_verified) ||
-          Boolean(profile?.user && (profile.user as StoredUser).nin_verified),
+        nin_verified: business
+          ? false
+          : Boolean(security.data?.nin_verified) && Boolean(nin),
       nin_masked: business ? "" : security.data?.nin_masked || "",
       cac_number: cac,
       cac_verified: business
@@ -114,6 +115,7 @@ export default function VerificationSecurityScreen() {
       setError(result.message || "Could not update password.");
       return;
     }
+    await updateBiometricPassword(next).catch(() => undefined);
     setCurrent("");
     setNext("");
     setConfirm("");
@@ -212,6 +214,11 @@ export default function VerificationSecurityScreen() {
           onPress={() => void onChangePassword()}
           loading={savingPassword}
           disabled={!current || !next || savingPassword}
+        />
+
+        <BiometricSettingsCard
+          email={info?.email}
+          accountType={isBusiness ? "business" : "personal"}
         />
 
         <Text style={[s.section, { marginTop: 28 }]}>TWO-FACTOR AUTHENTICATION</Text>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -27,12 +27,23 @@ import {
   verifyPasswordResetOtp,
 } from "../api/auth";
 import AccountTypeToggle, { type LoginAccountType } from "../components/AccountTypeToggle";
+import BiometricSetupSheet from "../components/BiometricSetupSheet";
 import { LEGAL, openExternalUrl } from "../constants/legal";
+import {
+  disableBiometricLogin,
+  enableBiometricLogin,
+  getBiometricStatus,
+  unlockBiometricCredentials,
+  type BiometricStatus,
+} from "../biometrics/biometrics";
+import { biometricCopy, shouldOfferBiometricSetup, type BiometricKind } from "../biometrics/logic";
 import { registerPushTokenAfterLogin } from "../push/pushNotifications";
 import {
-  isBusinessAccountType,
-  isPersonalAccountType,
+  homeRouteForAccount,
+  loginMatchesAccount,
+  loginMismatchMessage,
   saveSession,
+  type AccountType,
 } from "../storage/session";
 import { colors } from "../theme/colors";
 import { friendlyError } from "../utils/errors";
@@ -63,6 +74,20 @@ export default function LoginScreen() {
   const [forgotPassword, setForgotPassword] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
+  const [biometric, setBiometric] = useState<BiometricStatus | null>(null);
+  const [biometricBusy, setBiometricBusy] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [setupBusy, setSetupBusy] = useState(false);
+  const [setupMode, setSetupMode] = useState<"setup" | "update">("setup");
+  const [setupKind, setSetupKind] = useState<BiometricKind>("generic");
+  const [setupEmail, setSetupEmail] = useState("");
+  const autoPrompted = useRef(false);
+  const pendingSetup = useRef<{
+    email: string;
+    password: string;
+    accountType: AccountType;
+    home: ReturnType<typeof homeRouteForAccount>;
+  } | null>(null);
 
   useEffect(() => {
     if (incomingEmail) setEmail(incomingEmail);
@@ -73,11 +98,29 @@ export default function LoginScreen() {
   }, [incomingType]);
 
   useEffect(() => {
-    if (accountType === "agent") {
-      setActivationRequired(false);
-      setTwoFactorRequired(false);
-      return;
-    }
+    let active = true;
+    void getBiometricStatus().then((status) => {
+      if (!active) return;
+      setBiometric(status);
+      if (status.hint?.email && !incomingEmail) setEmail(status.hint.email);
+      if (status.hint?.accountType && !incomingType) setAccountType(status.hint.accountType);
+    });
+    return () => {
+      active = false;
+    };
+  }, [incomingEmail, incomingType]);
+
+  useEffect(() => {
+    if (!biometric?.enabled || !biometric.available || !biometric.enrolled || forgot || autoPrompted.current) return;
+    if (incomingEmail && biometric.hint?.email && incomingEmail.toLowerCase() !== biometric.hint.email) return;
+    autoPrompted.current = true;
+    const timer = setTimeout(() => {
+      void onBiometricLogin();
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [biometric, forgot, incomingEmail]);
+
+  useEffect(() => {
     const normalized = email.toLowerCase().trim();
     if (!normalized.includes("@")) {
       setActivationRequired(false);
@@ -86,72 +129,118 @@ export default function LoginScreen() {
     }
 
     const timer = setTimeout(async () => {
-      const result = await checkActivationRequired(normalized, accountType);
+      const result = await checkActivationRequired(
+        normalized,
+        accountType === "business" ? "business" : "personal"
+      );
       setActivationRequired(Boolean(result.activation_required));
     }, 350);
 
     return () => clearTimeout(timer);
   }, [accountType, email]);
 
-  const onLogin = async () => {
-    if (accountType === "agent") { router.push("/agents" as never); return; }
+  const goHome = (route: ReturnType<typeof homeRouteForAccount>) => {
+    void registerPushTokenAfterLogin();
+    router.replace(route as never);
+  };
+
+  const maybeOfferBiometrics = async (input: {
+    email: string;
+    password: string;
+    accountType: AccountType;
+    home: ReturnType<typeof homeRouteForAccount>;
+  }) => {
+    const status = await getBiometricStatus();
+    setBiometric(status);
+    const offer = shouldOfferBiometricSetup({
+      available: status.available,
+      enrolled: status.enrolled,
+      enabled: status.enabled,
+      enabledEmail: status.hint?.email,
+      currentEmail: input.email,
+    });
+    if (offer === "none") {
+      goHome(input.home);
+      return;
+    }
+    pendingSetup.current = input;
+    setSetupKind(status.kind);
+    setSetupMode(offer);
+    setSetupEmail(input.email);
+    setSetupOpen(true);
+  };
+
+  const onLogin = async (override?: { email: string; password: string; accountType: LoginAccountType }) => {
     setError(null);
     setMessage(null);
-    if (!email.trim() || !password.trim()) {
+    const loginEmail = (override?.email ?? email).trim();
+    const loginPassword = override?.password ?? password;
+    const loginType = override?.accountType ?? accountType;
+    if (!loginEmail || !loginPassword.trim()) {
       setError("Enter your email and password.");
       return;
     }
 
     setLoading(true);
     try {
-      const result =
-        accountType === "business"
-          ? await loginBusiness({ email, password, activationCode })
+      const authKind: "personal" | "business" = loginType === "business" ? "business" : "personal";
+      let result =
+        authKind === "business"
+          ? await loginBusiness({ email: loginEmail, password: loginPassword, activationCode })
           : await loginPersonal({
-              email,
-              password,
+              email: loginEmail,
+              password: loginPassword,
               activationCode,
               twoFactorCode,
             });
+      let sessionType: AccountType = loginType === "agent" ? "agent" : authKind;
 
       if (result.two_factor_required && !result.token) {
+        setAccountType(loginType);
+        setEmail(loginEmail);
+        setPassword(loginPassword);
         setTwoFactorRequired(true);
         setMessage(result.message || "Enter the code sent to your email.");
         return;
       }
 
       if (!result.success || !result.token) {
+        if (override) {
+          await disableBiometricLogin();
+          setBiometric(await getBiometricStatus());
+          setError("Biometric sign-in is out of date. Enter your password.");
+          return;
+        }
         setError(friendlyError(result.message || "Sign in failed."));
         return;
       }
 
-      const resolvedType = String(result.user?.account_type || accountType);
-      if (accountType === "business" && !isBusinessAccountType(resolvedType)) {
-        setError("That login is not a business account.");
-        return;
-      }
-      if (accountType === "personal" && resolvedType && !isPersonalAccountType(resolvedType)) {
-        setError("That login is not a personal account. Switch to Business and try again.");
-        return;
-      }
-
-      const user = {
+      const profile = await getUserProfile({ token: result.token, skipUnauthorized: true });
+      const mergedUser = {
         ...(result.user || {}),
-        account_type: accountType,
+        ...(profile.user || {}),
+        signup_intent: result.user?.signup_intent || profile.user?.signup_intent,
+        agent_type: result.user?.agent_type || profile.user?.agent_type,
+        agent_status: result.user?.agent_status || profile.user?.agent_status,
       };
-      await saveSession({ token: result.token, accountType, user });
-
-      const profile = await getUserProfile();
-      if (profile.success && profile.user) {
-        await saveSession({
-          token: result.token,
-          accountType,
-          user: { ...user, ...profile.user, account_type: accountType },
-        });
+      const resolvedType = String(mergedUser.account_type || authKind);
+      if (!loginMatchesAccount(loginType === "agent" ? "agent" : sessionType, mergedUser, resolvedType)) {
+        setError(loginMismatchMessage(loginType === "agent" ? "agent" : sessionType));
+        return;
       }
 
-      void registerPushTokenAfterLogin();
-      router.replace((accountType === "business" ? "/business" : "/home") as never);
+      const storedType: AccountType = loginType === "agent" ? "agent" : sessionType;
+      const user = {
+        ...mergedUser,
+        account_type: storedType,
+      };
+      await saveSession({ token: result.token, accountType: storedType, user });
+      await maybeOfferBiometrics({
+        email: loginEmail,
+        password: loginPassword,
+        accountType: loginType === "agent" ? "agent" : storedType,
+        home: homeRouteForAccount(loginType === "agent" ? "agent" : storedType),
+      });
     } catch {
       setError(friendlyError("offline"));
     } finally {
@@ -159,14 +248,67 @@ export default function LoginScreen() {
     }
   };
 
+  const onBiometricLogin = async () => {
+    if (biometricBusy || loading || forgot) return;
+    setError(null);
+    setMessage(null);
+    setBiometricBusy(true);
+    try {
+      const unlocked = await unlockBiometricCredentials();
+      if (!unlocked.success || !unlocked.credentials) {
+        setError(unlocked.message || "Biometric sign-in was cancelled.");
+        setBiometric(await getBiometricStatus());
+        return;
+      }
+      if (unlocked.credentials.accountType !== accountType) {
+        setError("Those biometrics belong to a different account type. Sign in with that account's email and password.");
+        return;
+      }
+      setAccountType(unlocked.credentials.accountType);
+      setEmail(unlocked.credentials.email);
+      await onLogin(unlocked.credentials);
+    } finally {
+      setBiometricBusy(false);
+    }
+  };
+
+  const finishSetup = (route?: ReturnType<typeof homeRouteForAccount>) => {
+    const home = route || pendingSetup.current?.home || "/home";
+    pendingSetup.current = null;
+    setSetupOpen(false);
+    goHome(home);
+  };
+
+  const onEnableBiometrics = async () => {
+    const pending = pendingSetup.current;
+    if (!pending) {
+      finishSetup();
+      return;
+    }
+    setSetupBusy(true);
+    const result = await enableBiometricLogin({
+      email: pending.email,
+      password: pending.password,
+      accountType: pending.accountType,
+    });
+    setSetupBusy(false);
+    if (!result.success) {
+      setError(result.message || "Could not turn on biometric sign-in.");
+      return;
+    }
+    finishSetup(pending.home);
+  };
+
   const onForgot = async () => {
-    if (accountType === "agent") return;
     setError(null);
     setMessage(null);
     setForgotLoading(true);
     try {
       if (forgotStep === "email") {
-        const result = await requestPasswordResetOtp(forgotEmail, accountType);
+        const result = await requestPasswordResetOtp(
+          forgotEmail,
+          accountType === "business" ? "business" : "personal"
+        );
         if (!result.success) {
           setError(friendlyError(result.message || "Could not send reset code."));
           return;
@@ -207,7 +349,6 @@ export default function LoginScreen() {
   };
 
   const onResendActivation = async () => {
-    if (accountType === "agent") return;
     setError(null);
     setMessage(null);
     const normalized = email.toLowerCase().trim();
@@ -218,7 +359,10 @@ export default function LoginScreen() {
 
     setResendLoading(true);
     try {
-      const result = await resendActivation(normalized, accountType);
+      const result = await resendActivation(
+        normalized,
+        accountType === "business" ? "business" : "personal"
+      );
       if (!result.success) {
         setError(friendlyError(result.message || "Could not resend the activation code."));
         return;
@@ -243,7 +387,7 @@ export default function LoginScreen() {
             styles.content,
             { paddingBottom: Math.max(insets.bottom, 24) },
           ]}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
           <FadeIn delay={40}>
@@ -271,7 +415,7 @@ export default function LoginScreen() {
                 setTwoFactorCode("");
                 setForgot(false);
               }} />
-              {accountType === "agent" && <Text style={styles.subtitle}>Agent login is coming soon. Explore the dashboard preview; your credentials will not be submitted.</Text>}
+              
             </View>
           </FadeIn>
 
@@ -398,7 +542,14 @@ export default function LoginScreen() {
                   )}
                   <Pressable
                     onPress={() => {
-                      if (accountType === "agent") { setMessage("Agent password recovery is coming soon."); return; }
+                      if (accountType === "agent") {
+                        setForgot(true);
+                        setForgotEmail(email);
+                        setForgotStep("email");
+                        setError(null);
+                        setMessage(null);
+                        return;
+                      }
                       setForgot(true);
                       setForgotEmail(email);
                       setForgotStep("email");
@@ -413,10 +564,29 @@ export default function LoginScreen() {
                 {error ? <ErrorBanner message={error} /> : null}
                 {message ? <Text style={styles.success}>{message}</Text> : null}
                 <AppButton
-                  label={accountType === "agent" ? "Preview agent dashboard" : "Log in"}
+                  label="Log in"
                   onPress={() => void onLogin()}
                   loading={loading}
+                  disabled={biometricBusy}
                 />
+                {biometric?.enabled && biometric.available ? (
+                  <Pressable
+                    onPress={() => void onBiometricLogin()}
+                    disabled={loading || biometricBusy}
+                    accessibilityRole="button"
+                    accessibilityLabel={biometricCopy(biometric.kind).action}
+                    style={({ pressed }) => [styles.biometricBtn, pressed && styles.biometricPressed]}
+                  >
+                    <Ionicons
+                      name={biometricCopy(biometric.kind).icon}
+                      size={20}
+                      color={colors.primary}
+                    />
+                    <Text style={styles.biometricLabel}>
+                      {biometricBusy ? "Unlocking…" : biometricCopy(biometric.kind).action}
+                    </Text>
+                  </Pressable>
+                ) : null}
               </FadeIn>
 
               <FadeIn delay={440} style={styles.footer}>
@@ -442,6 +612,15 @@ export default function LoginScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+      <BiometricSetupSheet
+        visible={setupOpen}
+        busy={setupBusy}
+        kind={setupKind}
+        mode={setupMode}
+        email={setupEmail}
+        onEnable={() => void onEnableBiometrics()}
+        onSkip={() => finishSetup()}
+      />
     </View>
   );
 }
@@ -482,6 +661,26 @@ const styles = StyleSheet.create({
   },
   form: {
     marginTop: 18,
+  },
+  biometricBtn: {
+    marginTop: 12,
+    minHeight: 52,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  biometricLabel: {
+    fontFamily: "Montserrat_700Bold",
+    fontSize: 15,
+    color: colors.primary,
+  },
+  biometricPressed: {
+    opacity: 0.72,
   },
   actionsRow: {
     flexDirection: "row",

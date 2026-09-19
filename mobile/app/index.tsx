@@ -3,7 +3,8 @@ import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import SplashScreen from "../src/screens/SplashScreen";
 import { isOnboardingComplete } from "../src/storage/onboarding";
-import { getActiveSession } from "../src/storage/session";
+import { getActiveSession, homeRouteForAccount } from "../src/storage/session";
+import { loadSignupDraft, signupDraftRoute } from "../src/storage/signupDraft";
 
 export default function Index() {
   const router = useRouter();
@@ -12,7 +13,12 @@ export default function Index() {
     void (async () => {
       const session = await getActiveSession();
       if (session?.token) {
-        router.replace((session.accountType === "business" ? "/business" : "/home") as never);
+        router.replace(homeRouteForAccount(session.accountType) as never);
+        return;
+      }
+      const draft = await loadSignupDraft();
+      if (draft) {
+        router.replace(signupDraftRoute(draft) as never);
         return;
       }
       const done = await isOnboardingComplete();
