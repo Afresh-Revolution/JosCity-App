@@ -13,6 +13,7 @@ export type PersonalSignupDraft = {
   confirm: string;
   firstName: string;
   lastName: string;
+  username?: string;
   gender: string;
   address: string;
   nin: string;

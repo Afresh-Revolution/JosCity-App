@@ -27,10 +27,10 @@ import {
   unlockBiometricCredentials,
   type BiometricStatus,
 } from "../biometrics/biometrics";
-import { biometricCopy } from "../biometrics/logic";
 import { useTheme } from "../theme/ThemeProvider";
 import type { Palette } from "../theme/colors";
 import AppButton from "./AppButton";
+import BiometricScanButton from "./BiometricScanButton";
 import TextField from "./TextField";
 
 type Props = {
@@ -240,19 +240,23 @@ export default function BusinessAccountSheet({
 
             {error ? <ErrorBanner message={error} /> : null}
 
-            <AppButton
-              label={t("profile.businessContinue")}
-              onPress={() => void onSubmit()}
-              loading={loading}
-            />
-            {canUseBiometrics ? (
+            <View style={styles.actions}>
               <AppButton
-                label={biometricBusy ? "Unlocking…" : biometricCopy(biometric?.kind || "generic").action}
-                variant="secondary"
-                onPress={() => void onBiometric()}
-                disabled={loading || biometricBusy}
+                label={t("profile.businessContinue")}
+                onPress={() => void onSubmit()}
+                loading={loading}
+                disabled={biometricBusy}
+                style={styles.continue}
               />
-            ) : null}
+              {canUseBiometrics ? (
+                <BiometricScanButton
+                  kind={biometric?.kind}
+                  busy={biometricBusy}
+                  disabled={loading}
+                  onPress={() => void onBiometric()}
+                />
+              ) : null}
+            </View>
             <Pressable
               onPress={() => {
                 onClose();
@@ -313,6 +317,14 @@ function makeStyles(colors: Palette) {
       lineHeight: 20,
       color: colors.textMuted,
       marginBottom: 18,
+    },
+    actions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    continue: {
+      flex: 1,
     },
     create: {
       alignItems: "center",

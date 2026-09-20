@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import SplashScreen from "../src/screens/SplashScreen";
 import { isOnboardingComplete } from "../src/storage/onboarding";
+import { registerPushTokenAfterLogin } from "../src/push/pushNotifications";
 import { getActiveSession, homeRouteForAccount } from "../src/storage/session";
 import { loadSignupDraft, signupDraftRoute } from "../src/storage/signupDraft";
 
@@ -13,6 +14,7 @@ export default function Index() {
     void (async () => {
       const session = await getActiveSession();
       if (session?.token) {
+        void registerPushTokenAfterLogin();
         router.replace(homeRouteForAccount(session.accountType) as never);
         return;
       }

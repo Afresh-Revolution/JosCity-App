@@ -3,8 +3,8 @@ export const JOB_STEPS = ["Accepted", "Sourcing", "Ready for delivery", "Out for
 export type PreviewRequest = { id: string; title: string; service: string; category: string; description: string; budget: string; pickup: string; destination: string; deadline: string; images: string[]; customer: string; target?: string; stage: number; agent?: string; publicHandoff?: boolean };
 let state = {
   requestAlerts: true, jobAlerts: true, messageAlerts: true,
-  firstName: "", lastName: "", phone: "", email: "", gender: "", address: "",
-  avatar: "", nin: "", accepting: true, services: [] as string[], category: "", bio: "",
+  firstName: "", lastName: "", username: "", phone: "", email: "", gender: "", address: "",
+  avatar: "", nin: "", accepting: true, services: [] as string[], category: "", bio: "", workingAreas: "",
   requests: [] as PreviewRequest[],
 };
 const listeners = new Set<() => void>();

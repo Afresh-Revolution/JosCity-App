@@ -22,7 +22,8 @@ export type SafetyContentType =
   | "message"
   | "conversation"
   | "listing"
-  | "general";
+  | "general"
+  | "agent";
 
 export async function submitSafetyReport(input: {
   contentType: SafetyContentType;

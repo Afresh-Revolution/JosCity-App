@@ -20,7 +20,7 @@ import {
   submitOrderReview,
   type PendingRating,
 } from "../api/marketplace";
-import { showError, showNotice } from "./AppNotice";
+import { ErrorBanner, showNotice } from "./AppNotice";
 import { useI18n } from "../i18n/I18nProvider";
 import {
   clearRequestedRatingOrder,
@@ -42,6 +42,7 @@ export default function RatingPromptHost() {
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
@@ -50,6 +51,7 @@ export default function RatingPromptHost() {
     setPrompt(null);
     setRating(0);
     setComment("");
+    setError(null);
     clearRequestedRatingOrder();
   }, []);
 
@@ -61,6 +63,7 @@ export default function RatingPromptHost() {
     setPrompt(next);
     setRating(0);
     setComment("");
+    setError(null);
   }, [close]);
 
   const loadAuto = useCallback(async () => {
@@ -78,6 +81,10 @@ export default function RatingPromptHost() {
     const result = await getRatingPrompt(orderId);
     if (result.success && result.data) {
       showPrompt(result.data);
+      return;
+    }
+    if (/already rated/i.test(String(result.message || ""))) {
+      showNotice({ title: result.message || t("rating.already"), tone: "info" });
       return;
     }
     const data = await getPendingRatings();
@@ -113,25 +120,26 @@ export default function RatingPromptHost() {
   const onSubmit = async () => {
     if (!prompt) return;
     if (rating < 1) {
-      showError(t("rating.chooseStars"));
+      setError(t("rating.chooseStars"));
       return;
     }
     setSaving(true);
+    setError(null);
     const result = await submitOrderReview(prompt.order_id, {
       rating,
       comment: comment.trim(),
     });
     setSaving(false);
     if (!result.success) {
-      showError(result.message || t("rating.submitError"));
+      setError(result.message || t("rating.submitError"));
       return;
     }
+    close();
     showNotice({
       title: t("rating.thanksTitle"),
       message: t("rating.thanksBody"),
       tone: "success",
     });
-    close();
     void loadAuto();
   };
 
@@ -158,7 +166,10 @@ export default function RatingPromptHost() {
             {[1, 2, 3, 4, 5].map((value) => (
               <Pressable
                 key={value}
-                onPress={() => setRating(value)}
+                onPress={() => {
+                  setRating(value);
+                  setError(null);
+                }}
                 hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel={t("help.star", { count: value })}
@@ -179,6 +190,7 @@ export default function RatingPromptHost() {
             multiline
             style={styles.input}
           />
+          {error ? <View style={{ marginTop: 12 }}><ErrorBanner message={error} /></View> : null}
           <Pressable
             onPress={() => void onSubmit()}
             disabled={saving}

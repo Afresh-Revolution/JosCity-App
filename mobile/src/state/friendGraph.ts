@@ -9,6 +9,7 @@ import {
   type FriendGraph,
   type FriendStatus,
 } from "../api/social";
+import { getAccountType, getUser, isDedicatedAgentAccount } from "../storage/session";
 
 const emptyGraph = (): FriendGraph => ({
   statusByUser: {},
@@ -87,6 +88,8 @@ export function patchFriendStatus(
 }
 
 export async function addFriend(userId: number): Promise<boolean> {
+  const [user, type] = await Promise.all([getUser(), getAccountType()]);
+  if (isDedicatedAgentAccount(user, type)) return false;
   const result = await createFriendRequest(userId);
   if (!result.success) return false;
   patchFriendStatus(userId, "sent", result.requestId);
@@ -110,6 +113,8 @@ export async function cancelOutgoing(userId: number): Promise<boolean> {
 }
 
 export async function acceptIncoming(userId: number, requestId?: number): Promise<boolean> {
+  const [user, type] = await Promise.all([getUser(), getAccountType()]);
+  if (isDedicatedAgentAccount(user, type)) return false;
   let id = requestId || graph.receivedRequestIdByUser[userId];
   if (!id) {
     await refreshFriendGraph();

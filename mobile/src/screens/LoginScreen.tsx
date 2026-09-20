@@ -13,6 +13,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AppButton from "../components/AppButton";
+import BiometricScanButton from "../components/BiometricScanButton";
 import FadeIn from "../components/FadeIn";
 import { ErrorBanner } from "../components/AppNotice";
 import TextField from "../components/TextField";
@@ -21,6 +22,7 @@ import {
   getUserProfile,
   loginBusiness,
   loginPersonal,
+  loginAgent,
   requestPasswordResetOtp,
   resendActivation,
   resetPasswordWithOtp,
@@ -36,12 +38,13 @@ import {
   unlockBiometricCredentials,
   type BiometricStatus,
 } from "../biometrics/biometrics";
-import { biometricCopy, shouldOfferBiometricSetup, type BiometricKind } from "../biometrics/logic";
+import { shouldOfferBiometricSetup, type BiometricKind } from "../biometrics/logic";
 import { registerPushTokenAfterLogin } from "../push/pushNotifications";
 import {
   homeRouteForAccount,
   loginMatchesAccount,
   loginMismatchMessage,
+  mergeStoredUser,
   saveSession,
   type AccountType,
 } from "../storage/session";
@@ -131,7 +134,7 @@ export default function LoginScreen() {
     const timer = setTimeout(async () => {
       const result = await checkActivationRequired(
         normalized,
-        accountType === "business" ? "business" : "personal"
+        accountType
       );
       setActivationRequired(Boolean(result.activation_required));
     }, 350);
@@ -183,17 +186,22 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      const authKind: "personal" | "business" = loginType === "business" ? "business" : "personal";
       let result =
-        authKind === "business"
+        loginType === "business"
           ? await loginBusiness({ email: loginEmail, password: loginPassword, activationCode })
-          : await loginPersonal({
-              email: loginEmail,
-              password: loginPassword,
-              activationCode,
-              twoFactorCode,
-            });
-      let sessionType: AccountType = loginType === "agent" ? "agent" : authKind;
+          : loginType === "agent"
+            ? await loginAgent({
+                email: loginEmail,
+                password: loginPassword,
+                activationCode,
+                twoFactorCode,
+              })
+            : await loginPersonal({
+                email: loginEmail,
+                password: loginPassword,
+                activationCode,
+                twoFactorCode,
+              });
 
       if (result.two_factor_required && !result.token) {
         setAccountType(loginType);
@@ -215,17 +223,18 @@ export default function LoginScreen() {
         return;
       }
 
+      const sessionType: AccountType =
+        loginType === "agent" ? "agent" : loginType === "business" ? "business" : "personal";
       const profile = await getUserProfile({ token: result.token, skipUnauthorized: true });
-      const mergedUser = {
-        ...(result.user || {}),
+      const mergedUser = mergeStoredUser(result.user, {
         ...(profile.user || {}),
         signup_intent: result.user?.signup_intent || profile.user?.signup_intent,
         agent_type: result.user?.agent_type || profile.user?.agent_type,
         agent_status: result.user?.agent_status || profile.user?.agent_status,
-      };
-      const resolvedType = String(mergedUser.account_type || authKind);
-      if (!loginMatchesAccount(loginType === "agent" ? "agent" : sessionType, mergedUser, resolvedType)) {
-        setError(loginMismatchMessage(loginType === "agent" ? "agent" : sessionType));
+      });
+      const resolvedType = String(mergedUser.account_type || sessionType);
+      if (!loginMatchesAccount(sessionType, mergedUser, resolvedType)) {
+        setError(loginMismatchMessage(sessionType));
         return;
       }
 
@@ -359,10 +368,7 @@ export default function LoginScreen() {
 
     setResendLoading(true);
     try {
-      const result = await resendActivation(
-        normalized,
-        accountType === "business" ? "business" : "personal"
-      );
+      const result = await resendActivation(normalized, accountType);
       if (!result.success) {
         setError(friendlyError(result.message || "Could not resend the activation code."));
         return;
@@ -387,7 +393,8 @@ export default function LoginScreen() {
             styles.content,
             { paddingBottom: Math.max(insets.bottom, 24) },
           ]}
-          keyboardShouldPersistTaps="always"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
           <FadeIn delay={40}>
@@ -563,30 +570,23 @@ export default function LoginScreen() {
                 </View>
                 {error ? <ErrorBanner message={error} /> : null}
                 {message ? <Text style={styles.success}>{message}</Text> : null}
-                <AppButton
-                  label="Log in"
-                  onPress={() => void onLogin()}
-                  loading={loading}
-                  disabled={biometricBusy}
-                />
-                {biometric?.enabled && biometric.available ? (
-                  <Pressable
-                    onPress={() => void onBiometricLogin()}
-                    disabled={loading || biometricBusy}
-                    accessibilityRole="button"
-                    accessibilityLabel={biometricCopy(biometric.kind).action}
-                    style={({ pressed }) => [styles.biometricBtn, pressed && styles.biometricPressed]}
-                  >
-                    <Ionicons
-                      name={biometricCopy(biometric.kind).icon}
-                      size={20}
-                      color={colors.primary}
+                <View style={styles.loginRow}>
+                  <AppButton
+                    label="Log in"
+                    onPress={() => void onLogin()}
+                    loading={loading}
+                    disabled={biometricBusy}
+                    style={styles.loginBtn}
+                  />
+                  {biometric?.enabled && biometric.available ? (
+                    <BiometricScanButton
+                      kind={biometric.kind}
+                      busy={biometricBusy}
+                      disabled={loading}
+                      onPress={() => void onBiometricLogin()}
                     />
-                    <Text style={styles.biometricLabel}>
-                      {biometricBusy ? "Unlocking…" : biometricCopy(biometric.kind).action}
-                    </Text>
-                  </Pressable>
-                ) : null}
+                  ) : null}
+                </View>
               </FadeIn>
 
               <FadeIn delay={440} style={styles.footer}>
@@ -662,25 +662,13 @@ const styles = StyleSheet.create({
   form: {
     marginTop: 18,
   },
-  biometricBtn: {
-    marginTop: 12,
-    minHeight: 52,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
+  loginRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
+    gap: 10,
   },
-  biometricLabel: {
-    fontFamily: "Montserrat_700Bold",
-    fontSize: 15,
-    color: colors.primary,
-  },
-  biometricPressed: {
-    opacity: 0.72,
+  loginBtn: {
+    flex: 1,
   },
   actionsRow: {
     flexDirection: "row",

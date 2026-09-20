@@ -1,11 +1,12 @@
 import { useCallback, useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import AppButton from "../components/AppButton";
+import TextField from "../components/TextField";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { getAccountType, getAuthToken, getUser, homeRouteForAccount, isDedicatedAgentAccount, switchToSession, type StoredSession, type StoredUser } from "../storage/session";
+import { getAccountType, getAuthToken, getUser, homeRouteForAccount, setUser, switchToSession, type StoredSession, type StoredUser } from "../storage/session";
 import SwitchAccountSheet, { type SwitchAccountType } from "../components/SwitchAccountSheet";
 import BusinessAccountSheet from "../components/BusinessAccountSheet";
 import FeedHeader from "../components/feed/FeedHeader";
@@ -13,8 +14,10 @@ import AgentWorkPanel from "../components/agents/AgentWorkPanel";
 import AgentProfileEditor from "../components/agents/AgentProfileEditor";
 import AgentReputationCard from "../components/agents/AgentReputationCard";
 import AgentSourcedCatalogue from "../components/agents/AgentSourcedCatalogue";
+import AgentServiceChecks from "../components/agents/AgentServiceChecks";
 import JosCityLoader from "../components/JosCityLoader";
-import { HELP_ME_BUY, HELP_ME_DELIVER, toggleAgentServices } from "../api/agentSignup";
+import { categoriesFromText } from "../api/agentSignup";
+import { agentApi } from "../api/agent";
 import { useAgentPreview, updateAgentPreview } from "../state/agentPreview";
 import { useAgentActivation } from "../state/useAgentActivation";
 import AgentTabBar from "../components/agents/AgentTabBar";
@@ -23,6 +26,7 @@ import { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import { useI18n } from "../i18n/I18nProvider";
 import { useTheme } from "../theme/ThemeProvider";
 import { resolveAccountBadgeColor } from "../utils/badgeColor";
+import { normalizeUsername, usernameError } from "../utils/accountNames";
 import type { Palette } from "../theme/colors";
 
 function naira(value: unknown) {
@@ -34,6 +38,7 @@ export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard"
   const { t } = useI18n();
   const [editingProfile, setEditingProfile] = useState(false);
   const [photoError, setPhotoError] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
   const [switchChooserOpen, setSwitchChooserOpen] = useState(false);
   const [switchLoginOpen, setSwitchLoginOpen] = useState(false);
   const [switchLoginType, setSwitchLoginType] = useState<SwitchAccountType>("personal");
@@ -55,8 +60,7 @@ export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard"
       if (!active) return;
       setAuthed(Boolean(token));
       setSessionUser(user);
-      if (isDedicatedAgentAccount(user, type)) setSwitchAllowed([]);
-      else if (type === "business") setSwitchAllowed(["personal", "agent"]);
+      if (type === "business") setSwitchAllowed(["personal", "agent"]);
       else setSwitchAllowed(["personal", "business"]);
     });
     return () => { active = false; };
@@ -66,6 +70,57 @@ export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard"
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
       if (!result.canceled) { updateAgentPreview({ avatar: result.assets[0].uri }); setPhotoError(""); }
     } catch { setPhotoError("Could not open photos. Check your photo permissions and try again."); }
+  };
+  const saveProfileEdits = async () => {
+    const firstName = agentPreview.firstName.trim();
+    const lastName = agentPreview.lastName.trim();
+    const username = normalizeUsername(agentPreview.username);
+    if (!firstName || !lastName) {
+      setPhotoError("Enter your first and last name.");
+      return;
+    }
+    const handleMessage = usernameError(username);
+    if (handleMessage) {
+      setPhotoError(handleMessage);
+      return;
+    }
+    setSavingProfile(true);
+    setPhotoError("");
+    try {
+      await agentApi.updateMe({
+        firstName,
+        lastName,
+        ...(username ? { userName: username } : {}),
+        bio: agentPreview.bio,
+        categories: categoriesFromText(agentPreview.category),
+        workingAreas: String(agentPreview.workingAreas || "")
+          .split(/[,/|]/)
+          .map((item) => item.trim())
+          .filter(Boolean),
+        baseAddress: agentPreview.address || undefined,
+      });
+      updateAgentPreview({ firstName, lastName, username });
+      const user = await getUser();
+      if (user) {
+        const next = {
+          ...user,
+          user_firstname: firstName,
+          user_lastname: lastName,
+          first_name: firstName,
+          last_name: lastName,
+          display_name: `${firstName} ${lastName}`.trim(),
+          ...(username ? { user_name: username, username } : {}),
+        };
+        await setUser(next);
+        setSessionUser(next);
+      }
+      await activation.refresh();
+      setEditingProfile(false);
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : "Could not save your profile.");
+    } finally {
+      setSavingProfile(false);
+    }
   };
   const badgeColor = resolveAccountBadgeColor({
     badge_color: typeof sessionUser?.badge_color === "string" ? sessionUser.badge_color : null,
@@ -111,7 +166,7 @@ export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard"
         <FeedHeader unreadCount={unread} showSearch={false} onNotifications={() => router.push("/agents/notifications" as never)} />
       )}
     </View>
-    <ScrollView contentContainerStyle={[s.content, { paddingBottom: TAB_BAR_SPACE + insets.bottom + 36 }]} keyboardShouldPersistTaps="always">
+    <ScrollView contentContainerStyle={[s.content, { paddingBottom: TAB_BAR_SPACE + insets.bottom + 36 }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
       {page !== "profile" ? <View style={s.row}><Text style={s.link}>AGENTS</Text></View> : null}
       {page === "settings" ? (
         <>
@@ -134,6 +189,7 @@ export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard"
         <AppButton label="Map" variant="secondary" onPress={() => router.push("/agents/map" as never)} />
         <View style={s.grid}>{[["Active jobs", String(activation.stats?.active_jobs ?? 0), "Live from your account"], ["Pending quotes", String(activation.stats?.pending_quotes ?? 0), "Waiting for a customer"], ["Completed today", String(activation.stats?.completed_today ?? 0), "Jobs finished today"], ["Your rating", Number(activation.profile?.agent_rating_avg || 0).toFixed(1), `${activation.profile?.agent_completed_jobs_count || 0} completed jobs`]].map(([label, value, caption]) => <View key={label} style={[s.card, { width: wide ? "23.5%" : "48%" }]}><Text style={s.muted}>{label}</Text><Text style={s.metric}>{value}</Text><Text style={s.link}>{caption}</Text></View>)}</View>
         <View style={s.card}><View style={s.row}>{title("Protected fees")}<Text style={s.bold}>{naira(activation.stats?.held_agent_fees)}</Text></View><Text style={s.muted}>Held until the customer confirms delivery.</Text></View>
+        <View style={s.card}><View style={s.row}>{title("Vendor payouts")}<Text style={s.bold}>{String(activation.stats?.pending_payouts ?? 0)} pending</Text></View><Text style={s.muted}>External bank payouts stay pending until admin marks them paid. JosCity businesses are credited to wallet by email.</Text></View>
         {title("Earnings")}
         <View style={s.grid}>
           {([
@@ -142,7 +198,7 @@ export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard"
             ["Completed today", String(activation.stats?.completed_today ?? 0), "Jobs finished today"],
             ["Lifetime jobs", String(activation.profile?.agent_completed_jobs_count ?? 0), "All completed jobs"],
           ] as const).map(([label, value, caption]) => {
-            const tileStyle = [s.card, { width: wide ? "23.5%" : "48%" }] as const;
+            const tileWidth: `${number}%` = wide ? "23.5%" : "48%";
             const body = (
               <>
                 <Text style={s.muted}>{label}</Text>
@@ -151,9 +207,9 @@ export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard"
               </>
             );
             return label === "Wallet" ? (
-              <Pressable key={label} accessibilityRole="button" accessibilityLabel="Open wallet" onPress={() => router.push("/agents/wallet" as never)} style={tileStyle}>{body}</Pressable>
+              <Pressable key={label} accessibilityRole="button" accessibilityLabel="Open wallet" onPress={() => router.push("/agents/wallet" as never)} style={[s.card, { width: tileWidth }]}>{body}</Pressable>
             ) : (
-              <View key={label} style={tileStyle}>{body}</View>
+              <View key={label} style={[s.card, { width: tileWidth }]}>{body}</View>
             );
           })}
         </View>
@@ -167,13 +223,76 @@ export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard"
           </Pressable>
           {photoError ? <Text accessibilityRole="alert" style={{ color: colors.error }}>{photoError}</Text> : null}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><Text style={[s.section, { fontSize: 24 }]}>{displayName}</Text><Ionicons name="checkmark-circle" size={23} color={badgeColor} /></View>
+          {agentPreview.username ? <Text style={s.muted}>@{normalizeUsername(agentPreview.username)}</Text> : null}
           <Text style={s.muted}>Agent - {agentPreview.address || "Jos North, Plateau"}</Text>
           <Text style={[s.muted, { textAlign: "center" }]}>{agentPreview.bio}</Text>
           <View style={[s.row, { width: "100%", justifyContent: "space-around", paddingVertical: 12 }]}>{[[`${Number(activation.profile?.agent_rating_avg || 0).toFixed(1)}`, "Rating"], [String(activation.profile?.agent_completed_jobs_count ?? 0), "Completed"], [activation.profile?.star_level?.label || "Agent", "Level"]].map(([value, label]) => <View key={label} style={{ alignItems: "center", gap: 5 }}><Text style={s.section}>{value}</Text><Text style={s.muted}>{label}</Text></View>)}</View>
-          <AppButton label={editingProfile ? "Done editing" : "Edit profile"} variant="secondary" onPress={() => setEditingProfile(!editingProfile)} style={{ width: "100%" }} />
+          <AppButton
+            label={editingProfile ? (savingProfile ? "Saving…" : "Done editing") : "Edit profile"}
+            variant="secondary"
+            disabled={savingProfile}
+            onPress={() => {
+              if (editingProfile) void saveProfileEdits();
+              else setEditingProfile(true);
+            }}
+            style={{ width: "100%" }}
+          />
         </View>
-        <View style={s.card}>{title("Services & specialties")}<View style={s.filters}>{agentPreview.services.map(service => <View key={service} style={s.chip}><Text style={s.link}>{service}</Text></View>)}</View>{row("Specialties", agentPreview.category)}{row("Service area", agentPreview.address || "Jos North - Rayfield")}</View>
-        {editingProfile && <View style={s.card}>{title("Edit profile")}<Text style={s.muted}>Use the same fields from the create account page.</Text><Text style={s.bold}>Bio</Text><TextInput accessibilityLabel="Agent bio" multiline value={agentPreview.bio} onChangeText={bio => updateAgentPreview({ bio })} style={[s.card, { color: colors.text }]} /><Text style={s.bold}>Categories / specialties</Text><TextInput accessibilityLabel="Agent categories" value={agentPreview.category} onChangeText={category => updateAgentPreview({ category })} style={[s.card, { color: colors.text }]} /><View style={s.filters}>{[HELP_ME_BUY, HELP_ME_DELIVER].map(service => <Pressable key={service} accessibilityRole="checkbox" accessibilityState={{ checked: agentPreview.services.includes(service) }} onPress={() => updateAgentPreview({ services: toggleAgentServices(agentPreview.services, service) })} style={s.chip}><Text style={s.link}>{agentPreview.services.includes(service) ? "Selected: " : ""}{service}</Text></Pressable>)}</View></View>}
+        {editingProfile ? (
+          <View style={s.card}>
+            {title("Edit profile")}
+            <Text style={s.muted}>Update this section to change your profile picture, name, username, bio, categories, services and working areas.</Text>
+            <TextField
+              label="First name"
+              value={agentPreview.firstName}
+              onChangeText={(firstName) => updateAgentPreview({ firstName })}
+              autoCapitalize="words"
+              placeholder="Amina"
+            />
+            <TextField
+              label="Last name"
+              value={agentPreview.lastName}
+              onChangeText={(lastName) => updateAgentPreview({ lastName })}
+              autoCapitalize="words"
+              placeholder="Danjuma"
+            />
+            <TextField
+              label="Username"
+              value={agentPreview.username}
+              onChangeText={(username) => updateAgentPreview({ username: username.replace(/^@+/, "") })}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="amina.jos"
+              helper="Letters, numbers, underscores or periods."
+            />
+            <TextField
+              label="Bio"
+              value={agentPreview.bio}
+              onChangeText={(bio) => updateAgentPreview({ bio })}
+              multiline
+              placeholder="Tell customers how you can help"
+            />
+            <TextField
+              label="Categories / specialties"
+              value={agentPreview.category}
+              onChangeText={(category) => updateAgentPreview({ category })}
+              placeholder="Electronics, groceries, fashion..."
+            />
+            <TextField
+              label="Working areas"
+              value={agentPreview.workingAreas}
+              onChangeText={(workingAreas) => updateAgentPreview({ workingAreas })}
+              placeholder="Terminus, Rayfield, Bukuru"
+              helper="Places you buy and deliver around, separated by commas."
+            />
+            <Text style={s.bold}>Services</Text>
+            <AgentServiceChecks
+              services={agentPreview.services}
+              onChange={(services) => updateAgentPreview({ services })}
+            />
+          </View>
+        ) : null}
+        <View style={s.card}>{title("Services & specialties")}<View style={s.filters}>{agentPreview.services.map(service => <View key={service} style={s.chip}><Text style={s.link}>{service}</Text></View>)}</View>{row("Specialties", agentPreview.category)}{row("Service area", agentPreview.address || "Jos North - Rayfield")}{row("Working areas", agentPreview.workingAreas || "Add areas you cover")}</View>
         <AgentReputationCard profile={activation.profile} accent={badgeColor} />
         <AgentSourcedCatalogue agentName={agentPreview.firstName || displayName} />
         {switchAllowed.length ? <View style={s.card}><Pressable accessibilityRole="button" onPress={() => setSwitchChooserOpen(true)} style={[s.row, { paddingVertical: 14 }]}><Text style={s.bold}>Switch account</Text><Ionicons name="swap-horizontal-outline" size={22} color={colors.primary} /></Pressable></View> : null}
@@ -207,5 +326,5 @@ const styles = (c: Palette) => StyleSheet.create({
   headerKicker: { fontFamily: "Montserrat_500Medium", fontSize: 11, letterSpacing: 0.4, color: c.textMuted, marginBottom: 2 },
   headerTitle: { fontFamily: "Montserrat_700Bold", fontSize: 32, color: c.text },
   gearBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }, wordmark: { fontFamily: "Montserrat_700Bold", color: c.primary, fontSize: 19 }, heading: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 32, color: c.text }, section: { fontFamily: "Montserrat_700Bold", fontSize: 18, color: c.text }, muted: { fontFamily: "Montserrat_400Regular", fontSize: 12, lineHeight: 20, color: c.textMuted }, bold: { fontFamily: "Montserrat_600SemiBold", fontSize: 14, color: c.text }, link: { fontFamily: "Montserrat_600SemiBold", fontSize: 11, color: c.primary }, hero: { backgroundColor: c.brand, padding: 22, borderRadius: 26, gap: 20 }, identity: { flexDirection: "row", alignItems: "center", gap: 14, marginVertical: 6 }, avatar: { width: 60, height: 60, borderRadius: 22, backgroundColor: "#E6EFE8", alignItems: "center", justifyContent: "center" }, heroTitle: { color: "white", fontFamily: "Montserrat_700Bold", fontSize: 17 }, heroCopy: { color: "#D2E5D8", fontFamily: "Montserrat_400Regular", fontSize: 12, lineHeight: 21 }, availability: { flexDirection: "row", alignItems: "center", padding: 16, borderRadius: 18, backgroundColor: "#24533C" }, grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 12 }, card: { backgroundColor: c.card, borderRadius: 22, borderWidth: 1, borderColor: c.border, padding: 18, gap: 12 }, metric: { color: c.text, fontFamily: "Montserrat_700Bold", fontSize: 27 }, earnValue: { color: c.text, fontFamily: "Montserrat_700Bold", fontSize: 20 }, chart: { flexDirection: "row", alignItems: "flex-end", paddingTop: 16 }, filters: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, chip: { padding: 12, borderRadius: 14, backgroundColor: c.navActive }, smallIcon: { width: 48, height: 52, borderRadius: 14, backgroundColor: c.iconSoft, alignItems: "center", justifyContent: "center" }, notice: { color: c.textMuted, fontFamily: "Montserrat_400Regular", fontSize: 12, lineHeight: 20, paddingVertical: 8 },
+  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }, wordmark: { fontFamily: "Montserrat_700Bold", color: c.primary, fontSize: 19 }, heading: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 32, color: c.text }, section: { fontFamily: "Montserrat_700Bold", fontSize: 18, color: c.text }, muted: { fontFamily: "Montserrat_400Regular", fontSize: 12, lineHeight: 20, color: c.textMuted }, bold: { fontFamily: "Montserrat_600SemiBold", fontSize: 14, color: c.text }, link: { fontFamily: "Montserrat_600SemiBold", fontSize: 11, color: c.primary }, hero: { backgroundColor: c.brand, padding: 22, borderRadius: 26, gap: 20 }, identity: { flexDirection: "row", alignItems: "center", gap: 14, marginVertical: 6 }, avatar: { width: 60, height: 60, borderRadius: 22, backgroundColor: "#E6EFE8", alignItems: "center", justifyContent: "center" }, heroTitle: { color: "white", fontFamily: "Montserrat_700Bold", fontSize: 17 }, heroCopy: { color: "#D2E5D8", fontFamily: "Montserrat_400Regular", fontSize: 12, lineHeight: 21 }, availability: { flexDirection: "row", alignItems: "center", padding: 16, borderRadius: 18, backgroundColor: "#24533C" }, grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 12 }, card: { backgroundColor: c.card, borderRadius: 22, borderWidth: 1, borderColor: c.border, padding: 18, gap: 12 }, metric: { color: c.text, fontFamily: "Montserrat_700Bold", fontSize: 27 }, earnValue: { color: c.text, fontFamily: "Montserrat_700Bold", fontSize: 20 }, chart: { flexDirection: "row", alignItems: "flex-end", paddingTop: 16 }, filters: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, chip: { padding: 12, borderRadius: 14, backgroundColor: c.navActive }, smallIcon: { width: 48, height: 52, borderRadius: 14, backgroundColor: c.iconSoft, alignItems: "center", justifyContent: "center" }, notice: { color: c.textMuted, fontFamily: "Montserrat_400Regular", fontSize: 12, lineHeight: 20, paddingVertical: 8 }, field: { minHeight: 48, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.sheet, paddingHorizontal: 14, paddingVertical: 12, fontFamily: "Montserrat_400Regular", fontSize: 14 },
 });

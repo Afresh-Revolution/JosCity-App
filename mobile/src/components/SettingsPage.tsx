@@ -76,6 +76,7 @@ export default function SettingsPage({
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         refreshControl={refreshControl}
       >
         {children}

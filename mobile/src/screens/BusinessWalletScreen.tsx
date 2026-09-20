@@ -113,7 +113,7 @@ export default function BusinessWalletScreen() {
   );
 
   const transactions = useMemo(() => {
-    const rows = wallet?.transactions || [];
+    const rows = (wallet?.transactions || []).filter((item) => item.status !== "failed");
     if (filter === "in") return rows.filter((item) => item.direction === "in");
     if (filter === "out") return rows.filter((item) => item.direction === "out");
     if (filter === "pending") return rows.filter((item) => item.status === "pending");
@@ -332,6 +332,7 @@ export default function BusinessWalletScreen() {
                   </View>
                   <View style={styles.txCopy}>
                     <Text style={styles.txTitle}>{item.title}</Text>
+                    {item.subtitle ? <Text style={styles.txMeta}>{item.subtitle}</Text> : null}
                     {badge ? (
                       <View style={[styles.badge, item.status === "failed" && styles.badgeFailed]}>
                         <Text

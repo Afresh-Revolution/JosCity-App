@@ -14,6 +14,7 @@ import {
   getAccountType,
   getUser,
   isBusinessAccountType,
+  mergeStoredUser,
   setUser,
   type StoredUser,
 } from "../storage/session";
@@ -74,7 +75,7 @@ export default function VerificationSecurityScreen() {
       : "";
 
     if (profile?.user) {
-      await setUser({ ...(stored || {}), ...profile.user });
+      await setUser(mergeStoredUser(stored, profile.user));
     }
 
     setInfo({

@@ -3,9 +3,11 @@ import { KeyboardAvoidingView, Modal, Platform, ScrollView, Text, View } from "r
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AppButton from "../AppButton";
 import TextField from "../TextField";
+import AgentServiceChecks from "./AgentServiceChecks";
 import { updateAgentPreview, useAgentPreview } from "../../state/agentPreview";
 import { useTheme } from "../../theme/ThemeProvider";
-import { HELP_ME_BUY, HELP_ME_DELIVER, toggleAgentServices, type PendingAgentApplication } from "../../api/agentSignup";
+import { type PendingAgentApplication } from "../../api/agentSignup";
+import { usernameError } from "../../utils/accountNames";
 
 export default function AgentProfileEditor({
   onClose,
@@ -19,7 +21,7 @@ export default function AgentProfileEditor({
   copy?: string;
 }) {
   const profile = useAgentPreview();
-  const [draft, setDraft] = useState({ ...profile, nin: profile.nin || "" });
+  const [draft, setDraft] = useState({ ...profile, nin: profile.nin || "", username: profile.username || "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const { colors } = useTheme();
@@ -27,34 +29,41 @@ export default function AgentProfileEditor({
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
-        <ScrollView keyboardShouldPersistTaps="always" contentContainerStyle={{ padding: 24, paddingBottom: insets.bottom + 24, width: "100%", maxWidth: 620, alignSelf: "center", gap: 12 }}>
+        <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: 24, paddingBottom: insets.bottom + 24, width: "100%", maxWidth: 620, alignSelf: "center", gap: 12 }}>
           <Text style={{ fontFamily: "PlayfairDisplay_700Bold", fontSize: 28, color: colors.text }}>{title}</Text>
           <Text style={{ color: colors.textMuted }}>{copy}</Text>
-          {([["firstName", "First name"], ["lastName", "Last name"], ["email", "Email address"], ["phone", "Phone number"], ["gender", "Gender (optional)"], ["address", "Address / service area"], ["bio", "Agent bio"], ["category", "Categories / specialties"], ["nin", "NIN number (optional)"]] as const).map(([key, label]) => (
+          {([["firstName", "First name"], ["lastName", "Last name"], ["username", "Username"], ["email", "Email address"], ["phone", "Phone number"], ["gender", "Gender (optional)"], ["address", "Address / service area"], ["bio", "Agent bio"], ["category", "Categories / specialties"], ["nin", "NIN number (optional)"]] as const).map(([key, label]) => (
             <TextField
               key={key}
               label={label}
               value={draft[key]}
-              onChangeText={(value) => setDraft({ ...draft, [key]: key === "nin" ? value.replace(/\D/g, "").slice(0, 11) : value })}
-              multiline={key === "bio"}
-              keyboardType={key === "email" ? "email-address" : key === "phone" || key === "nin" ? "phone-pad" : "default"}
-              autoCapitalize={key === "email" ? "none" : "sentences"}
-            />
-          ))}
-          <Text style={{ color: colors.text, fontFamily: "Montserrat_600SemiBold" }}>Services offered</Text>
-          {[HELP_ME_BUY, HELP_ME_DELIVER].map((service) => (
-            <AppButton
-              key={service}
-              label={service}
-              variant={draft.services.includes(service) ? "primary" : "secondary"}
-              onPress={() =>
+              onChangeText={(value) =>
                 setDraft({
                   ...draft,
-                  services: toggleAgentServices(draft.services, service),
+                  [key]:
+                    key === "nin"
+                      ? value.replace(/\D/g, "").slice(0, 11)
+                      : key === "username"
+                        ? value.replace(/^@+/, "")
+                        : value,
                 })
+              }
+              multiline={key === "bio"}
+              keyboardType={key === "email" ? "email-address" : key === "phone" || key === "nin" ? "phone-pad" : "default"}
+              autoCapitalize={key === "email" || key === "username" ? "none" : "sentences"}
+              autoCorrect={key !== "username"}
+              helper={
+                key === "username"
+                  ? "Letters, numbers, underscores or periods."
+                  : undefined
               }
             />
           ))}
+          <Text style={{ color: colors.text, fontFamily: "Montserrat_600SemiBold" }}>Services offered</Text>
+          <AgentServiceChecks
+            services={draft.services}
+            onChange={(services) => setDraft({ ...draft, services })}
+          />
           {error ? <Text accessibilityRole="alert" style={{ color: colors.error }}>{error}</Text> : null}
           <AppButton
             label={busy ? "Saving…" : "Save changes"}
@@ -62,6 +71,11 @@ export default function AgentProfileEditor({
             onPress={() => {
               if (!draft.firstName.trim() || !draft.lastName.trim()) {
                 setError("Enter your first and last name.");
+                return;
+              }
+              const handleMessage = usernameError(draft.username);
+              if (handleMessage) {
+                setError(handleMessage);
                 return;
               }
               if (onSave && !draft.bio.trim()) {
@@ -83,6 +97,7 @@ export default function AgentProfileEditor({
               updateAgentPreview({
                 firstName: draft.firstName.trim(),
                 lastName: draft.lastName.trim(),
+                username: String(draft.username || "").replace(/^@+/, "").trim(),
                 email: draft.email,
                 phone: draft.phone,
                 gender: draft.gender,

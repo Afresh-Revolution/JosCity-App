@@ -16,6 +16,7 @@ export type AgentDashboardStats = {
   held_agent_fees: number;
   completed_today: number;
   pending_quotes: number;
+  pending_payouts: number;
 };
 
 export function useAgentActivation() {
@@ -54,10 +55,12 @@ export function useAgentActivation() {
         updateAgentPreview({
           firstName: me.user_firstname || "",
           lastName: me.user_lastname || "",
+          username: String(me.user_name || "").replace(/^@/, ""),
           avatar: me.user_picture || "",
           address: me.agent_base_address || "",
           bio: me.agent_bio || "",
           category: me.categories?.map((item) => item.name).join(", ") || "",
+          workingAreas: (me.agent_working_areas || []).join(", "),
           services:
             me.agent_type === "both"
               ? ["Help me buy", "Help me deliver"]
@@ -68,11 +71,15 @@ export function useAgentActivation() {
           requests: [],
         });
         try {
-          const [dash, wallet] = await Promise.all([
+          const [dash, wallet, jobs] = await Promise.all([
             agentApi.dashboard(),
             agentRequest<{ balance: number }>("/account/wallet", { auth: true }),
+            agentApi.jobs("agent", 1),
           ]);
-          setStats(dash);
+          setStats({
+            ...dash,
+            pending_payouts: jobs.filter((job) => job.payout_pending_manual).length,
+          });
           setWalletBalance(Number(wallet.balance || 0));
         } catch {
           setStats(null);

@@ -9,6 +9,7 @@ import {
   getFriendGraphSnapshot,
   subscribeFriendGraph,
 } from "../../state/friendGraph";
+import { getAccountType, isDedicatedAgentAccount, getUser } from "../../storage/session";
 import type { Palette } from "../../theme/colors";
 import { useTheme } from "../../theme/ThemeProvider";
 
@@ -31,13 +32,24 @@ export default function FriendRequestActions({
   const [, setTick] = useState(0);
   const [busy, setBusy] = useState<"accept" | "decline" | null>(null);
   const [resolved, setResolved] = useState<"accepted" | "declined" | null>(null);
+  const [allowed, setAllowed] = useState(false);
 
   useEffect(() => subscribeFriendGraph(() => setTick((value) => value + 1)), []);
   useEffect(() => {
     void ensureFriendGraph();
   }, []);
+  useEffect(() => {
+    let live = true;
+    void Promise.all([getUser(), getAccountType()]).then(([user, type]) => {
+      if (live) setAllowed(!isDedicatedAgentAccount(user, type));
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   const status = getFriendGraphSnapshot().statusByUser[userId] || "none";
+  if (!allowed) return null;
   if (resolved === "declined") return null;
   if (status === "friends" || resolved === "accepted") {
     return <Text style={styles.resolved}>{t("friends.friends")}</Text>;

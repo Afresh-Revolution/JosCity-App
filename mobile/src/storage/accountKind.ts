@@ -46,3 +46,14 @@ export function loginMatchesAccount(
 ): boolean {
   return loginKindForUser(user, accountType) === intended;
 }
+
+export function friendshipAllowed(
+  viewer?: AccountUser | null,
+  viewerType?: string | null,
+  target?: AccountUser | null,
+  targetType?: string | null
+): boolean {
+  if (isDedicatedAgentAccount(viewer, viewerType)) return false;
+  if (isDedicatedAgentAccount(target, targetType || String(target?.account_type || ""))) return false;
+  return true;
+}

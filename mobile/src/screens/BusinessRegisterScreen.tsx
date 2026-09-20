@@ -225,7 +225,8 @@ export default function BusinessRegisterScreen() {
             styles.content,
             { paddingBottom: Math.max(insets.bottom, 20) },
           ]}
-          keyboardShouldPersistTaps="always"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
           <FadeIn replayKey={step} delay={40} style={styles.topRow}>

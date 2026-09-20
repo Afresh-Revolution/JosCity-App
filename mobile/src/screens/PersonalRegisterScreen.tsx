@@ -23,6 +23,7 @@ import { clearSignupDraft, loadSignupDraft, saveSignupDraft } from "../storage/s
 import TextField from "../components/TextField";
 import { friendlyError } from "../utils/errors";
 import { registerPersonal } from "../api/auth";
+import { usernameError } from "../utils/accountNames";
 import { LEGAL, openExternalUrl } from "../constants/legal";
 import { useTheme } from "../theme/ThemeProvider";
 import type { Palette } from "../theme/colors";
@@ -48,6 +49,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
   const [showConfirm, setShowConfirm] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [username, setUsername] = useState("");
   const [gender, setGender] = useState<Gender>("");
   const [address, setAddress] = useState("");
   const [nin, setNin] = useState("");
@@ -63,7 +65,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
     let active = true;
     void loadSignupDraft().then((draft) => {
       if (!active) return;
-      if (draft && (agent ? draft.kind === "agent" : draft.kind === "personal")) {
+      if (draft && draft.kind !== "business" && (agent ? draft.kind === "agent" : draft.kind === "personal")) {
         setStep(Math.min(3, Math.max(1, draft.step || 1)));
         setEmail(draft.email || "");
         setPhone(draft.phone || "");
@@ -71,6 +73,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
         setConfirm(draft.confirm || "");
         setFirstName(draft.firstName || "");
         setLastName(draft.lastName || "");
+        setUsername(draft.username || "");
         setGender((draft.gender === "male" || draft.gender === "female" ? draft.gender : "") as Gender);
         setAddress(draft.address || "");
         setNin(draft.nin || "");
@@ -101,6 +104,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
       confirm,
       firstName,
       lastName,
+      username,
       gender,
       address,
       nin,
@@ -109,7 +113,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
       agentCategories,
       services,
     });
-  }, [agent, step, email, phone, password, confirm, firstName, lastName, gender, address, nin, agreed, agentBio, agentCategories, services, done]);
+  }, [agent, step, email, phone, password, confirm, firstName, lastName, username, gender, address, nin, agreed, agentBio, agentCategories, services, done]);
 
   const labelColor = colors.primary;
 
@@ -138,6 +142,8 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
       if (firstName.trim().length < 2 || lastName.trim().length < 2) {
         return "Enter your first and last name.";
       }
+      const handleMessage = usernameError(username);
+      if (handleMessage) return handleMessage;
     }
     if (step === 3) {
       if (nin.replace(/\D/g, "").length > 0 && nin.replace(/\D/g, "").length !== 11) {
@@ -179,6 +185,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
         user_password: password,
         referral_code: referralCode || undefined,
         signup_intent: agent ? "agent" : "personal",
+        user_name: username.trim() || undefined,
       });
       if (!result.success) {
         setError(friendlyError(result.message || "Registration failed."));
@@ -197,6 +204,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
         updateAgentPreview({
           firstName: firstName.trim(),
           lastName: lastName.trim(),
+          username: username.trim().replace(/^@+/, ""),
           email: email.trim(),
           phone,
           gender,
@@ -244,7 +252,8 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
             styles.content,
             { paddingBottom: Math.max(insets.bottom, 20) },
           ]}
-          keyboardShouldPersistTaps="always"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
           <FadeIn replayKey={step} delay={40} style={styles.topRow}>
@@ -378,6 +387,17 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
                       onChangeText={setLastName}
                       placeholder="Danjuma"
                       autoCapitalize="words"
+                    />
+                    <TextField
+                      label="Username (optional)"
+                      labelColor={labelColor}
+                      value={username}
+                      onChangeText={(value) => setUsername(value.replace(/^@+/, ""))}
+                      placeholder="amina.jos"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      left={<Ionicons name="at-outline" size={18} color={colors.textMuted} />}
+                      helper="Letters, numbers, underscores or periods."
                     />
                     <Pressable onPress={() => setGenderOpen(true)}>
                       <View pointerEvents="none">

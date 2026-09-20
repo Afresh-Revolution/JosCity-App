@@ -16,25 +16,20 @@ import {
 } from "react-native";
 import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import * as Clipboard from "expo-clipboard";
-import * as ImagePicker from "expo-image-picker";
-import * as WebBrowser from "expo-web-browser";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AppButton from "../components/AppButton";
 import FadeIn from "../components/FadeIn";
 import TextField from "../components/TextField";
+import CbcCardPayForm from "../components/wallet/CbcCardPayForm";
 import { ErrorBanner } from "../components/AppNotice";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import ReportSheet from "../components/ReportSheet";
-import { getWalletFunding, type WalletFundingOptions } from "../api/account";
+import { getWallet, getWalletFunding, type WalletFundingOptions } from "../api/account";
 import {
   checkoutListing,
   getListing,
-  startListingPaystack,
-  startListingSafehaven,
-  submitListingTransfer,
-  verifyListingPaystack,
-  verifyListingSafehaven,
+  payListingCbcCard,
+  payListingWallet,
   type ListingCheckoutOrder,
   type MarketplaceListing,
 } from "../api/marketplace";
@@ -51,7 +46,6 @@ import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { absoluteUrl, formatNaira } from "../utils/format";
 import { formatDurationNote } from "../utils/listingDisplay";
-import { isPaystackFundingEnabled } from "../utils/paystackFunding";
 import type { FeedTab } from "../components/feed/FeedTabBar";
 
 function buyerName(user: StoredUser | null): string {
@@ -64,9 +58,38 @@ function buyerName(user: StoredUser | null): string {
   );
 }
 
+function orderPayLabel(order: Pick<ListingCheckoutOrder, "items">) {
+  const titles = order.items
+    .map((item) => {
+      const title = String(item.title || "").trim();
+      if (!title) return "";
+      return item.quantity > 1 ? `${title} × ${item.quantity}` : title;
+    })
+    .filter(Boolean);
+  return titles[0] || "Your order";
+}
+
 function placeLabel(value?: string | null): string {
   const id = String(value || "").trim();
   return SERVICE_PLACES.find((row) => row.id === id)?.label || id;
+}
+
+function isPlatformPayee(value?: string | null): boolean {
+  const name = String(value || "").trim().toLowerCase();
+  return name === "joscity" || name === "jos city" || name === "jos smart city";
+}
+
+function payeeName(
+  listing: MarketplaceListing | null,
+  order?: ListingCheckoutOrder | null
+): string {
+  const fromSeller = String(order?.sellerName || "").trim();
+  if (fromSeller && !isPlatformPayee(fromSeller)) return fromSeller;
+  const fromContact = String(listing?.contact?.name || "").trim();
+  if (fromContact && !isPlatformPayee(fromContact)) return fromContact;
+  const fromBank = String(order?.sellerBank?.bankAccountName || "").trim();
+  if (fromBank && !isPlatformPayee(fromBank)) return fromBank;
+  return fromSeller || fromContact || "the seller";
 }
 
 function listingImages(listing: MarketplaceListing): string[] {
@@ -111,8 +134,8 @@ export default function ListingDetailScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [funding, setFunding] = useState<WalletFundingOptions | null>(null);
+  const [walletBalance, setWalletBalance] = useState(0);
   const [payBusy, setPayBusy] = useState(false);
-  const [proofUri, setProofUri] = useState<string | null>(null);
   const [orderStatus, setOrderStatus] = useState<Record<number, "paid" | "pending">>({});
   const [reportOpen, setReportOpen] = useState(false);
 
@@ -137,8 +160,9 @@ export default function ListingDetailScreen() {
           (current) =>
             current || String(stored?.user_phone || stored?.business_phone || "").trim()
         );
-        const fund = await getWalletFunding();
+        const [fund, wallet] = await Promise.all([getWalletFunding(), getWallet()]);
         if (!cancelled && fund.success && fund.data) setFunding(fund.data);
+        if (!cancelled && wallet.success && wallet.data) setWalletBalance(Number(wallet.data.balance || 0));
         setReady(true);
       })();
       return () => {
@@ -188,10 +212,7 @@ export default function ListingDetailScreen() {
     : t("listing.qty");
   const cta = isService ? t("listing.book") : t("listing.buy");
   const total = (listing?.price || 0) * qty;
-  const paystackOn = isPaystackFundingEnabled(funding);
-  const safehavenOn = Boolean(funding?.safehaven?.enabled);
-  const manualOn = Boolean(funding?.manual?.enabled);
-  const payBank = funding?.manual;
+  const sellerName = payeeName(listing, orders?.[0] || null);
 
   const openCheckout = () => {
     if (!listing) return;
@@ -206,7 +227,6 @@ export default function ListingDetailScreen() {
     }
     setFormError(null);
     setOrders(null);
-    setProofUri(null);
     setOrderStatus({});
     setSheet(true);
   };
@@ -242,95 +262,61 @@ export default function ListingDetailScreen() {
     }
     setOrders(result.data.orders);
     if (result.data.funding) setFunding(result.data.funding);
+    const wallet = await getWallet();
+    if (wallet.success && wallet.data) setWalletBalance(Number(wallet.data.balance || 0));
   };
 
-  const copyBank = async (value?: string) => {
-    if (!value) return;
-    await Clipboard.setStringAsync(value);
-    Alert.alert(t("listing.copied"), value);
-  };
-
-  const openCheckoutUrl = async (url?: string) => {
-    if (!url) return;
-    try {
-      await WebBrowser.openBrowserAsync(url, { enableDefaultShareMenuItem: false });
-    } catch {
-      await Linking.openURL(url);
-    }
-  };
-
-  const payWithPaystack = async (order: ListingCheckoutOrder) => {
+  const payWithCbcCard = async (
+    order: ListingCheckoutOrder,
+    details: { cardNumber: string; cvc: string; cardPin: string }
+  ) => {
     if (payBusy) return;
     setPayBusy(true);
-    const started = await startListingPaystack(order.id);
-    if (!started.success || !started.data?.authorization_url) {
-      setPayBusy(false);
-      Alert.alert(t("listing.payError"), started.message || t("listing.checkoutFailed"));
-      return;
-    }
-    await openCheckoutUrl(started.data.authorization_url);
-    const verified = await verifyListingPaystack(order.id, started.data.reference);
-    setPayBusy(false);
-    if (!verified.success) {
-      Alert.alert(t("listing.payError"), verified.message || t("listing.checkoutFailed"));
-      return;
-    }
-    setOrderStatus((current) => ({ ...current, [order.id]: "paid" }));
-    Alert.alert(
-      t("listing.paySuccess"),
-      t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })
-    );
-  };
-
-  const payWithSafehaven = async (order: ListingCheckoutOrder) => {
-    if (payBusy) return;
-    setPayBusy(true);
-    const started = await startListingSafehaven(order.id);
-    if (!started.success || !started.data?.authorization_url) {
-      setPayBusy(false);
-      Alert.alert(t("listing.payError"), started.message || t("listing.checkoutFailed"));
-      return;
-    }
-    await openCheckoutUrl(started.data.authorization_url);
-    const verified = await verifyListingSafehaven(order.id, started.data.reference);
-    setPayBusy(false);
-    if (!verified.success) {
-      Alert.alert(t("listing.payError"), verified.message || t("listing.checkoutFailed"));
-      return;
-    }
-    setOrderStatus((current) => ({ ...current, [order.id]: "paid" }));
-    Alert.alert(
-      t("listing.paySuccess"),
-      t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })
-    );
-  };
-
-  const pickProof = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return;
-    const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 0.8,
-    });
-    if (picked.canceled || !picked.assets[0]?.uri) return;
-    setProofUri(picked.assets[0].uri);
-  };
-
-  const submitTransfer = async (order: ListingCheckoutOrder) => {
-    if (payBusy) return;
-    if (!proofUri) {
-      Alert.alert(t("listing.payError"), t("listing.proofNeeded"));
-      return;
-    }
-    setPayBusy(true);
-    const result = await submitListingTransfer(order.id, { uri: proofUri });
+    const result = await payListingCbcCard(order.id, details);
     setPayBusy(false);
     if (!result.success) {
       Alert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"));
       return;
     }
-    setOrderStatus((current) => ({ ...current, [order.id]: "pending" }));
-    Alert.alert(t("listing.payPending"), t("listing.payPendingBody"));
+    setOrderStatus((current) => ({ ...current, [order.id]: "paid" }));
+    Alert.alert(
+      t("listing.paySuccess"),
+      result.data?.cbc_amount
+        ? t("listing.cbcPaySuccessBody", {
+            amount: formatNaira(order.totalNaira),
+            cbc: Number(result.data.cbc_amount).toLocaleString("en-US", {
+              maximumFractionDigits: 4,
+            }),
+          })
+        : t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })
+    );
+  };
+
+  const payWithWallet = async (order: ListingCheckoutOrder) => {
+    if (payBusy) return;
+    if (walletBalance < order.totalNaira) {
+      Alert.alert(t("listing.payError"), t("listing.walletNeedFund"), [
+        { text: t("common.cancel"), style: "cancel" },
+        { text: t("listing.openWallet"), onPress: () => router.push("/profile/wallet") },
+      ]);
+      return;
+    }
+    setPayBusy(true);
+    const result = await payListingWallet(order.id);
+    setPayBusy(false);
+    if (!result.success) {
+      Alert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"), [
+        { text: t("common.cancel"), style: "cancel" },
+        { text: t("listing.openWallet"), onPress: () => router.push("/profile/wallet") },
+      ]);
+      return;
+    }
+    setWalletBalance((current) => Math.max(0, current - order.totalNaira));
+    setOrderStatus((current) => ({ ...current, [order.id]: "paid" }));
+    Alert.alert(
+      t("listing.paySuccess"),
+      t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })
+    );
   };
 
   const shareListing = async () => {
@@ -531,74 +517,47 @@ export default function ListingDetailScreen() {
           <View style={styles.sheet}>
             <View style={styles.sheetHandle} />
             {orders?.length ? (
-              <ScrollView contentContainerStyle={styles.sheetBody}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.sheetBody}
+              >
                 <Text style={styles.sheetTitle}>
                   {isService ? t("listing.bookedTitle") : t("listing.orderedTitle")}
                 </Text>
                 <Text style={styles.sheetLead}>
-                  {isService ? t("listing.bookedBody") : t("listing.orderedBody")}
+                  {isService
+                    ? t("listing.paySellerBooked", { name: sellerName })
+                    : t("listing.paySellerOrdered", { name: sellerName })}
                 </Text>
                 {orders.map((order) => {
                   const status = orderStatus[order.id];
                   return (
                     <View key={order.id} style={styles.bankCard}>
                       <Text style={styles.bankKicker}>
-                        {t("listing.orderNumber", { id: order.id })} · {formatNaira(order.totalNaira)}
+                        {t("listing.orderSummary", {
+                          title: orderPayLabel(order),
+                          amount: formatNaira(order.totalNaira),
+                        })}
                       </Text>
                       {status === "paid" ? (
                         <Text style={styles.payNote}>{t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })}</Text>
-                      ) : status === "pending" ? (
-                        <Text style={styles.payNote}>{t("listing.payPendingBody")}</Text>
                       ) : (
                         <>
-                          {paystackOn ? (
-                            <AppButton
-                              label={payBusy ? t("listing.sending") : t("listing.paystack")}
-                              onPress={() => void payWithPaystack(order)}
-                              loading={payBusy}
-                              disabled={payBusy}
-                            />
-                          ) : null}
-                          {safehavenOn ? (
-                            <Pressable
-                              onPress={() => void payWithSafehaven(order)}
-                              disabled={payBusy}
-                              style={styles.methodBtn}
-                            >
-                              <Text style={styles.methodBtnText}>{t("listing.safehaven")}</Text>
-                            </Pressable>
-                          ) : null}
-                          {manualOn && payBank ? (
-                            <>
-                              <Text style={styles.payTo}>{t("listing.payTo")}</Text>
-                              <Pressable onPress={() => void copyBank(payBank.bank_name)}>
-                                <Text style={styles.bankLine}>{payBank.bank_name}</Text>
-                              </Pressable>
-                              <Pressable onPress={() => void copyBank(payBank.account_number)}>
-                                <Text style={styles.bankAccount}>{payBank.account_number}</Text>
-                              </Pressable>
-                              <Pressable onPress={() => void copyBank(payBank.account_name)}>
-                                <Text style={styles.bankLine}>{payBank.account_name}</Text>
-                              </Pressable>
-                              {proofUri ? (
-                                <Image source={{ uri: proofUri }} style={styles.proofPreview} />
-                              ) : null}
-                              <Pressable onPress={() => void pickProof()} style={styles.methodBtn}>
-                                <Text style={styles.methodBtnText}>
-                                  {proofUri ? t("listing.changeProof") : t("listing.attachProof")}
-                                </Text>
-                              </Pressable>
-                              <AppButton
-                                label={payBusy ? t("listing.sending") : t("listing.submitTransfer")}
-                                onPress={() => void submitTransfer(order)}
-                                loading={payBusy}
-                                disabled={payBusy}
-                              />
-                            </>
-                          ) : null}
-                          {!paystackOn && !safehavenOn && !manualOn ? (
-                            <Text style={styles.payNote}>{t("listing.payUnavailable")}</Text>
-                          ) : null}
+                          <Text style={styles.payTo}>
+                            {t("listing.walletBalance", { amount: formatNaira(walletBalance) })}
+                          </Text>
+                          <AppButton
+                            label={payBusy ? t("listing.sending") : t("listing.wallet")}
+                            onPress={() => void payWithWallet(order)}
+                            loading={payBusy}
+                            disabled={payBusy}
+                          />
+                          <CbcCardPayForm
+                            amountNaira={order.totalNaira}
+                            quote={funding?.cbc_quote}
+                            busy={payBusy}
+                            onPay={(details) => void payWithCbcCard(order, details)}
+                          />
                         </>
                       )}
                     </View>
@@ -613,7 +572,9 @@ export default function ListingDetailScreen() {
               >
                 <Text style={styles.sheetTitle}>{cta}</Text>
                 <Text style={styles.sheetLead}>
-                  {isService ? t("listing.bookIntro") : t("listing.buyIntro")}
+                  {isService
+                    ? t("listing.paySellerBookIntro", { name: sellerName })
+                    : t("listing.paySellerBuyIntro", { name: sellerName })}
                 </Text>
                 {formError ? <ErrorBanner message={formError} /> : null}
                 <TextField label={t("listing.fullName")} value={fullName} onChangeText={setFullName} />

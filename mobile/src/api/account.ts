@@ -1,4 +1,4 @@
-import { apiFetch, readJson } from "./client";
+import { apiFetch, readJson, uploadForm } from "./client";
 import { friendlyError } from "../utils/errors";
 
 type Envelope<T> = {
@@ -163,6 +163,7 @@ export type WalletTransaction = {
   kind?: "funding" | "order" | "payout" | "points";
   title?: string;
   subtitle?: string;
+  party?: string | null;
 };
 
 export type PayoutAccount = {
@@ -219,6 +220,13 @@ export type WalletFundingOptions = {
     account_name?: string;
     account_number?: string;
   };
+  cbc_card?: { enabled?: boolean };
+  cbc_quote?: {
+    symbol?: string;
+    name?: string;
+    cbc_ngn?: number | null;
+    cbc_usd?: number | null;
+  } | null;
   withdraw?: WalletWithdrawOptions | null;
 };
 
@@ -294,18 +302,32 @@ export const verifySafehavenFunding = (reference: string) =>
     body: JSON.stringify({ reference }),
   });
 export async function submitManualFunding(amount: number, proof: { uri: string; name?: string; type?: string }) {
+  const uri = proof.uri;
+  const ext = (uri.split(".").pop() || "jpg").split("?")[0].toLowerCase();
   const form = new FormData();
   form.append("amount", String(amount));
   form.append("proof", {
-    uri: proof.uri,
-    name: proof.name || "transfer.jpg",
-    type: proof.type || "image/jpeg",
+    uri,
+    name: proof.name || `transfer.${ext === "png" ? "png" : ext === "webp" ? "webp" : "jpg"}`,
+    type: proof.type || (ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg"),
   } as unknown as Blob);
-  return readAccount<WalletTransaction>("/account/wallet/fund/manual", {
-    method: "POST",
-    body: form,
-    timeoutMs: 60000,
-  });
+  try {
+    const { promise } = uploadForm("/account/wallet/fund/manual", form, { timeoutMs: 60000 });
+    const result = await promise;
+    const payload = result.data as Envelope<WalletTransaction> & { error?: string };
+    if (result.aborted) {
+      return { success: false, timeout: true, message: friendlyError("timeout") };
+    }
+    if (!result.ok || payload.success === false) {
+      return {
+        success: false,
+        message: friendlyError(payload.message || payload.error || "upload"),
+      };
+    }
+    return { success: true, message: payload.message, data: payload.data };
+  } catch {
+    return { success: false, message: friendlyError("upload") };
+  }
 }
 export const fundWallet = (amount: number) =>
   readAccount<WalletCheckout>("/account/wallet/fund", {

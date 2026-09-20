@@ -237,7 +237,7 @@ export default function PostCommentsScreen() {
                 </Pressable>
               ) : null}
               {video ? (
-                <FeedVideo uri={video} style={styles.photo} />
+                <FeedVideo uri={video} style={styles.video} />
               ) : image ? (
                 <FeedImage uri={image} style={styles.photo} />
               ) : null}
@@ -426,6 +426,11 @@ function makeStyles(colors: Palette) {
     color: colors.text,
   },
   photo: {
+    width: "100%",
+    height: undefined,
+    backgroundColor: "#EEEAE3",
+  },
+  video: {
     width: "100%",
     height: 220,
     backgroundColor: "#EEEAE3",

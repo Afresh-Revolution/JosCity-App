@@ -36,6 +36,15 @@ test('map jobs request the correct private role, public map is unauthenticated',
   assert.equal(calls[0][0],'/agent/map/jobs?role=agent');
   assert.equal(calls[1][1].auth,false); assert.match(calls[1][0],/Jos%20%26%20Bukuru/);
 });
+test('place search and directions hit the map endpoints', async () => {
+  const { api, calls } = setup();
+  await api.places('Afresh center');
+  await api.directions({ lat: 9.89, lng: 8.85 }, { lat: 9.9, lng: 8.86 });
+  assert.match(calls[0][0], /\/agent\/map\/places\?q=Afresh%20center/);
+  assert.equal(calls[0][1].timeoutMs, 12000);
+  assert.match(calls[1][0], /\/agent\/map\/directions\?/);
+  assert.match(calls[1][0], /fromLat=9.89/);
+});
 test('catalogue source listings and save send source fields', async () => {
   const { api, calls } = setup();
   await api.sourceListings('rice');
@@ -45,4 +54,17 @@ test('catalogue source listings and save send source fields', async () => {
   assert.equal(calls[1][0], '/agent/catalogue');
   assert.equal(fields.find(([key]) => key === 'sourceKind')[1], 'joscity');
   assert.equal(fields.find(([key]) => key === 'listingId')[1], '9');
+});
+test('fee quote looks up the admin tier for a product price', async () => {
+  const { api, calls } = setup();
+  await api.feeQuote(1567000);
+  assert.equal(calls[0][0], '/agent/fee-quote?productPrice=1567000');
+  assert.equal(calls[0][1].auth, false);
+});
+test('claiming a request posts to the claim endpoint', async () => {
+  const { api, calls } = setup();
+  await api.claim('buy', 9, { productPrice: 1567000 });
+  await api.claim('delivery', 4, { chargeAmount: 2500 });
+  assert.equal(calls[0][0], '/agent/buy-requests/9/claim');
+  assert.equal(calls[1][0], '/agent/delivery-requests/4/claim');
 });

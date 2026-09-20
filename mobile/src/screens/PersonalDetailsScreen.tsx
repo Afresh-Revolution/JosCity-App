@@ -19,6 +19,7 @@ import FadeIn from "../components/FadeIn";
 import TextField from "../components/TextField";
 import { ErrorBanner, showError, showNotice } from "../components/AppNotice";
 import { friendlyError } from "../utils/errors";
+import { normalizeUsername, usernameError } from "../utils/accountNames";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import { getUserProfile, updatePersonalProfile, uploadCoverPicture, uploadProfilePicture } from "../api/auth";
@@ -29,6 +30,7 @@ import { useI18n } from "../i18n/I18nProvider";
 import {
   getUser,
   isBusinessAccountType,
+  mergeStoredUser,
   setUser,
   type StoredUser,
 } from "../storage/session";
@@ -82,6 +84,12 @@ function fullNameFrom(user: ProfileUser | null): string {
   );
 }
 
+function usernameFrom(user: ProfileUser | null): string {
+  return String(user?.user_name || user?.username || "")
+    .replace(/^@+/, "")
+    .trim();
+}
+
 function phoneFrom(user: ProfileUser | null): string {
   return String(user?.business_phone || user?.user_phone || "").trim();
 }
@@ -133,6 +141,7 @@ export default function PersonalDetailsScreen() {
   const [originalLastName, setOriginalLastName] = useState("");
   const [isBusiness, setIsBusiness] = useState(false);
   const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
@@ -149,6 +158,7 @@ export default function PersonalDetailsScreen() {
   const [uploadingPhoto, setUploadingPhoto] = useState<"avatar" | "cover" | null>(null);
   const [initial, setInitial] = useState({
     fullName: "",
+    username: "",
     email: "",
     phone: "",
     address: "",
@@ -159,6 +169,7 @@ export default function PersonalDetailsScreen() {
 
   const fill = (user: ProfileUser | null) => {
     const name = fullNameFrom(user);
+    const nextUsername = usernameFrom(user);
     const nextEmail = emailFrom(user);
     const nextPhone = phoneFrom(user);
     const nextAddress = addressFrom(user);
@@ -171,6 +182,7 @@ export default function PersonalDetailsScreen() {
     setOriginalLastName(last);
     setIsBusiness(isBusinessAccountType(String(user?.account_type)));
     setFullName(name);
+    setUsername(nextUsername);
     setEmail(nextEmail);
     setPhone(nextPhone);
     setAddress(nextAddress);
@@ -192,6 +204,7 @@ export default function PersonalDetailsScreen() {
     setCover(String(user?.user_cover || "").trim() || null);
     setInitial({
       fullName: name,
+      username: nextUsername,
       email: nextEmail,
       phone: nextPhone,
       address: nextAddress,
@@ -206,7 +219,7 @@ export default function PersonalDetailsScreen() {
     if (stored) fill(stored);
     const profile = await getUserProfile().catch(() => null);
     if (profile?.user) {
-      const next = { ...(stored || {}), ...profile.user } as ProfileUser;
+      const next = mergeStoredUser(stored, profile.user) as ProfileUser;
       fill(next);
       await setUser(next);
     }
@@ -239,7 +252,7 @@ export default function PersonalDetailsScreen() {
   const persistPhotos = useCallback(
     async (patch: Partial<ProfileUser>) => {
       const stored = (await getUser()) as ProfileUser | null;
-      const next = { ...(stored || {}), ...patch } as ProfileUser;
+      const next = mergeStoredUser(stored, patch) as ProfileUser;
       await setUser(next);
     },
     []
@@ -331,13 +344,14 @@ export default function PersonalDetailsScreen() {
   const dirty = useMemo(
     () =>
       fullName.trim() !== initial.fullName.trim() ||
+      normalizeUsername(username) !== normalizeUsername(initial.username) ||
       email.trim().toLowerCase() !== initial.email.trim().toLowerCase() ||
       phone.trim() !== initial.phone.trim() ||
       address.trim() !== initial.address.trim() ||
       bio.trim() !== initial.bio.trim() ||
       (!cacLocked && cac.trim().toUpperCase() !== initial.cac.trim().toUpperCase()) ||
       (!ninLocked && nin.replace(/\D/g, "") !== initial.nin.replace(/\D/g, "")),
-    [address, bio, cac, cacLocked, email, fullName, initial, nin, ninLocked, phone]
+    [address, bio, cac, cacLocked, email, fullName, initial, nin, ninLocked, phone, username]
   );
 
   const goBack = () => {
@@ -381,6 +395,14 @@ export default function PersonalDetailsScreen() {
       setError("Enter your first and last name.");
       return;
     }
+    const nextUsername = normalizeUsername(username);
+    if (!isBusiness) {
+      const handleMessage = usernameError(nextUsername);
+      if (handleMessage) {
+        setError(handleMessage);
+        return;
+      }
+    }
     if (isBusiness && !cacLocked && nextCac && (nextCac.length < 5 || !/^[A-Z0-9/-]+$/.test(nextCac))) {
       setError(t("details.cacInvalid"));
       return;
@@ -410,6 +432,7 @@ export default function PersonalDetailsScreen() {
             }
           : {
               user_bio: nextBio,
+              ...(nextUsername ? { user_name: nextUsername } : {}),
               ...(!ninLocked && nextNin ? { nin_number: nextNin } : {}),
             }),
       });
@@ -429,8 +452,7 @@ export default function PersonalDetailsScreen() {
           : Boolean(stored?.nin_verified);
       const storedCac = cacLocked ? cacFrom(stored) : nextCac || cacFrom(stored);
       const storedNin = ninLocked ? ninFrom(stored) : nextNin || ninFrom(stored);
-      const next = {
-        ...(stored || {}),
+      const next = mergeStoredUser(stored, {
         ...saved,
         user_firstname: first,
         user_lastname: last,
@@ -457,8 +479,9 @@ export default function PersonalDetailsScreen() {
           : {
               nin_number: storedNin,
               nin_verified: ninVerifiedNow,
+              ...(nextUsername ? { user_name: nextUsername, username: nextUsername } : {}),
             }),
-      } as ProfileUser;
+      }) as ProfileUser;
       await setUser(next);
       if (isBusiness && nextCac) {
         showNotice({
@@ -527,6 +550,7 @@ export default function PersonalDetailsScreen() {
           <ScrollView
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
           >
             <FadeIn>
               <View style={styles.photos}>
@@ -604,6 +628,19 @@ export default function PersonalDetailsScreen() {
                 autoComplete="name"
                 left={<FieldIcon name="person-outline" />}
               />
+              {!isBusiness ? (
+                <TextField
+                  label="Username"
+                  value={username}
+                  onChangeText={(value) => setUsername(value.replace(/^@+/, ""))}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="username"
+                  placeholder="amina.jos"
+                  helper="Letters, numbers, underscores or periods."
+                  left={<Ionicons name="at-outline" size={18} color={colors.textMuted} />}
+                />
+              ) : null}
               <TextField
                 label="Email"
                 value={email}

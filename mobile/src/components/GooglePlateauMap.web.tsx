@@ -34,9 +34,18 @@ function loadMaps(key: string) {
   return pending;
 }
 
-export type MapViewProps = { pins: MapPin[]; point: Point; me?: Point | null; selection: Point | null; bounds: Bounds; onSelect: (point: Point) => void; apiKey?: string };
+export type MapViewProps = {
+  pins: MapPin[];
+  point: Point;
+  me?: Point | null;
+  selection: Point | null;
+  route?: { points: Point[] } | null;
+  bounds: Bounds;
+  onSelect: (point: Point) => void;
+  apiKey?: string;
+};
 
-export default function GooglePlateauMap({ pins, point, me, selection, bounds, onSelect, apiKey = '' }: MapViewProps) {
+export default function GooglePlateauMap({ pins, point, me, selection, route, bounds, onSelect, apiKey = '' }: MapViewProps) {
   const container = useRef<HTMLDivElement>(null), map = useRef<any>(null), maps = useRef<any>(null), callback = useRef(onSelect);
   const [ready, setReady] = useState(false), [error, setError] = useState('');
   callback.current = onSelect;
@@ -75,7 +84,17 @@ export default function GooglePlateauMap({ pins, point, me, selection, bounds, o
       map.current = null;
     };
   }, [apiKey]);
-  useEffect(() => { if (ready) map.current?.panTo({ lat: point.lat, lng: point.lng }); }, [point, ready]);
+  useEffect(() => {
+    if (!ready || !map.current) return;
+    const path = route?.points || [];
+    if (path.length > 1 && maps.current) {
+      const box = new maps.current.LatLngBounds();
+      path.forEach((p: Point) => box.extend({ lat: p.lat, lng: p.lng }));
+      map.current.fitBounds(box, 48);
+      return;
+    }
+    map.current.panTo({ lat: point.lat, lng: point.lng });
+  }, [point, route, ready]);
   useEffect(() => {
     if (!ready || !map.current) return;
     const markers = [
@@ -85,6 +104,20 @@ export default function GooglePlateauMap({ pins, point, me, selection, bounds, o
     ].map(p => new maps.current.Marker({ map: map.current, position: { lat: p.lat, lng: p.lng }, title: p.label }));
     return () => markers.forEach(m => m.setMap(null));
   }, [pins, me, selection, ready]);
+  useEffect(() => {
+    if (!ready || !map.current || !maps.current) return;
+    const path = route?.points || [];
+    if (path.length < 2) return;
+    const line = new maps.current.Polyline({
+      path: path.map((p: Point) => ({ lat: p.lat, lng: p.lng })),
+      geodesic: true,
+      strokeColor: '#2F9E66',
+      strokeOpacity: 0.95,
+      strokeWeight: 5,
+      map: map.current,
+    });
+    return () => line.setMap(null);
+  }, [route, ready]);
   return (
     <View style={styles.canvas}>
       {(!ready || error) ? (
@@ -100,7 +133,7 @@ export default function GooglePlateauMap({ pins, point, me, selection, bounds, o
 
 const styles = StyleSheet.create({
   canvas: { height: 360, width: '100%', borderRadius: 18, overflow: 'hidden', backgroundColor: '#E7F3EC' },
-  placeholder: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', padding: 24, zIndex: 1, backgroundColor: '#F4F1EA' },
+  placeholder: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', padding: 24, zIndex: 1, backgroundColor: '#F4F1EA' },
   placeholderTitle: { fontFamily: 'Montserrat_700Bold', fontSize: 20, color: '#0F3D26', marginBottom: 8 },
   placeholderCopy: { fontFamily: 'Montserrat_400Regular', fontSize: 14, color: '#7A7A7A', textAlign: 'center' },
 });

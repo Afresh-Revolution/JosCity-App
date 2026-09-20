@@ -40,6 +40,25 @@ export function setUnauthorizedHandler(handler: (() => void | Promise<void>) | n
   unauthorizedHandler = handler;
 }
 
+export function isFormDataBody(body: unknown): boolean {
+  if (body == null || typeof body !== "object") return false;
+  if (typeof FormData !== "undefined") {
+    try {
+      if (body instanceof FormData) return true;
+    } catch {
+      /* React Native can expose a different FormData than fetch */
+    }
+  }
+  return typeof (body as { append?: unknown }).append === "function";
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const name = String((error as { name?: string }).name || "");
+  const message = String((error as { message?: string }).message || "");
+  return name === "AbortError" || /timeout|timed out|aborted/i.test(message);
+}
+
 async function handleUnauthorized() {
   if (!unauthorizedHandler || unauthorizedBusy) return;
   unauthorizedBusy = true;
@@ -60,8 +79,7 @@ export async function apiFetch(path: string, options: FetchOptions = {}) {
     skipUnauthorized = false,
     ...init
   } = options;
-  const isFormData =
-    typeof FormData !== "undefined" && init.body instanceof FormData;
+  const isFormData = isFormDataBody(init.body);
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...(init.body && !isFormData ? { "Content-Type": "application/json" } : {}),
@@ -86,7 +104,7 @@ export async function apiFetch(path: string, options: FetchOptions = {}) {
     }
     return response;
   } catch (error) {
-    setNetworkOnline(false);
+    if (!isAbortError(error)) setNetworkOnline(false);
     throw error;
   } finally {
     clearTimeout(timer);
@@ -135,7 +153,7 @@ export type UploadFormResult = {
 export function uploadForm(
   path: string,
   form: FormData,
-  options: { timeoutMs?: number; onProgress?: (progress: number) => void } = {}
+  options: { timeoutMs?: number; method?: string; onProgress?: (progress: number) => void } = {}
 ): { promise: Promise<UploadFormResult>; abort: () => void } {
   let xhr: XMLHttpRequest | null = null;
   let aborted = false;
@@ -172,7 +190,7 @@ export function uploadForm(
         resolve(result);
       };
 
-      xhr.open("POST", apiUrl(path));
+      xhr.open(options.method || "POST", apiUrl(path));
       xhr.timeout = options.timeoutMs || 60000;
       xhr.setRequestHeader("Accept", "application/json");
       if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
@@ -204,14 +222,24 @@ export function uploadForm(
           finish({ ok: false, aborted: true, data: {} });
           return;
         }
-        setNetworkOnline(false);
-        finish({ ok: false, data: { message: "offline" } });
+        finish({ ok: false, data: { message: "upload" } });
       };
       xhr.ontimeout = () => {
-        setNetworkOnline(false);
         finish({ ok: false, data: { message: "timeout" } });
       };
-      xhr.send(form);
+      try {
+        xhr.send(form);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        finish({
+          ok: false,
+          data: {
+            message: /FormDataPart/i.test(message)
+              ? "Could not attach those photos. Try choosing them again."
+              : "upload",
+          },
+        });
+      }
     })().catch(reject);
   });
 

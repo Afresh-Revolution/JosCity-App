@@ -11,7 +11,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -24,9 +24,12 @@ import {
 import AppButton from "../AppButton";
 import JosCityLoader from "../JosCityLoader";
 import TextField from "../TextField";
+import AgentFeeBenefit from "./AgentFeeBenefit";
 import type { Palette } from "../../theme/colors";
 import { useTheme } from "../../theme/ThemeProvider";
 import { formatNaira } from "../../utils/format";
+import { formatFeePercent } from "../../utils/agentFee";
+import { useQuoteFee } from "../../state/useQuoteFee";
 
 const emptyDraft = {
   sourceKind: "joscity" as "joscity" | "external",
@@ -35,14 +38,21 @@ const emptyDraft = {
   sourceName: "",
   sourceUrl: "",
   productPrice: "",
-  agentFeePercent: "5",
   listingId: null as number | null,
 };
 
-export default function AgentSourcedCatalogue({ agentName }: { agentName: string }) {
+export default function AgentSourcedCatalogue({
+  agentName,
+  agentUserId,
+}: {
+  agentName: string;
+  agentUserId?: number;
+}) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const publicView = Number(agentUserId || 0) > 0;
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [items, setItems] = useState<CatalogueItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,17 +65,22 @@ export default function AgentSourcedCatalogue({ agentName }: { agentName: string
   const [hits, setHits] = useState<CatalogueSourceListing[]>([]);
   const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
+  const quoteFee = useQuoteFee(editorOpen ? draft.productPrice : "");
 
   const load = useCallback(async () => {
     setError("");
     try {
-      setItems(await agentApi.myCatalogue());
+      setItems(
+        publicView
+          ? await agentApi.catalogue({ agentUserId, limit: 40 })
+          : await agentApi.myCatalogue()
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load your catalogue.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [agentUserId, publicView]);
 
   useFocusEffect(
     useCallback(() => {
@@ -91,7 +106,6 @@ export default function AgentSourcedCatalogue({ agentName }: { agentName: string
       sourceName: item.source_name || "",
       sourceUrl: item.source_url || "",
       productPrice: String(item.product_price ?? ""),
-      agentFeePercent: String(item.agent_fee_percent ?? "5"),
       listingId: item.listing_id || null,
     });
     setPhotos([]);
@@ -146,7 +160,6 @@ export default function AgentSourcedCatalogue({ agentName }: { agentName: string
 
   const save = async () => {
     const price = Number(String(draft.productPrice).replace(/,/g, ""));
-    const fee = Number(String(draft.agentFeePercent).replace(/,/g, ""));
     if (!draft.title.trim()) {
       Alert.alert("Add a product", "Enter the product name.");
       return;
@@ -170,7 +183,6 @@ export default function AgentSourcedCatalogue({ agentName }: { agentName: string
           title: draft.title.trim(),
           description: draft.description.trim(),
           productPrice: price,
-          agentFeePercent: Number.isFinite(fee) ? fee : 0,
           sourceKind: draft.sourceKind,
           listingId: draft.sourceKind === "joscity" ? draft.listingId : "",
           sourceName: draft.sourceName.trim(),
@@ -211,24 +223,37 @@ export default function AgentSourcedCatalogue({ agentName }: { agentName: string
           <Text style={styles.kicker}>Catalogue</Text>
           <Text style={styles.title}>{`Sourced by ${agentName}`}</Text>
         </View>
-        <Pressable
-          onPress={openCreate}
-          style={styles.addBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Add sourced product"
-        >
-          <Ionicons name="add" size={18} color={colors.white} />
-          <Text style={styles.addBtnText}>Add</Text>
-        </Pressable>
+        {publicView ? null : (
+          <Pressable
+            onPress={openCreate}
+            style={styles.addBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Add sourced product"
+          >
+            <Ionicons name="add" size={18} color={colors.white} />
+            <Text style={styles.addBtnText}>Add</Text>
+          </Pressable>
+        )}
       </View>
       <Text style={styles.copy}>
-        Products you can buy for customers from JosCity businesses or an external shop.
+        {publicView
+          ? "Products this agent can buy for you from JosCity businesses or an external shop."
+          : "Products you can buy for customers from JosCity businesses or an external shop."}
       </Text>
       {loading ? (
         <JosCityLoader color={colors.primary} />
       ) : error ? (
         <Text accessibilityRole="alert" style={styles.error}>{error}</Text>
       ) : items.length === 0 ? (
+        publicView ? (
+          <View style={styles.empty}>
+            <View style={styles.emptyIcon}>
+              <Ionicons name="bag-handle-outline" size={26} color={colors.primary} />
+            </View>
+            <Text style={styles.emptyTitle}>No sourced products yet</Text>
+            <Text style={styles.copy}>This agent has not added catalogue items yet.</Text>
+          </View>
+        ) : (
         <Pressable onPress={openCreate} style={styles.empty} accessibilityRole="button" accessibilityLabel="Add your first product">
           <View style={styles.emptyIcon}>
             <Ionicons name="bag-handle-outline" size={26} color={colors.primary} />
@@ -236,6 +261,7 @@ export default function AgentSourcedCatalogue({ agentName }: { agentName: string
           <Text style={styles.emptyTitle}>No sourced products yet</Text>
           <Text style={styles.copy}>Add a JosCity listing or an item from Terminus, Farin Gada or another shop.</Text>
         </Pressable>
+        )
       ) : (
         <View style={styles.list}>
           {items.map((item) => {
@@ -244,8 +270,20 @@ export default function AgentSourcedCatalogue({ agentName }: { agentName: string
             return (
               <Pressable
                 key={item.item_id}
-                onPress={() => openEdit(item)}
-                onLongPress={() => remove(item)}
+                onPress={() => {
+                  if (publicView) {
+                    router.push({
+                      pathname: "/agent-services/request",
+                      params: {
+                        agent: String(agentUserId),
+                        item: String(item.item_id),
+                      },
+                    } as never);
+                    return;
+                  }
+                  openEdit(item);
+                }}
+                onLongPress={publicView ? undefined : () => remove(item)}
                 style={styles.tile}
                 accessibilityRole="button"
                 accessibilityLabel={item.title}
@@ -279,6 +317,9 @@ export default function AgentSourcedCatalogue({ agentName }: { agentName: string
                     {formatNaira(item.product_price)} + {item.agent_fee_percent}% fee
                   </Text>
                 </View>
+                {publicView ? (
+                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                ) : (
                 <Pressable
                   onPress={() => remove(item)}
                   hitSlop={10}
@@ -288,6 +329,7 @@ export default function AgentSourcedCatalogue({ agentName }: { agentName: string
                 >
                   <Ionicons name="trash-outline" size={16} color={colors.textMuted} />
                 </Pressable>
+                )}
               </Pressable>
             );
           })}
@@ -361,11 +403,14 @@ export default function AgentSourcedCatalogue({ agentName }: { agentName: string
             <TextField label="Description" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} multiline />
             <TextField label="Product price (NGN)" value={draft.productPrice} onChangeText={(productPrice) => setDraft({ ...draft, productPrice })} keyboardType="decimal-pad" />
             <TextField
-              label="Your fee (%)"
-              value={draft.agentFeePercent}
-              onChangeText={(agentFeePercent) => setDraft({ ...draft, agentFeePercent })}
-              keyboardType="decimal-pad"
-              helper="Kept within the fee bands set in admin."
+              label="Agent fee (%)"
+              value={quoteFee.fee ? formatFeePercent(quoteFee.fee.feePercent) : quoteFee.loading ? "…" : ""}
+              editable={false}
+            />
+            <AgentFeeBenefit
+              feeAmount={quoteFee.fee?.feeAmount}
+              totalPrice={quoteFee.fee?.totalPrice}
+              formatAmount={formatNaira}
             />
             {editing?.images?.length && !photos.length ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbs}>

@@ -6,6 +6,7 @@ import {
   type TimeGreeting,
 } from "../utils/format";
 import {
+  friendshipAllowed,
   isAgentAccountType,
   isBusinessAccountType,
   isDedicatedAgentAccount,
@@ -43,6 +44,27 @@ export type StoredUser = {
   account_type?: AccountType | string;
   [key: string]: unknown;
 };
+
+export function pickUserPicture(user?: StoredUser | null): string | null {
+  const value =
+    (typeof user?.user_picture === "string" && user.user_picture.trim()) ||
+    (typeof user?.picture === "string" && user.picture.trim()) ||
+    "";
+  return value || null;
+}
+
+export function mergeStoredUser(
+  stored?: StoredUser | null,
+  incoming?: StoredUser | null
+): StoredUser {
+  const next = { ...(stored || {}), ...(incoming || {}) };
+  const picture = pickUserPicture(incoming) || pickUserPicture(stored);
+  if (picture) {
+    next.user_picture = picture;
+    next.picture = picture;
+  }
+  return next;
+}
 
 export type StoredSession = {
   token: string;
@@ -136,6 +158,7 @@ export async function clearSession(): Promise<void> {
 }
 
 export {
+  friendshipAllowed,
   isAgentAccountType,
   isBusinessAccountType,
   isDedicatedAgentAccount,

@@ -99,9 +99,11 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <ThemeProvider>
           <I18nProvider>
-            <ThemedRoot />
-            <NoticeHost />
-            <RatingPromptHost />
+            <View style={{ flex: 1, position: "relative" }}>
+              <ThemedRoot />
+              <NoticeHost />
+              <RatingPromptHost />
+            </View>
           </I18nProvider>
         </ThemeProvider>
       </SafeAreaProvider>

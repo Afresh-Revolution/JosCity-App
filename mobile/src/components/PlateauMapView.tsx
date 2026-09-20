@@ -1,16 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import { Bounds, inBounds, MapPin, Point } from '../api/agent';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { Bounds, inBounds, MapPin, MapRoute, Point } from '../api/agent';
 import { GOOGLE_MAPS_API_KEY } from '../config/googleMaps';
 import { clampPoint } from '../state/usePlateauMap';
 
-export type MapViewProps = { pins: MapPin[]; point: Point; me?: Point | null; selection: Point | null; bounds: Bounds; onSelect: (point: Point) => void };
+export type MapViewProps = {
+  pins: MapPin[];
+  point: Point;
+  me?: Point | null;
+  selection: Point | null;
+  route?: MapRoute | null;
+  bounds: Bounds;
+  onSelect: (point: Point) => void;
+};
 
-export default function PlateauMapView({ pins, point, me, selection, bounds, onSelect }: MapViewProps) {
+export default function PlateauMapView({ pins, point, me, selection, route, bounds, onSelect }: MapViewProps) {
   const ref = useRef<MapView>(null);
   const [ready, setReady] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
+  const path = route?.points || [];
   useEffect(() => {
     if (ready) return;
     const timer = setTimeout(() => setTimedOut(true), 5000);
@@ -18,8 +27,16 @@ export default function PlateauMapView({ pins, point, me, selection, bounds, onS
   }, [ready]);
   useEffect(() => {
     if (!ready) return;
+    if (path.length > 1) {
+      ref.current?.fitToCoordinates(
+        path.map((p) => ({ latitude: p.lat, longitude: p.lng })),
+        { edgePadding: { top: 56, right: 48, bottom: 56, left: 48 }, animated: true }
+      );
+      return;
+    }
     ref.current?.animateToRegion({ latitude: point.lat, longitude: point.lng, latitudeDelta: 0.08, longitudeDelta: 0.08 }, 400);
-  }, [point, ready]);
+  }, [point, path, ready]);
+  const coords = path.map((p) => ({ latitude: p.lat, longitude: p.lng }));
   return (
     <View style={styles.canvas}>
       <MapView
@@ -45,6 +62,8 @@ export default function PlateauMapView({ pins, point, me, selection, bounds, onS
           }
         }}
       >
+        {coords.length > 1 ? <Polyline coordinates={coords} strokeColor="#0F3D26" strokeWidth={7} lineCap="round" lineJoin="round" /> : null}
+        {coords.length > 1 ? <Polyline coordinates={coords} strokeColor="#2F9E66" strokeWidth={4} lineCap="round" lineJoin="round" /> : null}
         {pins.map(p => <Marker key={p.id} coordinate={{ latitude: p.lat, longitude: p.lng }} title={p.label} description={p.address} tracksViewChanges={false} />)}
         {me && <Marker coordinate={{ latitude: me.lat, longitude: me.lng }} title="You" description="Your current location" pinColor="#1A73E8" tracksViewChanges={false} />}
         {selection && <Marker coordinate={{ latitude: selection.lat, longitude: selection.lng }} title="Selected position" pinColor="#146a43" />}

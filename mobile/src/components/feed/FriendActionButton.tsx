@@ -17,12 +17,16 @@ import type { Palette } from "../../theme/colors";
 import { useTheme } from "../../theme/ThemeProvider";
 import type { FriendStatus } from "../../api/social";
 import { playFriendRequestSound } from "../../utils/uiSounds";
+import { friendshipAllowed, getAccountType, getUser } from "../../storage/session";
 
 type Props = {
   userId: number;
   name: string;
   compact?: boolean;
   layout?: "chip" | "bar";
+  accountType?: string | null;
+  agentType?: string | null;
+  signupIntent?: string | null;
 };
 
 export default function FriendActionButton({
@@ -30,20 +34,41 @@ export default function FriendActionButton({
   name,
   compact = false,
   layout = "chip",
+  accountType,
+  agentType,
+  signupIntent,
 }: Props) {
   const { colors } = useTheme();
   const { t } = useI18n();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [allowed, setAllowed] = useState(false);
 
   useEffect(() => subscribeFriendGraph(() => setTick((value) => value + 1)), []);
   useEffect(() => {
     void ensureFriendGraph();
   }, []);
+  useEffect(() => {
+    let live = true;
+    void Promise.all([getUser(), getAccountType()]).then(([user, type]) => {
+      if (!live) return;
+      setAllowed(
+        friendshipAllowed(user, type, {
+          account_type: accountType ?? undefined,
+          agent_type: agentType,
+          signup_intent: signupIntent,
+        })
+      );
+    });
+    return () => {
+      live = false;
+    };
+  }, [accountType, agentType, signupIntent, userId]);
 
   const graph = getFriendGraphSnapshot();
   const status: FriendStatus = graph.statusByUser[userId] || "none";
+  if (!allowed) return null;
 
   const label =
     status === "friends"

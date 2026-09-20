@@ -47,6 +47,7 @@ export default function WalletFundingModal({ visible, onClose, onSuccess }: Prop
   const [amountText, setAmountText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [proofUri, setProofUri] = useState<string | null>(null);
+  const [proofType, setProofType] = useState<string | null>(null);
   const [paystackFailed, setPaystackFailed] = useState(false);
   const [funding, setFunding] = useState<WalletFundingOptions | null>(null);
 
@@ -55,6 +56,7 @@ export default function WalletFundingModal({ visible, onClose, onSuccess }: Prop
       setStep("amount");
       setAmountText("");
       setProofUri(null);
+      setProofType(null);
       setPaystackFailed(false);
       setSubmitting(false);
       return;
@@ -144,6 +146,7 @@ export default function WalletFundingModal({ visible, onClose, onSuccess }: Prop
     });
     if (picked.canceled || !picked.assets[0]?.uri) return;
     setProofUri(picked.assets[0].uri);
+    setProofType(picked.assets[0].mimeType || null);
   };
 
   const submitManual = async () => {
@@ -152,7 +155,10 @@ export default function WalletFundingModal({ visible, onClose, onSuccess }: Prop
       return;
     }
     setSubmitting(true);
-    const result = await submitManualFunding(amount, { uri: proofUri });
+    const result = await submitManualFunding(amount, {
+      uri: proofUri,
+      type: proofType || undefined,
+    });
     setSubmitting(false);
     if (!result.success) {
       Alert.alert(t("wallet.fundError"), result.message || t("wallet.tryAgain"));
@@ -293,7 +299,7 @@ function makeStyles(colors: Palette) {
       justifyContent: "flex-end",
     },
     modalBackdrop: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0,0,0,0.35)",
     },
     modalCard: {

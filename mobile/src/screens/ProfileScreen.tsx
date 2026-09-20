@@ -25,6 +25,7 @@ import { getSavedPostsCount } from "../api/feed";
 import { getAccount, getPoints, getWallet } from "../api/account";
 import { useAppFeatures } from "../hooks/useAppFeatures";
 import { useMembershipSettings } from "../hooks/useMembershipSettings";
+import { membershipCatalogSubtitle } from "../api/membership";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
 import { useI18n } from "../i18n/I18nProvider";
 import { registerPushTokenAfterLogin, unregisterPushTokenOnLogout } from "../push/pushNotifications";
@@ -35,6 +36,8 @@ import {
   homeRouteForAccount,
   isBusinessAccountType,
   isDedicatedAgentAccount,
+  mergeStoredUser,
+  pickUserPicture,
   setUser,
   switchToSession,
   type AccountType,
@@ -117,7 +120,7 @@ function MenuItem({
     </>
   );
 
-  if (item.comingSoon || !item.onPress) {
+  if (!item.onPress) {
     return <View style={[styles.row, !last && styles.rowBorder]}>{body}</View>;
   }
 
@@ -140,7 +143,7 @@ export default function ProfileScreen() {
   const styles = useMemo(() => makeProfileStyles(colors), [colors]);
   const router = useRouter();
   const { enabled, label } = useAppFeatures();
-  const { personalEnabled, personalPlan } = useMembershipSettings();
+  const { personalPlan } = useMembershipSettings();
   const [user, setProfileUser] = useState<ProfileUser | null>(null);
   const [savedCount, setSavedCount] = useState(0);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
@@ -174,8 +177,7 @@ export default function ProfileScreen() {
     setCbcPoints(points.success && points.data ? Number(points.data.cbc || 0) : null);
 
     const accountData = account.success ? account.data : undefined;
-    const mergedUser = {
-      ...(stored || {}),
+    const mergedUser = mergeStoredUser(stored, {
       ...(profile?.user || {}),
       ...(accountData
         ? {
@@ -186,7 +188,7 @@ export default function ProfileScreen() {
             member_since: accountData.member_since,
           }
         : {}),
-    } as ProfileUser;
+    }) as ProfileUser;
 
     if (profile?.user || accountData) {
       setProfileUser(mergedUser);
@@ -296,10 +298,7 @@ export default function ProfileScreen() {
   const numericId = readNumericUserId(user);
   const memberId = formatMemberDisplayId(numericId);
   const name = displayNameFor(user);
-  const picture =
-    (typeof user?.user_picture === "string" && user.user_picture) ||
-    (typeof user?.picture === "string" && user.picture) ||
-    null;
+  const picture = pickUserPicture(user);
   const hasNin = Boolean(String(user?.nin_number || "").replace(/\D/g, ""));
   const ninVerified = hasNin && isTruthyFlag(user?.nin_verified);
   const cacVerified = isTruthyFlag(user?.cac_verified);
@@ -349,7 +348,11 @@ export default function ProfileScreen() {
   const switchTitle = "Switch account";
   const switchSubtitle = "Sign in to the other account with its email and password, or biometrics.";
   const showSwitchRow = true;
-  const switchAllowed: AccountType[] = isBusiness ? ["personal", "agent"] : isAgent ? ["business"] : ["business", "agent"];
+  const switchAllowed: AccountType[] = isBusiness
+    ? ["personal", "agent"]
+    : isAgent
+      ? ["personal", "business"]
+      : ["business", "agent"];
 
   const applySwitchedSession = useCallback(
     async (session: StoredSession) => {
@@ -385,7 +388,7 @@ export default function ProfileScreen() {
     router.replace("/welcome");
   };
 
-  const membershipLive = personalEnabled && enabled("membership");
+  const membershipLive = enabled("membership");
   const rewardsLive = enabled("rewards");
   const walletLive = enabled("wallet");
   const cbcLive = enabled("cbc_points");
@@ -396,27 +399,19 @@ export default function ProfileScreen() {
       subtitle: t("profile.personalDetailsSub"),
       onPress: () => router.push("/profile/personal-details"),
     },
-    ...(personalEnabled
-      ? ([
-          membershipLive
-            ? {
-                title: t("profile.membership"),
-                subtitle:
-                  personalPlan.items && personalPlan.items.length > 1
-                    ? `${personalPlan.items.length} membership prices`
-                    : personalPlan.description.trim()
-                      ? personalPlan.description.trim()
-                      : t("profile.membershipSub"),
-                onPress: () => router.push("/profile/membership"),
-              }
-            : {
-                title: t("profile.membership"),
-                subtitle: label("membership"),
-                comingSoon: true,
-                soonLabel: label("membership"),
-              },
-        ] as MenuRow[])
-      : []),
+    membershipLive
+      ? {
+          title: t("profile.membership"),
+          subtitle: membershipCatalogSubtitle(personalPlan, t("profile.membershipSub")),
+          onPress: () => router.push("/profile/membership"),
+        }
+      : {
+          title: t("profile.membership"),
+          subtitle: membershipCatalogSubtitle(personalPlan, label("membership")),
+          comingSoon: true,
+          soonLabel: label("membership"),
+          onPress: () => router.push("/profile/membership"),
+        },
     rewardsLive
       ? {
           title: t("profile.rewards"),

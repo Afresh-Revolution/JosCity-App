@@ -859,6 +859,7 @@ const styles = StyleSheet.create({
   viewsRow: {
     alignSelf: "center",
     marginTop: 12,
+    marginBottom: 20,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

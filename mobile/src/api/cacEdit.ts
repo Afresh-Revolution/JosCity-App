@@ -1,4 +1,4 @@
-import { apiFetch, readJson } from "./client";
+import { apiFetch, readJson, uploadForm } from "./client";
 import { friendlyError } from "../utils/errors";
 import type { WalletCheckout, WalletFundingOptions } from "./account";
 
@@ -66,15 +66,26 @@ export const verifyCacEditSafehaven = (reference: string) =>
   });
 
 export async function submitCacEditManual(proof: { uri: string; name?: string; type?: string }) {
+  const uri = proof.uri;
+  const ext = (uri.split(".").pop() || "jpg").split("?")[0].toLowerCase();
   const form = new FormData();
   form.append("proof", {
-    uri: proof.uri,
-    name: proof.name || "transfer.jpg",
-    type: proof.type || "image/jpeg",
+    uri,
+    name: proof.name || `transfer.${ext === "png" ? "png" : ext === "webp" ? "webp" : "jpg"}`,
+    type: proof.type || (ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg"),
   } as unknown as Blob);
-  return readCac("/users/cac-edit/manual", {
-    method: "POST",
-    body: form,
-    timeoutMs: 60000,
-  });
+  try {
+    const { promise } = uploadForm("/users/cac-edit/manual", form, { timeoutMs: 60000 });
+    const result = await promise;
+    const payload = result.data as { success?: boolean; message?: string; error?: string; data?: CacEditState };
+    if (result.aborted) {
+      return { success: false, message: friendlyError("timeout") };
+    }
+    if (!result.ok || payload.success === false) {
+      return { success: false, message: friendlyError(payload.message || payload.error || "upload") };
+    }
+    return { success: true, message: payload.message, data: payload.data };
+  } catch {
+    return { success: false, message: friendlyError("upload") };
+  }
 }
