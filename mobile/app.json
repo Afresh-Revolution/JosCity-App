@@ -16,11 +16,12 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.joscity.app",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "backgroundColor": "#0C3D26",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSFaceIDUsageDescription": "JOSCITY uses Face ID so you can sign in without typing your password.",
+        "NSMotionUsageDescription": "JOSCITY uses motion activity to improve your position on the Plateau map and show nearby places while you use the app.",
         "UIBackgroundModes": [
           "remote-notification"
         ]
@@ -163,7 +164,7 @@
           "isIosBackgroundLocationEnabled": false,
           "isAndroidBackgroundLocationEnabled": false,
           "isAndroidForegroundServiceEnabled": false,
-          "motionUsagePermission": false,
+          "motionUsagePermission": "JOSCITY uses motion activity to improve your position on the Plateau map and show nearby places while you use the app.",
           "isAndroidMotionActivityEnabled": false
         }
       ]
