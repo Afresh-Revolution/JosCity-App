@@ -2,6 +2,7 @@ import { apiFetch, readJson } from "./client";
 import { getFeed } from "./feed";
 import { handleFromName } from "../utils/format";
 import { getUser } from "../storage/session";
+import { markUserBlocked, markUserUnblocked } from "../storage/blockedUsers";
 
 export type DirectoryUser = {
   user_id: number;
@@ -22,6 +23,8 @@ export type DirectoryUser = {
   user_verified?: boolean;
   badge_color?: string | null;
   mutual_count?: number;
+  agent_type?: string | null;
+  signup_intent?: string | null;
 };
 
 function isMatchingAccount(
@@ -209,9 +212,30 @@ export async function blockUser(userId: number): Promise<{ success: boolean; mes
         message: data.message || data.error || "Could not block this account.",
       };
     }
+    await markUserBlocked(userId);
     return { success: true };
   } catch {
     return { success: false, message: "Could not block this account." };
+  }
+}
+
+export async function unblockUser(userId: number): Promise<{ success: boolean; message?: string }> {
+  try {
+    const response = await apiFetch(`/friends/block/${userId}`, {
+      method: "DELETE",
+      auth: true,
+    });
+    const data = await readJson<{ success?: boolean; error?: string; message?: string }>(response);
+    if (!response.ok || data.success === false) {
+      return {
+        success: false,
+        message: data.message || data.error || "Could not unblock this account.",
+      };
+    }
+    await markUserUnblocked(userId);
+    return { success: true };
+  } catch {
+    return { success: false, message: "Could not unblock this account." };
   }
 }
 

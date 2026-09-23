@@ -1,2 +1,4 @@
-import AgentScreen from "../../src/screens/AgentScreen";
-export default function Route() { return <AgentScreen page="wallet" />; }
+import WalletScreen from "../../src/screens/WalletScreen";
+export default function Route() {
+  return <WalletScreen />;
+}

@@ -12,7 +12,22 @@
         "buildType": "apk"
       },
       "ios": {
-        "simulator": true
+        "resourceClass": "medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://api-joscity-com-phqud.ondigitalocean.app/api"
+      }
+    },
+    "development-ios": {
+      "developmentClient": true,
+      "distribution": "store",
+      "environment": "development",
+      "autoIncrement": true,
+      "ios": {
+        "resourceClass": "medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://api-joscity-com-phqud.ondigitalocean.app/api"
       }
     },
     "preview": {

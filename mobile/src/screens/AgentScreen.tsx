@@ -1,93 +1,330 @@
-import { useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions } from "react-native";
-import { useRouter } from "expo-router";
+import { useCallback, useState } from "react";
+import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions } from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import AppButton from "../components/AppButton";
+import TextField from "../components/TextField";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { hasSession, getAccountType } from "../storage/session";
-import SwitchAccountSheet from "../components/SwitchAccountSheet";
+import { getAccountType, getAuthToken, getUser, homeRouteForAccount, setUser, switchToSession, type StoredSession, type StoredUser } from "../storage/session";
+import SwitchAccountSheet, { type SwitchAccountType } from "../components/SwitchAccountSheet";
+import BusinessAccountSheet from "../components/BusinessAccountSheet";
 import FeedHeader from "../components/feed/FeedHeader";
 import AgentWorkPanel from "../components/agents/AgentWorkPanel";
+import AgentProfileEditor from "../components/agents/AgentProfileEditor";
+import AgentReputationCard from "../components/agents/AgentReputationCard";
+import AgentSourcedCatalogue from "../components/agents/AgentSourcedCatalogue";
+import AgentServiceChecks from "../components/agents/AgentServiceChecks";
+import JosCityLoader from "../components/JosCityLoader";
+import { categoriesFromText } from "../api/agentSignup";
+import { agentApi } from "../api/agent";
 import { useAgentPreview, updateAgentPreview } from "../state/agentPreview";
+import { useAgentActivation } from "../state/useAgentActivation";
 import AgentTabBar from "../components/agents/AgentTabBar";
+import { registerPushTokenAfterLogin, unregisterPushTokenOnLogout } from "../push/pushNotifications";
+import { TAB_BAR_SPACE } from "../components/feed/FeedShell";
+import { useI18n } from "../i18n/I18nProvider";
 import { useTheme } from "../theme/ThemeProvider";
-import { BADGE_AGENT } from "../utils/badgeColor";
+import { resolveAccountBadgeColor } from "../utils/badgeColor";
+import { normalizeUsername, usernameError } from "../utils/accountNames";
 import type { Palette } from "../theme/colors";
 
-export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard" | "wallet" | "profile" }) {
+function naira(value: unknown) {
+  return `NGN ${Number(value || 0).toLocaleString("en-NG", { maximumFractionDigits: 2 })}`;
+}
+
+export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard" | "profile" | "settings" }) {
   const { colors } = useTheme(); const s = styles(colors); const insets = useSafeAreaInsets(); const router = useRouter();
+  const { t } = useI18n();
   const [editingProfile, setEditingProfile] = useState(false);
   const [photoError, setPhotoError] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
   const [switchChooserOpen, setSwitchChooserOpen] = useState(false);
-  // Agent preview has no authenticated notification inbox yet.
+  const [switchLoginOpen, setSwitchLoginOpen] = useState(false);
+  const [switchLoginType, setSwitchLoginType] = useState<SwitchAccountType>("personal");
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  const [sessionUser, setSessionUser] = useState<StoredUser | null>(null);
+  const [switchAllowed, setSwitchAllowed] = useState<SwitchAccountType[]>([]);
   const unread = 0;
   const wide = useWindowDimensions().width >= 760;
   const agentPreview = useAgentPreview();
+  const activation = useAgentActivation();
   const online = agentPreview.accepting;
-  const setOnline = (accepting: boolean) => updateAgentPreview({ accepting });
+  const setOnline = (accepting: boolean) => { void activation.setAccepting(accepting); };
+  const displayName = `${activation.profile?.user_firstname || agentPreview.firstName} ${activation.profile?.user_lastname || agentPreview.lastName}`.trim() || "Agent";
+  const initials = `${(activation.profile?.user_firstname || agentPreview.firstName || "A")[0]}${(activation.profile?.user_lastname || agentPreview.lastName || "")[0] || ""}`.toUpperCase();
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    void Promise.all([getAuthToken(), getAccountType(), getUser()]).then(([token, type, user]) => {
+      if (!active) return;
+      setAuthed(Boolean(token));
+      setSessionUser(user);
+      if (type === "business") setSwitchAllowed(["personal", "agent"]);
+      else setSwitchAllowed(["personal", "business"]);
+    });
+    return () => { active = false; };
+  }, []));
   const changePhoto = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
       if (!result.canceled) { updateAgentPreview({ avatar: result.assets[0].uri }); setPhotoError(""); }
     } catch { setPhotoError("Could not open photos. Check your photo permissions and try again."); }
   };
+  const saveProfileEdits = async () => {
+    const firstName = agentPreview.firstName.trim();
+    const lastName = agentPreview.lastName.trim();
+    const username = normalizeUsername(agentPreview.username);
+    if (!firstName || !lastName) {
+      setPhotoError("Enter your first and last name.");
+      return;
+    }
+    const handleMessage = usernameError(username);
+    if (handleMessage) {
+      setPhotoError(handleMessage);
+      return;
+    }
+    setSavingProfile(true);
+    setPhotoError("");
+    try {
+      await agentApi.updateMe({
+        firstName,
+        lastName,
+        ...(username ? { userName: username } : {}),
+        bio: agentPreview.bio,
+        categories: categoriesFromText(agentPreview.category),
+        workingAreas: String(agentPreview.workingAreas || "")
+          .split(/[,/|]/)
+          .map((item) => item.trim())
+          .filter(Boolean),
+        baseAddress: agentPreview.address || undefined,
+      });
+      updateAgentPreview({ firstName, lastName, username });
+      const user = await getUser();
+      if (user) {
+        const next = {
+          ...user,
+          user_firstname: firstName,
+          user_lastname: lastName,
+          first_name: firstName,
+          last_name: lastName,
+          display_name: `${firstName} ${lastName}`.trim(),
+          ...(username ? { user_name: username, username } : {}),
+        };
+        await setUser(next);
+        setSessionUser(next);
+      }
+      await activation.refresh();
+      setEditingProfile(false);
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : "Could not save your profile.");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+  const badgeColor = resolveAccountBadgeColor({
+    badge_color: typeof sessionUser?.badge_color === "string" ? sessionUser.badge_color : null,
+    account_type: "agent",
+    signup_intent: typeof sessionUser?.signup_intent === "string" ? sessionUser.signup_intent : "agent",
+    agent_type: typeof sessionUser?.agent_type === "string" ? sessionUser.agent_type : typeof activation.profile?.agent_type === "string" ? activation.profile.agent_type : null,
+    nin_number: typeof sessionUser?.nin_number === "string" ? sessionUser.nin_number : null,
+    nin_verified: Boolean(sessionUser?.nin_verified),
+  }) || "#6B7280";
   const title = (text: string) => <Text style={s.section}>{text}</Text>;
   const row = (label: string, value: string) => <View style={s.row}><Text style={s.muted}>{label}</Text><Text style={s.bold}>{value}</Text></View>;
+  if (authed === null) {
+    return <View style={[s.root, { alignItems: "center", justifyContent: "center" }]}><JosCityLoader color={colors.primary} size="large" /></View>;
+  }
+  if (!authed) {
+    return (
+      <View style={[s.root, { paddingTop: insets.top + 24, paddingHorizontal: 24, gap: 16 }]}>
+        <Text style={s.heading}>Agent account</Text>
+        <Text style={s.muted}>Sign in to open your dashboard. Jobs, requests and your profile load from your account.</Text>
+        <AppButton label="Log in" onPress={() => router.push({ pathname: "/login", params: { type: "agent" } })} />
+        <AppButton label="Create an agent account" variant="secondary" onPress={() => router.push("/register/agent" as never)} />
+      </View>
+    );
+  }
   return <View style={s.root}>
-    <View style={{ paddingTop: insets.top, backgroundColor: colors.background }}><FeedHeader unreadCount={unread} showSearch={false} onNotifications={() => router.push("/agents/notifications" as never)} /></View>
-    <ScrollView contentContainerStyle={[s.content, { paddingBottom: 110 + insets.bottom }]}>
-      <View style={s.row}><Text style={s.link}>AGENTS</Text><Pressable accessibilityRole="button" onPress={() => router.push("/welcome" as never)}><Text style={s.link}>Exit preview</Text></Pressable></View>
-      <Text style={s.preview}>UI PREVIEW - Sample information</Text>
-      <Text style={s.heading}>{page === "dashboard" ? "Your city. Your next opportunity." : page === "wallet" ? "Your agent wallet" : "Agent profile"}</Text>
-      <Text style={s.muted}>{page === "dashboard" ? "A little local knowledge. A big difference for someone in Jos." : page === "wallet" ? "Earnings, protected payments and rewards in one place." : "Your reputation, services and community."}</Text>
+    <View style={{ paddingTop: insets.top, backgroundColor: colors.background }}>
+      {page === "profile" ? (
+        <View style={s.headerBar}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.headerKicker}>{t("profile.tabKicker")}</Text>
+            <Text style={s.headerTitle}>{t("profile.title")}</Text>
+          </View>
+          <Pressable
+            onPress={() => router.push("/agents/settings" as never)}
+            style={s.gearBtn}
+            accessibilityRole="button"
+            accessibilityLabel={t("profile.settingsHint")}
+          >
+            <Ionicons name="settings-outline" size={22} color={colors.text} />
+          </Pressable>
+        </View>
+      ) : (
+        <FeedHeader unreadCount={unread} showSearch={false} onNotifications={() => router.push("/agents/notifications" as never)} />
+      )}
+    </View>
+    <ScrollView contentContainerStyle={[s.content, { paddingBottom: TAB_BAR_SPACE + insets.bottom + 36 }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+      {page !== "profile" ? <View style={s.row}><Text style={s.link}>AGENTS</Text></View> : null}
+      {page === "settings" ? (
+        <>
+          <Text style={s.heading}>Agent settings</Text>
+          <Text style={s.muted}>Account, safety and support for your agent profile.</Text>
+        </>
+      ) : null}
+      {activation.error ? <Text accessibilityRole="alert" style={s.notice}>{activation.error}</Text> : null}
+      {activation.notice ? <Text style={s.link}>{activation.notice}</Text> : null}
+      {page === "dashboard" && activation.authenticated && activation.needsDetails && <View style={s.card}>
+        {title("Finish with your create-account details")}
+        <Text style={s.muted}>Use the same Agent bio, categories, services and NIN from the create account page. This is not a new form.</Text>
+        <AppButton label="Open your agent details" onPress={() => setDetailsOpen(true)} />
+      </View>}
       {page === "dashboard" && <View style={s.hero}>
-        <View style={s.identity}><View style={s.avatar}>{agentPreview.avatar ? <Image source={{ uri: agentPreview.avatar }} style={{ width: 60, height: 60, borderRadius: 22 }} /> : <Text style={{ fontSize: 24, color: colors.brand, fontFamily: "Montserrat_700Bold" }}>JM</Text>}</View><View style={{ flex: 1 }}><View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}><Text style={s.heroTitle}>John Musa</Text><Ionicons accessibilityLabel="Agent verification badge sample" name="checkmark-circle" color={BADGE_AGENT} size={23} /></View><Text style={s.heroCopy}>Personal shopper & delivery partner</Text><Text style={s.heroCopy}>Jos North - Electronics & everyday essentials</Text></View></View>
-        {page === "dashboard" ? <View style={s.availability}><View style={{ flex: 1 }}><Text style={s.heroTitle}>{online ? "Accepting requests" : "Not accepting"}</Text><Text style={s.heroCopy}>Rating and directory position stay visible</Text></View><Switch accessibilityLabel="Preview availability" value={online} onValueChange={setOnline} trackColor={{ true: "#86C7A2", false: "#707A73" }} /></View> : <View style={s.availability}><Text style={s.heroCopy}>? 4.8 rating     ?     126 completed jobs     ?     98% success</Text></View>}
+        <View style={s.identity}><View style={s.avatar}>{agentPreview.avatar ? <Image source={{ uri: agentPreview.avatar }} style={{ width: 60, height: 60, borderRadius: 22 }} /> : <Text style={{ fontSize: 24, color: colors.brand, fontFamily: "Montserrat_700Bold" }}>{initials}</Text>}</View><View style={{ flex: 1 }}><View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}><Text style={s.heroTitle}>{displayName}</Text><Ionicons accessibilityLabel="Agent verification badge" name="checkmark-circle" color={badgeColor} size={23} /></View><Text style={s.heroCopy}>{agentPreview.services.join(" · ") || "Personal shopper & delivery partner"}</Text><Text style={s.heroCopy}>{agentPreview.address || "Jos"} - {agentPreview.category || "Your specialties"}</Text></View></View>
+        <View style={s.availability}><View style={{ flex: 1 }}><Text style={s.heroTitle}>{online ? "Accepting requests" : "Not accepting"}</Text><Text style={s.heroCopy}>Rating and directory position stay visible</Text></View><Switch accessibilityLabel="Availability" value={online} onValueChange={setOnline} trackColor={{ true: "#86C7A2", false: "#707A73" }} /></View>
       </View>}
       {page === "dashboard" && <>
-        <View style={s.grid}>{[["Today's earnings", "NGN 21,000", "+18% from yesterday"], ["Pending requests", String(agentPreview.requests.filter(r => r.stage < 0).length), "2 within 1 km"], ["Active jobs", String(agentPreview.requests.filter(r => r.stage >= 0 && r.stage < 4).length), "One purchase - one delivery"], ["Your rating", "4.8 stars", "98% success rate"]].map(([label, value, caption]) => <View key={label} style={[s.card, { width: wide ? "23.5%" : "48%" }]}><Text style={s.muted}>{label}</Text><Text style={s.metric}>{value}</Text><Text style={s.link}>{caption}</Text></View>)}</View>
-        <View style={s.card}><View style={s.row}>{title("This week")}<Text style={s.bold}>NGN 101,700</Text></View><View accessibilityLabel="Sample earnings chart: Monday through Sunday" style={s.chart}>{[35, 52, 41, 65, 80, 100, 58].map((height, index) => <View key={index} style={{ flex: 1, alignItems: "center", gap: 8 }}><View style={{ height: 105, justifyContent: "flex-end", width: "65%" }}><View style={{ height, backgroundColor: index === 5 ? colors.primary : colors.navActive, borderRadius: 8 }} /></View><Text style={s.muted}>{["M", "T", "W", "T", "F", "S", "S"][index]}</Text></View>)}</View></View>
+        <AppButton label="Map" variant="secondary" onPress={() => router.push("/agents/map" as never)} />
+        <View style={s.grid}>{[["Active jobs", String(activation.stats?.active_jobs ?? 0), "Live from your account"], ["Pending quotes", String(activation.stats?.pending_quotes ?? 0), "Waiting for a customer"], ["Completed today", String(activation.stats?.completed_today ?? 0), "Jobs finished today"], ["Your rating", Number(activation.profile?.agent_rating_avg || 0).toFixed(1), `${activation.profile?.agent_completed_jobs_count || 0} completed jobs`]].map(([label, value, caption]) => <View key={label} style={[s.card, { width: wide ? "23.5%" : "48%" }]}><Text style={s.muted}>{label}</Text><Text style={s.metric}>{value}</Text><Text style={s.link}>{caption}</Text></View>)}</View>
+        <View style={s.card}><View style={s.row}>{title("Protected fees")}<Text style={s.bold}>{naira(activation.stats?.held_agent_fees)}</Text></View><Text style={s.muted}>Held until the customer confirms delivery.</Text></View>
+        <View style={s.card}><View style={s.row}>{title("Vendor payouts")}<Text style={s.bold}>{String(activation.stats?.pending_payouts ?? 0)} pending</Text></View><Text style={s.muted}>External bank payouts stay pending until admin marks them paid. JosCity businesses are credited to wallet by email.</Text></View>
+        {title("Earnings")}
+        <View style={s.grid}>
+          {([
+            ["Wallet", naira(activation.walletBalance), "Tap to open wallet"],
+            ["Held fees", naira(activation.stats?.held_agent_fees), "Until delivery is confirmed"],
+            ["Completed today", String(activation.stats?.completed_today ?? 0), "Jobs finished today"],
+            ["Lifetime jobs", String(activation.profile?.agent_completed_jobs_count ?? 0), "All completed jobs"],
+          ] as const).map(([label, value, caption]) => {
+            const tileWidth: `${number}%` = wide ? "23.5%" : "48%";
+            const body = (
+              <>
+                <Text style={s.muted}>{label}</Text>
+                <Text style={label === "Wallet" || label === "Held fees" ? s.earnValue : s.metric}>{value}</Text>
+                <Text style={s.link}>{caption}</Text>
+              </>
+            );
+            return label === "Wallet" ? (
+              <Pressable key={label} accessibilityRole="button" accessibilityLabel="Open wallet" onPress={() => router.push("/agents/wallet" as never)} style={[s.card, { width: tileWidth }]}>{body}</Pressable>
+            ) : (
+              <View key={label} style={[s.card, { width: tileWidth }]}>{body}</View>
+            );
+          })}
+        </View>
         <AgentWorkPanel />
-        <View style={s.card}>{title("Job earnings")}<View style={s.grid}>{[["Today", "NGN 21,000"], ["This week", "NGN 101,700"], ["This month", "NGN 384,500"], ["Lifetime", "NGN 2,140,000"]].map(([label, value]) => <View key={label} style={{ width: wide ? "23%" : "47%", gap: 8, paddingVertical: 10 }}><Text style={s.muted}>{label}</Text><Text style={s.bold}>{value}</Text></View>)}</View><Text style={s.muted}>Sample earnings from purchases and deliveries.</Text></View>
-      </>}
-      {page === "wallet" && <>
-        <View style={s.hero}><Text style={s.heroCopy}>Normal wallet ? Sample balance</Text><Text style={[s.metric, { color: "white", fontSize: 38 }]}>NGN 42,500</Text><Text style={s.heroCopy}>Available earnings</Text><View style={s.filters}>{["Add money", "Withdraw"].map(label => <View key={label} accessibilityState={{ disabled: true }} style={s.chip}><Text style={s.link}>{label} ? Soon</Text></View>)}</View></View>
-        <View style={s.card}>{title("Protected in escrow")}{row("Sample held balance", "NGN 108,000")}<Text style={s.muted}>Customer funds stay protected until delivery is confirmed. Escrow payments are coming soon.</Text></View>
-        <View style={s.card}>{title("CBC rewards")}{row("Sample reward balance", "NGN 2,400")}<Text style={s.muted}>Buy CBC and save. Rewards on eligible agent transactions are coming soon.</Text></View>
-        {title("Recent activity")}{[["Shopping service fee", "+NGN 5,000"], ["Delivery - Rayfield", "+NGN 3,000"], ["Purchase funds - In escrow", "NGN 108,000"]].map(([label, amount]) => <View key={label} style={s.card}>{row(label, amount)}<Text style={s.muted}>Sample transaction</Text></View>)}
       </>}
       {page === "profile" && <>
         <View style={[s.card, { alignItems: "center", paddingVertical: 28, gap: 16 }]}>
           <Pressable accessibilityRole="button" accessibilityLabel={agentPreview.avatar ? "Change profile picture" : "Upload profile picture"} onPress={() => void changePhoto()} style={{ width: 100, height: 100 }}>
-            {agentPreview.avatar ? <Image source={{ uri: agentPreview.avatar }} style={{ width: 100, height: 100, borderRadius: 50 }} /> : <View style={{ width: 100, height: 100, borderRadius: 50, backgroundColor: colors.avatarBg, alignItems: "center", justifyContent: "center" }}><Text style={{ fontFamily: "Montserrat_700Bold", fontSize: 34, color: colors.primary }}>JM</Text></View>}
+            {agentPreview.avatar ? <Image source={{ uri: agentPreview.avatar }} style={{ width: 100, height: 100, borderRadius: 50 }} /> : <View style={{ width: 100, height: 100, borderRadius: 50, backgroundColor: colors.avatarBg, alignItems: "center", justifyContent: "center" }}><Text style={{ fontFamily: "Montserrat_700Bold", fontSize: 34, color: colors.primary }}>{initials}</Text></View>}
             <View style={{ position: "absolute", right: 0, bottom: 0, width: 32, height: 32, borderRadius: 16, borderWidth: 3, borderColor: colors.card, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" }}><Ionicons name="camera" size={16} color={colors.white} /></View>
           </Pressable>
           {photoError ? <Text accessibilityRole="alert" style={{ color: colors.error }}>{photoError}</Text> : null}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><Text style={[s.section, { fontSize: 24 }]}>John Musa</Text><Ionicons name="checkmark-circle" size={23} color={BADGE_AGENT} /></View>
-          <Text style={s.muted}>Agent - Jos North, Plateau</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><Text style={[s.section, { fontSize: 24 }]}>{displayName}</Text><Ionicons name="checkmark-circle" size={23} color={badgeColor} /></View>
+          {agentPreview.username ? <Text style={s.muted}>@{normalizeUsername(agentPreview.username)}</Text> : null}
+          <Text style={s.muted}>Agent - {agentPreview.address || "Jos North, Plateau"}</Text>
           <Text style={[s.muted, { textAlign: "center" }]}>{agentPreview.bio}</Text>
-          <View style={[s.row, { width: "100%", justifyContent: "space-around", paddingVertical: 12 }]}>{[["4.8", "Rating"], ["126", "Completed"], ["98%", "Success"]].map(([value, label]) => <View key={label} style={{ alignItems: "center", gap: 5 }}><Text style={s.section}>{value}</Text><Text style={s.muted}>{label}</Text></View>)}</View>
-          <AppButton label={editingProfile ? "Done editing" : "Edit profile"} variant="secondary" onPress={() => setEditingProfile(!editingProfile)} style={{ width: "100%" }} />
+          <View style={[s.row, { width: "100%", justifyContent: "space-around", paddingVertical: 12 }]}>{[[`${Number(activation.profile?.agent_rating_avg || 0).toFixed(1)}`, "Rating"], [String(activation.profile?.agent_completed_jobs_count ?? 0), "Completed"], [activation.profile?.star_level?.label || "Agent", "Level"]].map(([value, label]) => <View key={label} style={{ alignItems: "center", gap: 5 }}><Text style={s.section}>{value}</Text><Text style={s.muted}>{label}</Text></View>)}</View>
+          <AppButton
+            label={editingProfile ? (savingProfile ? "Saving…" : "Done editing") : "Edit profile"}
+            variant="secondary"
+            disabled={savingProfile}
+            onPress={() => {
+              if (editingProfile) void saveProfileEdits();
+              else setEditingProfile(true);
+            }}
+            style={{ width: "100%" }}
+          />
         </View>
-        <View style={s.card}>{title("Services & specialties")}<View style={s.filters}>{agentPreview.services.map(service => <View key={service} style={s.chip}><Text style={s.link}>{service}</Text></View>)}</View>{row("Specialties", agentPreview.category)}{row("Service area", "Jos North - Rayfield")}</View>
-        {editingProfile && <View style={s.card}>{title("Edit profile")}<Text style={s.muted}>Changes are saved only in this preview.</Text><Text style={s.bold}>Bio</Text><TextInput accessibilityLabel="Agent bio" multiline value={agentPreview.bio} onChangeText={bio => updateAgentPreview({ bio })} style={[s.card, { color: colors.text }]} /><Text style={s.bold}>Categories / specialties</Text><TextInput accessibilityLabel="Agent categories" value={agentPreview.category} onChangeText={category => updateAgentPreview({ category })} style={[s.card, { color: colors.text }]} /><View style={s.filters}>{["Help me buy", "Help me deliver"].map(service => <Pressable key={service} accessibilityRole="checkbox" accessibilityState={{ checked: agentPreview.services.includes(service) }} onPress={() => updateAgentPreview({ services: agentPreview.services.includes(service) ? agentPreview.services.filter(s => s !== service) : [...agentPreview.services, service] })} style={s.chip}><Text style={s.link}>{agentPreview.services.includes(service) ? "Selected: " : ""}{service}</Text></Pressable>)}</View></View>}
-        <View style={s.card}>{title("Agent reputation")}<Text style={[s.bold, { color: BADGE_AGENT }]}>Verified Agent - Badge preview</Text><Text style={s.muted}>New / Verified / Trusted / Elite</Text><Text style={s.notice}>Verification and agent levels shown here are examples.</Text></View>
-        <View style={s.card}>{title("Sourced by John")}{row("Phones & gadgets", "Coming soon")}<Text style={s.muted}>A space for products you can source and your own listings.</Text></View>
-        <View style={s.card}>{title("Services & account")}<Pressable accessibilityRole="button" onPress={() => setSwitchChooserOpen(true)} style={[s.row, { paddingVertical: 14 }]}><Text style={s.bold}>Switch account</Text><Ionicons name="swap-horizontal-outline" size={22} color={colors.primary} /></Pressable>{["Verification documents", "Reviews & job history", "Support & disputes"].map(label => <View key={label} style={[s.row, { paddingVertical: 14 }]}><Text style={s.bold}>{label}</Text><Text style={s.muted}>Soon</Text></View>)}</View>
+        {editingProfile ? (
+          <View style={s.card}>
+            {title("Edit profile")}
+            <Text style={s.muted}>Update this section to change your profile picture, name, username, bio, categories, services and working areas.</Text>
+            <TextField
+              label="First name"
+              value={agentPreview.firstName}
+              onChangeText={(firstName) => updateAgentPreview({ firstName })}
+              autoCapitalize="words"
+              placeholder="Amina"
+            />
+            <TextField
+              label="Last name"
+              value={agentPreview.lastName}
+              onChangeText={(lastName) => updateAgentPreview({ lastName })}
+              autoCapitalize="words"
+              placeholder="Danjuma"
+            />
+            <TextField
+              label="Username"
+              value={agentPreview.username}
+              onChangeText={(username) => updateAgentPreview({ username: username.replace(/^@+/, "") })}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="amina.jos"
+              helper="Letters, numbers, underscores or periods."
+            />
+            <TextField
+              label="Bio"
+              value={agentPreview.bio}
+              onChangeText={(bio) => updateAgentPreview({ bio })}
+              multiline
+              placeholder="Tell customers how you can help"
+            />
+            <TextField
+              label="Categories / specialties"
+              value={agentPreview.category}
+              onChangeText={(category) => updateAgentPreview({ category })}
+              placeholder="Electronics, groceries, fashion..."
+            />
+            <TextField
+              label="Working areas"
+              value={agentPreview.workingAreas}
+              onChangeText={(workingAreas) => updateAgentPreview({ workingAreas })}
+              placeholder="Terminus, Rayfield, Bukuru"
+              helper="Places you buy and deliver around, separated by commas."
+            />
+            <Text style={s.bold}>Services</Text>
+            <AgentServiceChecks
+              services={agentPreview.services}
+              onChange={(services) => updateAgentPreview({ services })}
+            />
+          </View>
+        ) : null}
+        <View style={s.card}>{title("Services & specialties")}<View style={s.filters}>{agentPreview.services.map(service => <View key={service} style={s.chip}><Text style={s.link}>{service}</Text></View>)}</View>{row("Specialties", agentPreview.category)}{row("Service area", agentPreview.address || "Jos North - Rayfield")}{row("Working areas", agentPreview.workingAreas || "Add areas you cover")}</View>
+        <AgentReputationCard profile={activation.profile} accent={badgeColor} />
+        <AgentSourcedCatalogue agentName={agentPreview.firstName || displayName} />
+        {switchAllowed.length ? <View style={s.card}><Pressable accessibilityRole="button" onPress={() => setSwitchChooserOpen(true)} style={[s.row, { paddingVertical: 14 }]}><Text style={s.bold}>Switch account</Text><Ionicons name="swap-horizontal-outline" size={22} color={colors.primary} /></Pressable></View> : null}
       </>}
-      <Text style={s.notice}>Agent preview only. Changes stay in this session. No real jobs, notifications or payments are created.</Text>
-    </ScrollView><AgentTabBar active={page} />
-    <SwitchAccountSheet visible={switchChooserOpen} current="agent" onClose={() => setSwitchChooserOpen(false)} onSelect={async type => {
+      <Text style={s.notice}>Agent services use the details you entered when creating your account.</Text>
+    </ScrollView><AgentTabBar active={page === "settings" ? "profile" : page} />
+    {detailsOpen && <AgentProfileEditor title="Agent details" copy="These are the same fields from the create account page." onClose={() => setDetailsOpen(false)} onSave={activation.saveDetails} />}
+    <SwitchAccountSheet visible={switchChooserOpen} current="agent" allowed={switchAllowed} onClose={() => setSwitchChooserOpen(false)} onSelect={type => {
       setSwitchChooserOpen(false);
-      const current = await getAccountType();
-      if (await hasSession() && current === type) router.replace((type === "business" ? "/business" : "/home") as never);
-      else router.push({ pathname: "/login", params: { type } });
+      setSwitchLoginType(type);
+      setSwitchLoginOpen(true);
     }} />
+    <BusinessAccountSheet
+      visible={switchLoginOpen}
+      mode={switchLoginType}
+      onClose={() => setSwitchLoginOpen(false)}
+      onLinked={async (session: StoredSession) => {
+        await unregisterPushTokenOnLogout();
+        await switchToSession(session);
+        setSwitchLoginOpen(false);
+        void registerPushTokenAfterLogin();
+        router.replace(homeRouteForAccount(session.accountType) as never);
+      }}
+    />
   </View>;
 }
 const styles = (c: Palette) => StyleSheet.create({
   actions: { flexDirection: "row", gap: 10 }, action: { flex: 1, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: c.border, alignItems: "center", justifyContent: "center", padding: 10 },
   root: { flex: 1, backgroundColor: c.cream }, content: { width: "100%", maxWidth: 1080, alignSelf: "center", padding: 20, gap: 18, paddingBottom: 32 },
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }, wordmark: { fontFamily: "Montserrat_700Bold", color: c.primary, fontSize: 19 }, preview: { color: c.textMuted, fontFamily: "Montserrat_600SemiBold", fontSize: 10, letterSpacing: 1.5 }, heading: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 32, color: c.text }, section: { fontFamily: "Montserrat_700Bold", fontSize: 18, color: c.text }, muted: { fontFamily: "Montserrat_400Regular", fontSize: 12, lineHeight: 20, color: c.textMuted }, bold: { fontFamily: "Montserrat_600SemiBold", fontSize: 14, color: c.text }, link: { fontFamily: "Montserrat_600SemiBold", fontSize: 11, color: c.primary }, hero: { backgroundColor: c.brand, padding: 22, borderRadius: 26, gap: 20 }, identity: { flexDirection: "row", alignItems: "center", gap: 14, marginVertical: 6 }, avatar: { width: 60, height: 60, borderRadius: 22, backgroundColor: "#E6EFE8", alignItems: "center", justifyContent: "center" }, heroTitle: { color: "white", fontFamily: "Montserrat_700Bold", fontSize: 17 }, heroCopy: { color: "#D2E5D8", fontFamily: "Montserrat_400Regular", fontSize: 12, lineHeight: 21 }, availability: { flexDirection: "row", alignItems: "center", padding: 16, borderRadius: 18, backgroundColor: "#24533C" }, grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 12 }, card: { backgroundColor: c.card, borderRadius: 22, borderWidth: 1, borderColor: c.border, padding: 18, gap: 12 }, metric: { color: c.text, fontFamily: "Montserrat_700Bold", fontSize: 27 }, chart: { flexDirection: "row", alignItems: "flex-end", paddingTop: 16 }, filters: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, chip: { padding: 12, borderRadius: 14, backgroundColor: c.navActive }, smallIcon: { width: 48, height: 52, borderRadius: 14, backgroundColor: c.iconSoft, alignItems: "center", justifyContent: "center" }, notice: { color: c.textMuted, fontFamily: "Montserrat_400Regular", fontSize: 12, lineHeight: 20, paddingVertical: 8 },
+  headerBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 8, gap: 8 },
+  headerKicker: { fontFamily: "Montserrat_500Medium", fontSize: 11, letterSpacing: 0.4, color: c.textMuted, marginBottom: 2 },
+  headerTitle: { fontFamily: "Montserrat_700Bold", fontSize: 32, color: c.text },
+  gearBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }, wordmark: { fontFamily: "Montserrat_700Bold", color: c.primary, fontSize: 19 }, heading: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 32, color: c.text }, section: { fontFamily: "Montserrat_700Bold", fontSize: 18, color: c.text }, muted: { fontFamily: "Montserrat_400Regular", fontSize: 12, lineHeight: 20, color: c.textMuted }, bold: { fontFamily: "Montserrat_600SemiBold", fontSize: 14, color: c.text }, link: { fontFamily: "Montserrat_600SemiBold", fontSize: 11, color: c.primary }, hero: { backgroundColor: c.brand, padding: 22, borderRadius: 26, gap: 20 }, identity: { flexDirection: "row", alignItems: "center", gap: 14, marginVertical: 6 }, avatar: { width: 60, height: 60, borderRadius: 22, backgroundColor: "#E6EFE8", alignItems: "center", justifyContent: "center" }, heroTitle: { color: "white", fontFamily: "Montserrat_700Bold", fontSize: 17 }, heroCopy: { color: "#D2E5D8", fontFamily: "Montserrat_400Regular", fontSize: 12, lineHeight: 21 }, availability: { flexDirection: "row", alignItems: "center", padding: 16, borderRadius: 18, backgroundColor: "#24533C" }, grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 12 }, card: { backgroundColor: c.card, borderRadius: 22, borderWidth: 1, borderColor: c.border, padding: 18, gap: 12 }, metric: { color: c.text, fontFamily: "Montserrat_700Bold", fontSize: 27 }, earnValue: { color: c.text, fontFamily: "Montserrat_700Bold", fontSize: 20 }, chart: { flexDirection: "row", alignItems: "flex-end", paddingTop: 16 }, filters: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, chip: { padding: 12, borderRadius: 14, backgroundColor: c.navActive }, smallIcon: { width: 48, height: 52, borderRadius: 14, backgroundColor: c.iconSoft, alignItems: "center", justifyContent: "center" }, notice: { color: c.textMuted, fontFamily: "Montserrat_400Regular", fontSize: 12, lineHeight: 20, paddingVertical: 8 }, field: { minHeight: 48, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.sheet, paddingHorizontal: 14, paddingVertical: 12, fontFamily: "Montserrat_400Regular", fontSize: 14 },
 });

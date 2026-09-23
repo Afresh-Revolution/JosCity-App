@@ -18,6 +18,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import FadeIn from "../components/FadeIn";
 import SettingsPage, { useSettingsStyles } from "../components/SettingsPage";
 import TextField from "../components/TextField";
+import WalletFundingModal from "../components/wallet/WalletFundingModal";
+import { useAppFeatures } from "../hooks/useAppFeatures";
 import {
   getBusinessWallet,
   updateBusinessPayoutAccount,
@@ -30,6 +32,7 @@ import { useI18n } from "../i18n/I18nProvider";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { formatNaira } from "../utils/format";
+import { isWithdrawMethodEnabled } from "../utils/paystackFunding";
 
 type Filter = "all" | "in" | "out" | "pending";
 type Sheet = "withdraw" | "payout" | "tx" | null;
@@ -69,6 +72,7 @@ export default function BusinessWalletScreen() {
   const s = useSettingsStyles();
   const { colors } = useTheme();
   const { t } = useI18n();
+  const { label } = useAppFeatures();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [wallet, setWallet] = useState<BusinessWallet | null>(null);
@@ -84,6 +88,7 @@ export default function BusinessWalletScreen() {
   const [accountNumber, setAccountNumber] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [afterPayout, setAfterPayout] = useState<"withdraw" | null>(null);
+  const [fundOpen, setFundOpen] = useState(false);
 
   const load = useCallback(async () => {
     const result = await getBusinessWallet();
@@ -108,7 +113,7 @@ export default function BusinessWalletScreen() {
   );
 
   const transactions = useMemo(() => {
-    const rows = wallet?.transactions || [];
+    const rows = (wallet?.transactions || []).filter((item) => item.status !== "failed");
     if (filter === "in") return rows.filter((item) => item.direction === "in");
     if (filter === "out") return rows.filter((item) => item.direction === "out");
     if (filter === "pending") return rows.filter((item) => item.status === "pending");
@@ -133,7 +138,7 @@ export default function BusinessWalletScreen() {
     setSheet("withdraw");
   };
 
-  const submitWithdraw = async () => {
+  const submitWithdraw = async (method: "paystack" | "manual") => {
     const amount = Number(String(amountText).replace(/,/g, ""));
     if (!Number.isFinite(amount) || amount <= 0) {
       Alert.alert(t("business.walletAmountTitle"), t("business.walletAmountBody"));
@@ -144,7 +149,7 @@ export default function BusinessWalletScreen() {
       return;
     }
     setSubmitting(true);
-    const result = await withdrawBusinessWallet(amount);
+    const result = await withdrawBusinessWallet(amount, method);
     setSubmitting(false);
     if (!result.success) {
       Alert.alert(t("business.walletWithdrawError"), result.message || t("business.walletTryAgain"));
@@ -153,7 +158,10 @@ export default function BusinessWalletScreen() {
     if (result.data) setWallet(result.data);
     setSheet(null);
     setAmountText("");
-    Alert.alert(t("business.walletWithdrawSubmitted"), t("business.walletWithdrawReview"));
+    Alert.alert(
+      method === "paystack" ? t("wallet.withdrawSent") : t("business.walletWithdrawSubmitted"),
+      method === "paystack" ? t("wallet.withdrawSentBody") : t("business.walletWithdrawReview")
+    );
     await load();
   };
 
@@ -226,6 +234,15 @@ export default function BusinessWalletScreen() {
           </View>
           <View style={styles.heroActions}>
             <Pressable
+              onPress={() => setFundOpen(true)}
+              style={({ pressed }) => [styles.fundBtn, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel={t("wallet.fund")}
+            >
+              <Ionicons name="arrow-down" size={16} color={colors.brand} />
+              <Text style={styles.fundBtnText}>{t("wallet.fund")}</Text>
+            </Pressable>
+            <Pressable
               onPress={openWithdrawSheet}
               style={({ pressed }) => [styles.heroBtn, pressed && styles.pressed]}
               accessibilityRole="button"
@@ -252,6 +269,14 @@ export default function BusinessWalletScreen() {
         <View style={styles.notice}>
           <Ionicons name="shield-checkmark" size={16} color={colors.primary} />
           <Text style={styles.noticeText}>{t("business.walletNotice")}</Text>
+        </View>
+
+        <View style={styles.cbcRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cbcTitle}>{t("wallet.cbcPoints")}</Text>
+            <Text style={styles.cbcMeta}>{t("business.walletCbcSoon")}</Text>
+          </View>
+          <Text style={styles.cbcSoon}>{label("rewards")}</Text>
         </View>
 
         <Text style={styles.payoutLine}>
@@ -307,6 +332,7 @@ export default function BusinessWalletScreen() {
                   </View>
                   <View style={styles.txCopy}>
                     <Text style={styles.txTitle}>{item.title}</Text>
+                    {item.subtitle ? <Text style={styles.txMeta}>{item.subtitle}</Text> : null}
                     {badge ? (
                       <View style={[styles.badge, item.status === "failed" && styles.badgeFailed]}>
                         <Text
@@ -347,9 +373,7 @@ export default function BusinessWalletScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>{t("business.walletRequestTitle")}</Text>
             <Text style={styles.modalMeta}>
-              {t("business.walletRequestSentTo", {
-                bank: wallet?.payout_account?.label || t("business.walletNoPayout"),
-              })}
+              {t("wallet.withdrawChooseHint")}
             </Text>
             <Text style={styles.amountLabel}>{t("business.walletAmountLabel")}</Text>
             <View style={styles.amountField}>
@@ -398,30 +422,43 @@ export default function BusinessWalletScreen() {
                 <Text style={styles.quickChipText}>{t("business.walletQuickAll")}</Text>
               </Pressable>
             </View>
-            <Pressable
-              onPress={() => void submitWithdraw()}
-              disabled={submitting}
-              style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
-              accessibilityRole="button"
-              accessibilityLabel={t("business.walletRequestCta")}
-            >
-              {submitting ? (
-                <JosCityLoader color={colors.white} />
-              ) : (
-                <>
-                  <Ionicons name="arrow-down" size={16} color={colors.white} />
-                  <Text style={styles.submitText}>{t("business.walletRequestCta")}</Text>
-                </>
-              )}
-            </Pressable>
+            {isWithdrawMethodEnabled(wallet?.funding, "paystack") ? (
+              <Pressable
+                onPress={() => void submitWithdraw("paystack")}
+                disabled={submitting}
+                style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel={t("wallet.withdrawPaystack")}
+              >
+                {submitting ? (
+                  <JosCityLoader color={colors.white} />
+                ) : (
+                  <>
+                    <Ionicons name="flash-outline" size={16} color={colors.white} />
+                    <Text style={styles.submitText}>{t("wallet.withdrawPaystack")}</Text>
+                  </>
+                )}
+              </Pressable>
+            ) : null}
+            {isWithdrawMethodEnabled(wallet?.funding, "manual") ? (
+              <Pressable
+                onPress={() => void submitWithdraw("manual")}
+                disabled={submitting}
+                style={({ pressed }) => [styles.cancelOutline, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel={t("wallet.withdrawManual")}
+              >
+                <Text style={styles.cancelOutlineText}>{t("wallet.withdrawManual")}</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={closeSheet}
               disabled={submitting}
-              style={({ pressed }) => [styles.cancelOutline, pressed && styles.pressed]}
+              style={styles.cancelBtn}
               accessibilityRole="button"
               accessibilityLabel={t("common.cancel")}
             >
-              <Text style={styles.cancelOutlineText}>{t("common.cancel")}</Text>
+              <Text style={styles.cancelText}>{t("common.cancel")}</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -524,6 +561,11 @@ export default function BusinessWalletScreen() {
           </View>
         </View>
       </Modal>
+      <WalletFundingModal
+        visible={fundOpen}
+        onClose={() => setFundOpen(false)}
+        onSuccess={() => load()}
+      />
     </SettingsPage>
   );
 }
@@ -571,10 +613,28 @@ function makeStyles(colors: Palette) {
     heroActions: {
       marginTop: 16,
       flexDirection: "row",
+      flexWrap: "wrap",
       gap: 8,
     },
+    fundBtn: {
+      flexGrow: 1,
+      minWidth: "30%",
+      minHeight: 44,
+      borderRadius: 12,
+      backgroundColor: colors.white,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+    },
+    fundBtnText: {
+      fontFamily: "Montserrat_700Bold",
+      fontSize: 13,
+      color: colors.brand,
+    },
     heroBtn: {
-      flex: 1,
+      flexGrow: 1,
+      minWidth: "30%",
       minHeight: 44,
       borderRadius: 12,
       backgroundColor: "#164d30",
@@ -604,6 +664,34 @@ function makeStyles(colors: Palette) {
       fontSize: 13,
       lineHeight: 19,
       color: colors.text,
+    },
+    cbcRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+      marginBottom: 12,
+    },
+    cbcTitle: {
+      fontFamily: "Montserrat_700Bold",
+      fontSize: 14,
+      color: colors.text,
+    },
+    cbcMeta: {
+      marginTop: 3,
+      fontFamily: "Montserrat_400Regular",
+      fontSize: 12,
+      color: colors.textMuted,
+    },
+    cbcSoon: {
+      fontFamily: "Montserrat_600SemiBold",
+      fontSize: 12,
+      color: colors.textMuted,
     },
     payoutLine: {
       fontFamily: "Montserrat_500Medium",

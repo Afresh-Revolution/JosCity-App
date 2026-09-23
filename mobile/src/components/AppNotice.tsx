@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { BackHandler, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useI18n } from "../i18n/I18nProvider";
@@ -48,6 +48,7 @@ export function NoticeHost() {
   const { colors } = useTheme();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
   const styles = useMemo(() => makeSheetStyles(colors), [colors]);
   const [notice, setNotice] = useState<AppNotice | null>(null);
 
@@ -58,34 +59,56 @@ export function NoticeHost() {
     };
   }, []);
 
-  const tone = notice?.tone || "error";
+  useEffect(() => {
+    if (!notice) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setNotice(null);
+      return true;
+    });
+    return () => sub.remove();
+  }, [notice]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const tone = notice.tone || "error";
+    if (tone !== "success" && tone !== "info") return;
+    const timer = setTimeout(() => setNotice(null), 2600);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  if (!notice) return null;
+
+  const tone = notice.tone || "error";
   const icon =
     tone === "success" ? "checkmark-circle" : tone === "info" ? "information-circle" : "alert-circle";
   const iconColor =
     tone === "success" ? colors.success : tone === "info" ? colors.primary : colors.error;
 
   return (
-    <Modal visible={Boolean(notice)} transparent animationType="fade" onRequestClose={() => setNotice(null)}>
-      <View style={styles.root}>
-        <Pressable style={styles.dim} onPress={() => setNotice(null)} />
-        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]}>
-          <View style={styles.handle} />
-          <View style={styles.iconWrap}>
-            <Ionicons name={icon} size={28} color={iconColor} />
-          </View>
-          <Text style={styles.title}>{notice?.title}</Text>
-          {notice?.message ? <Text style={styles.message}>{notice.message}</Text> : null}
-          <Pressable
-            onPress={() => setNotice(null)}
-            style={styles.ok}
-            accessibilityRole="button"
-            accessibilityLabel={t("common.ok")}
-          >
-            <Text style={styles.okText}>{t("common.ok")}</Text>
-          </Pressable>
+    <View
+      style={[styles.overlay, { width, height }]}
+      pointerEvents="auto"
+      accessibilityViewIsModal
+      accessibilityRole="alert"
+    >
+      <Pressable style={styles.dim} onPress={() => setNotice(null)} />
+      <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]}>
+        <View style={styles.handle} />
+        <View style={styles.iconWrap}>
+          <Ionicons name={icon} size={28} color={iconColor} />
         </View>
+        <Text style={styles.title}>{notice.title}</Text>
+        {notice.message ? <Text style={styles.message}>{notice.message}</Text> : null}
+        <Pressable
+          onPress={() => setNotice(null)}
+          style={styles.ok}
+          accessibilityRole="button"
+          accessibilityLabel={t("common.ok")}
+        >
+          <Text style={styles.okText}>{t("common.ok")}</Text>
+        </Pressable>
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -115,8 +138,12 @@ function makeBannerStyles(colors: Palette) {
 
 function makeSheetStyles(colors: Palette) {
   return StyleSheet.create({
-    root: {
-      flex: 1,
+    overlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      zIndex: 9999,
+      elevation: 9999,
       justifyContent: "flex-end",
     },
     dim: {

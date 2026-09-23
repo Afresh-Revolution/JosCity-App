@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
   Dimensions,
   Image,
   Pressable,
@@ -23,6 +26,7 @@ import ReportSheet from "../components/ReportSheet";
 import StatusViewsSheet from "../components/feed/StatusViewsSheet";
 import {
   deleteStory,
+  reactToStory,
   getStories,
   getStoryViews,
   viewStory,
@@ -36,6 +40,7 @@ import {
   onPendingStatusChange,
   removePendingStatusStory,
 } from "../state/pendingStatus";
+import { createDirectConversation, sendChatMessage } from "../api/chat";
 import { getUser } from "../storage/session";
 import { timeAgo } from "../utils/format";
 import { playableVideoUrl } from "../utils/media";
@@ -68,6 +73,12 @@ export default function StatusViewerScreen() {
   const userKey = String(params.userId || "");
 
   const [group, setGroup] = useState<StatusGroup | null>(getCachedOpenStatus(userKey));
+  const [reply, setReply] = useState("");
+  const [composing, setComposing] = useState(false);
+  const [interactionBusy, setInteractionBusy] = useState(false);
+  const interactionLock = useRef(false);
+  const [reacted, setReacted] = useState<number[]>([]);
+  const [feedback, setFeedback] = useState("");
   const [index, setIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -184,13 +195,14 @@ export default function StatusViewerScreen() {
       elapsedRef.current = 0;
       startRef.current = Date.now();
       setProgress(0);
+      setReply(""); setFeedback(""); setComposing(false);
       setIndex(nextIndex);
     },
     [close, stories.length]
   );
 
   useEffect(() => {
-    if (!story || paused || viewsOpen || reportOpen || story.type === "video") return;
+    if (!story || paused || composing || interactionBusy || viewsOpen || reportOpen || story.type === "video") return;
     startRef.current = Date.now();
     const timer = setInterval(() => {
       const elapsed = elapsedRef.current + (Date.now() - startRef.current);
@@ -202,7 +214,7 @@ export default function StatusViewerScreen() {
       }
     }, 50);
     return () => clearInterval(timer);
-  }, [goTo, index, paused, reportOpen, story, viewsOpen]);
+  }, [goTo, index, paused, composing, interactionBusy, reportOpen, story, viewsOpen]);
 
   const onHoldStart = () => {
     if (viewsOpen || reportOpen || pausedRef.current) return;
@@ -219,7 +231,7 @@ export default function StatusViewerScreen() {
   };
 
   const onTap = (x: number) => {
-    if (viewsOpen || reportOpen) return;
+    if (viewsOpen || reportOpen || composing || interactionBusy) return;
     const width = Dimensions.get("window").width;
     if (x < width * 0.35) goTo(index - 1);
     else goTo(index + 1);
@@ -343,6 +355,24 @@ export default function StatusViewerScreen() {
     ]);
   };
 
+  const interact = async (reaction: boolean) => {
+    if (!story || story.isOwner || interactionLock.current || (!reaction && !reply.trim())) return;
+    interactionLock.current = true; setInteractionBusy(true); setFeedback("");
+    try {
+      if (reaction) { await reactToStory(story.id); setReacted(ids => [...ids, story.id]); setFeedback("Reaction sent"); }
+      else {
+        const result = await createDirectConversation(story.userId);
+        if (!result || !("conversationId" in result)) throw new Error(result && "message" in result ? result.message || "Message request pending. Try again after it is accepted." : "Could not open this chat.");
+        const context = (story.type === "text" ? story.content : story.caption || `${story.type} status`).slice(0, 240);
+        const sent = await sendChatMessage(result.conversationId, `Reply to your status #${story.id}: ${context}\n\n${reply.trim()}`);
+        if (!sent.message) throw new Error(sent.error || "Could not send reply.");
+        setReply(""); setPaused(true); setComposing(false);
+        router.push({ pathname: "/messages/[id]", params: { id: String(result.conversationId), name: story.userName, avatar: story.avatar || "" } });
+      }
+    } catch (error) { setFeedback(error instanceof Error ? error.message : "Could not send. Please try again."); }
+    finally { interactionLock.current = false; setInteractionBusy(false); startRef.current = Date.now(); }
+  };
+
   if (!allowed || loading) {
     return (
       <View style={styles.loading}>
@@ -374,7 +404,7 @@ export default function StatusViewerScreen() {
       >
         <StoryMedia
           story={story}
-          paused={paused || viewsOpen}
+          paused={paused || composing || interactionBusy || viewsOpen || reportOpen}
           onEnded={() => goTo(index + 1)}
           onProgress={setProgress}
         />
@@ -444,11 +474,15 @@ export default function StatusViewerScreen() {
         </View>
       </View>
 
-      <View
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={[styles.captionWrap, { paddingBottom: insets.bottom + 18 }]}
         pointerEvents="box-none"
       >
         {story.caption ? <Text style={styles.caption}>{story.caption}</Text> : null}
+        {!story.isOwner && <View style={{ gap: 10, padding: 12, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.75)" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}><Pressable accessibilityRole="button" accessibilityLabel="React with a heart" disabled={interactionBusy || reacted.includes(story.id)} onPress={() => void interact(true)} style={styles.iconBtn}><Ionicons name={reacted.includes(story.id) ? "heart" : "heart-outline"} size={28} color="white" /></Pressable><TextInput accessibilityLabel="Reply to status" placeholder="Reply privately..." placeholderTextColor="#CCCCCC" value={reply} onChangeText={setReply} onFocus={() => { elapsedRef.current += Date.now() - startRef.current; setComposing(true); }} onBlur={() => { startRef.current = Date.now(); if (!reply.trim()) setComposing(false); }} maxLength={2000} style={{ flex: 1, color: "white", minHeight: 48 }} /><Pressable accessibilityRole="button" accessibilityLabel="Send reply to chat" disabled={interactionBusy || !reply.trim()} onPress={() => void interact(false)} style={[styles.iconBtn, { opacity: interactionBusy || !reply.trim() ? 0.4 : 1 }]}><Ionicons name="send" size={23} color="white" /></Pressable></View>
+          {feedback ? <Text accessibilityLiveRegion="polite" style={styles.caption}>{feedback}</Text> : null}
+        </View>}
         {story.isOwner ? (
           story.uploading ? (
             <View style={styles.viewsRow}>
@@ -469,7 +503,7 @@ export default function StatusViewerScreen() {
             </Pressable>
           )
         ) : null}
-      </View>
+      </KeyboardAvoidingView>
 
       {story ? (
         <ReportSheet
@@ -816,6 +850,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   caption: {
+    marginBottom: 12,
     fontFamily: "Montserrat_500Medium",
     fontSize: 14,
     color: "#FFFFFF",
@@ -824,6 +859,7 @@ const styles = StyleSheet.create({
   viewsRow: {
     alignSelf: "center",
     marginTop: 12,
+    marginBottom: 20,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

@@ -160,6 +160,10 @@ export default function NotificationsScreen() {
       }
       return;
     }
+    if (node === "agent_job" || action === "agent_request_accepted" || action === "agent_job_stage") {
+      router.push("/agent-services/jobs");
+      return;
+    }
     if (postId) {
       router.push({ pathname: "/post/[id]", params: { id: String(postId) } });
     }

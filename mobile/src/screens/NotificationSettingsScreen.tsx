@@ -23,6 +23,8 @@ import {
   type NotificationPreferences,
 } from "../api/notifications";
 import {
+  activatePushNotifications,
+  bootstrapPushNotifications,
   getNotificationPermissionGranted,
   openSystemNotificationSettings,
 } from "../push/pushNotifications";
@@ -133,6 +135,7 @@ export default function NotificationSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<NotificationPreferenceKey | null>(null);
   const [osGranted, setOsGranted] = useState<boolean | null>(null);
+  const [enablingPush, setEnablingPush] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -143,6 +146,7 @@ export default function NotificationSettingsScreen() {
     setPrefs(data);
     setOsGranted(granted);
     setLoading(false);
+    if (granted) void bootstrapPushNotifications();
   }, []);
 
   useEffect(() => {
@@ -170,6 +174,15 @@ export default function NotificationSettingsScreen() {
       }
       setPrefs(next);
     });
+  };
+
+  const turnOnPush = async () => {
+    if (enablingPush) return;
+    setEnablingPush(true);
+    const granted = await activatePushNotifications();
+    setOsGranted(granted);
+    setEnablingPush(false);
+    if (!granted) await openSystemNotificationSettings();
   };
 
   if (!allowed) {
@@ -227,17 +240,22 @@ export default function NotificationSettingsScreen() {
                   <Text style={styles.rowDescription}>
                     {osGranted
                       ? "JOSCITY can send banners when the app is closed."
-                      : "Enable notifications in system settings to get banners when the app is closed."}
+                      : "Tap Turn on to allow banners. If the phone already blocked them, open system settings."}
                   </Text>
                 </View>
                 {!osGranted ? (
                   <Pressable
-                    onPress={() => void openSystemNotificationSettings()}
+                    onPress={() => void turnOnPush()}
+                    disabled={enablingPush}
                     style={styles.settingsBtn}
                     accessibilityRole="button"
-                    accessibilityLabel="Open system settings"
+                    accessibilityLabel="Turn on notifications"
                   >
-                    <Text style={styles.settingsBtnText}>Settings</Text>
+                    {enablingPush ? (
+                      <JosCityLoader color={colors.white} size="small" />
+                    ) : (
+                      <Text style={styles.settingsBtnText}>Turn on</Text>
+                    )}
                   </Pressable>
                 ) : null}
               </View>

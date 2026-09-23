@@ -14,7 +14,7 @@ import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import FeedShell, { TAB_BAR_SPACE } from "./feed/FeedShell";
 import { useI18n } from "../i18n/I18nProvider";
-import { getAccountType, isBusinessAccountType } from "../storage/session";
+import { getAccountType, homeRouteForAccount } from "../storage/session";
 import { colors as fallbackColors, type Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 
@@ -58,7 +58,8 @@ export default function SettingsPage({
     }
     void (async () => {
       const type = await getAccountType();
-      router.replace((isBusinessAccountType(type) ? "/business/profile" : "/profile") as never);
+      const home = homeRouteForAccount(type);
+      router.replace((home === "/home" ? "/profile" : `${home}/profile`) as never);
     })();
   };
 
@@ -75,6 +76,7 @@ export default function SettingsPage({
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         refreshControl={refreshControl}
       >
         {children}

@@ -81,7 +81,7 @@ export default function StatusRow({
         >
             <OwnTile
             name={currentUserName}
-            avatar={absoluteUrl(currentUserAvatar) || currentUserAvatar}
+            avatar={absoluteUrl(currentUserAvatar) || currentUserAvatar || ownGroup?.avatar}
             preview={ownGroup?.stories[0]}
             hasStories={Boolean(ownGroup?.stories.length)}
             onAdd={onAdd}
@@ -244,7 +244,7 @@ function StoryPreview({
     return () => {
       live = false;
     };
-  }, [story?.id, story?.content, story?.expiresAt, story?.type, story?.uploading, localContent, remoteThumb]);
+  }, [story?.id, story?.content, story?.expiresAt, story?.type, story?.uploading, localContent, remoteThumb, fallbackUri]);
 
   if (story?.type === "photo" && !thumbFailed && (thumbUri || localContent || story.content)) {
     return (
@@ -307,8 +307,14 @@ function StoryPreview({
       </LinearGradient>
     );
   }
-  if (fallbackUri) {
-    return <Image source={{ uri: fallbackUri }} style={styles.preview} />;
+  if (fallbackUri && !thumbFailed) {
+    return (
+      <Image
+        source={{ uri: fallbackUri }}
+        style={styles.preview}
+        onError={() => setThumbFailed(true)}
+      />
+    );
   }
   return (
     <View style={styles.initialsFill}>

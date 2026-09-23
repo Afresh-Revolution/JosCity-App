@@ -2,11 +2,11 @@
   "expo": {
     "name": "JosCity",
     "slug": "joscity",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "joscity",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -16,10 +16,12 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.joscity.app",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "backgroundColor": "#0C3D26",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
+        "NSFaceIDUsageDescription": "JOSCITY uses Face ID so you can sign in without typing your password.",
+        "NSMotionUsageDescription": "JOSCITY uses motion activity to improve your position on the Plateau map and show nearby places while you use the app.",
         "UIBackgroundModes": [
           "remote-notification"
         ]
@@ -73,13 +75,17 @@
       "backgroundColor": "#0C3D26",
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO"
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "web": {
@@ -90,6 +96,12 @@
       "expo-router",
       "expo-font",
       "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "JOSCITY uses Face ID so you can sign in without typing your password."
+        }
+      ],
       "expo-asset",
       [
         "expo-splash-screen",
@@ -141,6 +153,19 @@
           "microphonePermission": "JOSCITY uses the microphone when you record a video for a post, story, or reel.",
           "enableBackgroundPlayback": false,
           "enableBackgroundRecording": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "JosCity uses your location while you use the app to show your position and nearby places on the Plateau map.",
+          "locationAlwaysPermission": false,
+          "locationAlwaysAndWhenInUsePermission": false,
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false,
+          "motionUsagePermission": "JOSCITY uses motion activity to improve your position on the Plateau map and show nearby places while you use the app.",
+          "isAndroidMotionActivityEnabled": false
         }
       ]
     ],

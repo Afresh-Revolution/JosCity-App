@@ -22,6 +22,7 @@ import PeopleRow from "../components/feed/PeopleRow";
 import PostCard from "../components/feed/PostCard";
 import StatusRow from "../components/feed/StatusRow";
 import { getFeed, type FeedPost } from "../api/feed";
+import { getUserProfile } from "../api/auth";
 import { getAccount } from "../api/account";
 import { getStories } from "../api/stories";
 import { getApprovedUsers, getUnreadNotificationCount, type DirectoryUser } from "../api/social";
@@ -38,7 +39,14 @@ import {
   getPendingStatusStories,
   onPendingStatusChange,
 } from "../state/pendingStatus";
-import { getLoginGreeting, getUser, type StoredUser } from "../storage/session";
+import {
+  getLoginGreeting,
+  getUser,
+  mergeStoredUser,
+  pickUserPicture,
+  setUser as persistUser,
+  type StoredUser,
+} from "../storage/session";
 import { useTheme } from "../theme/ThemeProvider";
 import type { Palette } from "../theme/colors";
 import { formatGreetingLine, type TimeGreeting } from "../utils/format";
@@ -141,25 +149,35 @@ export default function HomeScreen() {
   }, []);
 
   const loadExtras = useCallback(async () => {
-    const [directory, count, account] = await Promise.allSettled([
+    const [directory, count, account, profile] = await Promise.allSettled([
       getApprovedUsers({ limit: 40, accountType: "personal" }),
       getUnreadNotificationCount(),
       getAccount(),
+      getUserProfile(),
       loadStories(),
       refreshFriendGraph(),
     ]);
     if (directory.status === "fulfilled") setPeople(directory.value);
     if (count.status === "fulfilled") setUnread(count.value);
-    if (account.status === "fulfilled" && account.value.data) {
-      const data = account.value.data;
-      setUser((current) => ({
-        ...(current || {}),
-        account_status: data.account_status,
-        banned: data.banned,
-        account_type: data.account_type || current?.account_type,
-        nin_number: current?.nin_number,
-        user_verified: data.nin_verified || current?.user_verified,
-      }));
+    const stored = (await getUser()) || {};
+    const profileUser =
+      profile.status === "fulfilled" && profile.value.user ? profile.value.user : null;
+    const accountData =
+      account.status === "fulfilled" && account.value.data ? account.value.data : null;
+    if (profileUser || accountData) {
+      const next = mergeStoredUser(stored, {
+        ...(profileUser || {}),
+        ...(accountData
+          ? {
+              account_status: accountData.account_status,
+              banned: accountData.banned,
+              account_type: accountData.account_type || stored.account_type,
+              user_verified: accountData.nin_verified || stored.user_verified,
+            }
+          : {}),
+      });
+      await persistUser(next);
+      setUser(next);
     }
   }, [loadStories]);
 
@@ -319,10 +337,7 @@ export default function HomeScreen() {
       .join(" ") ||
     "there";
   const firstName = String(displayName).trim().split(/\s+/)[0] || "there";
-  const picture =
-    (typeof user?.user_picture === "string" && user.user_picture) ||
-    (typeof user?.picture === "string" && user.picture) ||
-    null;
+  const picture = pickUserPicture(user);
 
   const greeting = greetingData
     ? formatGreetingLine(greetingData, firstName)
@@ -378,6 +393,7 @@ export default function HomeScreen() {
             style={styles.scroll}
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}

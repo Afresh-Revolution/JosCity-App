@@ -44,7 +44,7 @@ export function useRequireBusinessAccount() {
       const type = await getAccountType();
       if (cancelled) return;
       if (!isBusinessAccountType(type)) {
-        router.replace("/home");
+        router.replace(type === "agent" ? "/agents" : "/home");
         return;
       }
       setAllowed(true);

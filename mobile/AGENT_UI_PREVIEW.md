@@ -18,3 +18,7 @@ Explore and the business dashboard have Help me buy, Help me deliver and Agents 
 The in-memory preview store resets on app reload. Public and John Musa direct requests appear on the agent dashboard. Other direct requests stay addressed to the selected sample agent; they are not reassigned to John. Accepting a preview request exposes sequential status controls: Accepted, Sourcing, Ready for delivery, Out for delivery, Delivered. Delivered moves to Completed. Ready for delivery from an agent without Help me buy shows a public handoff, with an explicit simulated pickup control. This follows the requested Help me buy handoff direction.
 
 Customer request confirmation displays the assigned agent, progress and notification copy. Return to that screen after updating the job to see the preview state. No remote registration, uploads, dispatch, push notifications or persistence is implemented for agent services. Agent bio, categories, services and availability are editable in the preview profile; the sample John directory entry reflects them.
+
+Agent settings are available at /agents/settings from Profile. Profile editing, services, availability and notification preference previews share agent session state. Appearance uses the existing app theme. Native floating navigation remains unchanged.
+
+Agent Settings now reuses the shared settings navigation rows for membership, personal details, referrals, wallet, help and legal. Membership ID and referral panels are isolated previews with no issued ID or referral code. Legal links use the existing policy URLs.

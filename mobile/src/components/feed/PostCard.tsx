@@ -33,7 +33,7 @@ import {
   type FeedPost,
 } from "../../api/feed";
 import ReportSheet from "../ReportSheet";
-import { checkFriendship, blockUser } from "../../api/social";
+import { checkFriendship, blockUser, unblockUser } from "../../api/social";
 import { cacheOpenPost } from "../../state/openPost";
 import { removeFriend } from "../../state/friendGraph";
 import { resolveSaved, setSavedOverride } from "../../state/savedPosts";
@@ -44,6 +44,8 @@ import { isImageUrl, isVideoUrl } from "../../utils/media";
 import { openMemberProfile } from "../../utils/openProfile";
 import { resolveAccountBadgeColor } from "../../utils/badgeColor";
 import { sharePostWithLink } from "../../utils/share";
+import { isDedicatedAgentAccount } from "../../storage/session";
+import { ensureBlockedUsers, isUserBlocked, subscribeBlockedUsers } from "../../storage/blockedUsers";
 
 type Props = {
   post: FeedPost;
@@ -107,6 +109,7 @@ export default function PostCard({ post, delay = 0, viewerId, onDeleted, onSaved
   const [draft, setDraft] = useState(caption);
   const [commentCount, setCommentCount] = useState(Number(post.comments_count || 0));
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [blockedAuthor, setBlockedAuthor] = useState(false);
 
   const name = post.author?.name || "JosCity member";
   const handle = post.author?.username
@@ -117,6 +120,14 @@ export default function PostCard({ post, delay = 0, viewerId, onDeleted, onSaved
   const video = useMemo(() => firstVideo(post), [post]);
   const badgeColor = resolveAccountBadgeColor(post.author);
   const hasVisibleImage = Boolean(video || (image && !imageFailed));
+  const authorIsAgent = isDedicatedAgentAccount({
+    account_type: post.author?.account_type,
+  }, post.author?.account_type);
+
+  useEffect(() => {
+    void ensureBlockedUsers().then(() => setBlockedAuthor(isUserBlocked(authorId)));
+    return subscribeBlockedUsers(() => setBlockedAuthor(isUserBlocked(authorId)));
+  }, [authorId]);
 
   useEffect(() => {
     setSaved(resolveSaved(Number(post.post_id || post.id || 0), post.user_saved));
@@ -228,33 +239,37 @@ export default function PostCard({ post, delay = 0, viewerId, onDeleted, onSaved
             void copyPostLink(postId);
           },
         },
-        {
-          key: "unfriend",
-          label: `Unfriend ${name}`,
-          onPress: () => {
-            setMenuOpen(false);
-            if (!authorId) return;
-            Alert.alert("Unfriend", `Unfriend ${name}?`, [
-              { text: "Cancel", style: "cancel" },
+        ...(authorIsAgent
+          ? []
+          : [
               {
-                text: "Unfriend",
-                style: "destructive",
+                key: "unfriend",
+                label: `Unfriend ${name}`,
                 onPress: () => {
-                    void checkFriendship(authorId).then((status) => {
-                    if (!status.areFriends) {
-                      showError("Not friends", `You are not friends with ${name}.`);
-                      return;
-                    }
-                    void removeFriend(authorId).then((ok) => {
-                      if (ok) showNotice({ title: "Unfriended", message: `You are no longer friends with ${name}.`, tone: "success" });
-                      else showError("Could not unfriend this account.");
-                    });
-                  });
+                  setMenuOpen(false);
+                  if (!authorId) return;
+                  Alert.alert("Unfriend", `Unfriend ${name}?`, [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Unfriend",
+                      style: "destructive" as const,
+                      onPress: () => {
+                        void checkFriendship(authorId).then((status) => {
+                          if (!status.areFriends) {
+                            showError("Not friends", `You are not friends with ${name}.`);
+                            return;
+                          }
+                          void removeFriend(authorId).then((ok) => {
+                            if (ok) showNotice({ title: "Unfriended", message: `You are no longer friends with ${name}.`, tone: "success" });
+                            else showError("Could not unfriend this account.");
+                          });
+                        });
+                      },
+                    },
+                  ]);
                 },
               },
-            ]);
-          },
-        },
+            ]),
         {
           key: "report",
           label: "Report post",
@@ -275,11 +290,34 @@ export default function PostCard({ post, delay = 0, viewerId, onDeleted, onSaved
         },
         {
           key: "block",
-          label: "Block user",
+          label: blockedAuthor ? "Unblock user" : "Block user",
           destructive: true,
           onPress: () => {
             setMenuOpen(false);
             if (!authorId) return;
+            if (blockedAuthor) {
+              Alert.alert("Unblock user", `Unblock ${name}?`, [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Unblock",
+                  onPress: () => {
+                    void unblockUser(authorId).then((result) => {
+                      if (!result.success) {
+                        showError(result.message || "Could not unblock this account.");
+                        return;
+                      }
+                      setBlockedAuthor(false);
+                      showNotice({
+                        title: "Unblocked",
+                        message: `${name} can contact you again.`,
+                        tone: "success",
+                      });
+                    });
+                  },
+                },
+              ]);
+              return;
+            }
             Alert.alert("Block user", `Block ${name}? They will not be able to contact you, and you will not see their posts.`, [
               { text: "Cancel", style: "cancel" },
               {
@@ -291,6 +329,7 @@ export default function PostCard({ post, delay = 0, viewerId, onDeleted, onSaved
                       showError(result.message || "Could not block this account.");
                       return;
                     }
+                    setBlockedAuthor(true);
                     onDeleted?.(postId);
                     showNotice({
                       title: "Blocked",
@@ -350,7 +389,7 @@ export default function PostCard({ post, delay = 0, viewerId, onDeleted, onSaved
         {caption ? <HashtagText value={caption} style={styles.caption} /> : null}
 
         {video ? (
-          <FeedVideo uri={video} style={styles.photo} />
+          <FeedVideo uri={video} style={styles.video} />
         ) : image && !imageFailed ? (
           <FeedImage
             uri={image}
@@ -540,10 +579,19 @@ function makePostStyles(colors: Palette) {
   },
   photo: {
     width: "100%",
+    height: undefined,
+    borderRadius: 16,
+    backgroundColor: colors.fieldBg,
+    marginBottom: 10,
+    overflow: "hidden",
+  },
+  video: {
+    width: "100%",
     height: 240,
     borderRadius: 16,
     backgroundColor: colors.fieldBg,
     marginBottom: 10,
+    overflow: "hidden",
   },
   actions: {
     flexDirection: "row",

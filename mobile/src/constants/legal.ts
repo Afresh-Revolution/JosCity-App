@@ -11,6 +11,7 @@ export const LEGAL = {
   support: "https://joscity.com/contact",
   deleteAccount: "https://joscity.com/delete-account",
   businessSignup: "https://joscity.com/business-form",
+  membership: "https://joscity.com/membership",
   supportEmail: "support@joscity.com",
   supportPhone: "+2347067621916",
   supportPhoneLabel: "+234 7067621916",

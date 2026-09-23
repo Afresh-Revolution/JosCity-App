@@ -9,6 +9,12 @@ import FriendActionButton from "./FriendActionButton";
 import { type DirectoryUser } from "../../api/social";
 import { getMutualFriendCount } from "../../state/friendGraph";
 import { useI18n } from "../../i18n/I18nProvider";
+import {
+  friendshipAllowed,
+  getAccountType,
+  getUser,
+  isDedicatedAgentAccount,
+} from "../../storage/session";
 import type { Palette } from "../../theme/colors";
 import { useTheme } from "../../theme/ThemeProvider";
 import { openMemberProfile } from "../../utils/openProfile";
@@ -109,6 +115,22 @@ export default function PeopleRow({
   );
 }
 
+function useCanFriend(person: DirectoryUser) {
+  const [allowed, setAllowed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void Promise.all([getUser(), getAccountType()]).then(([user, type]) => {
+      if (!live) return;
+      setAllowed(friendshipAllowed(user, type, person, person.account_type));
+    });
+    return () => {
+      live = false;
+    };
+  }, [person]);
+  if (isDedicatedAgentAccount(person, person.account_type)) return false;
+  return allowed;
+}
+
 export function PersonCard({ person }: { person: DirectoryUser }) {
   const { t } = useI18n();
   const { colors } = useTheme();
@@ -116,6 +138,7 @@ export function PersonCard({ person }: { person: DirectoryUser }) {
   const router = useRouter();
   const name = personName(person);
   const isBiz = String(person.account_type || "").toLowerCase() === "business";
+  const canFriend = useCanFriend(person);
 
   return (
     <Pressable
@@ -141,13 +164,24 @@ export function PersonCard({ person }: { person: DirectoryUser }) {
         />
       </View>
       <Text style={styles.meta} numberOfLines={1}>
-        {isBiz ? person.business_type || t("nav.business") : <MutualFriendsLabel userId={person.user_id} knownCount={person.mutual_count} />}
+        {isBiz
+          ? person.business_type || t("nav.business")
+          : isDedicatedAgentAccount(person, person.account_type)
+            ? t("member.agentKicker")
+            : <MutualFriendsLabel userId={person.user_id} knownCount={person.mutual_count} />}
       </Text>
       {isBiz ? (
         <FollowBusinessButton userId={person.user_id} name={name} compact />
-      ) : (
-        <FriendActionButton userId={person.user_id} name={name} compact />
-      )}
+      ) : canFriend ? (
+        <FriendActionButton
+          userId={person.user_id}
+          name={name}
+          compact
+          accountType={person.account_type}
+          agentType={person.agent_type}
+          signupIntent={person.signup_intent}
+        />
+      ) : null}
     </Pressable>
   );
 }
@@ -159,6 +193,7 @@ export function PersonListRow({ person }: { person: DirectoryUser }) {
   const router = useRouter();
   const name = personName(person);
   const isBiz = String(person.account_type || "").toLowerCase() === "business";
+  const canFriend = useCanFriend(person);
 
   return (
     <Pressable
@@ -185,14 +220,24 @@ export function PersonListRow({ person }: { person: DirectoryUser }) {
           />
         </View>
         <Text style={styles.listMeta} numberOfLines={1}>
-          {isBiz ? person.business_type || t("nav.business") : <MutualFriendsLabel userId={person.user_id} knownCount={person.mutual_count} />}
+          {isBiz
+            ? person.business_type || t("nav.business")
+            : isDedicatedAgentAccount(person, person.account_type)
+              ? t("member.agentKicker")
+              : <MutualFriendsLabel userId={person.user_id} knownCount={person.mutual_count} />}
         </Text>
       </View>
       {isBiz ? (
         <FollowBusinessButton userId={person.user_id} name={name} />
-      ) : (
-        <FriendActionButton userId={person.user_id} name={name} />
-      )}
+      ) : canFriend ? (
+        <FriendActionButton
+          userId={person.user_id}
+          name={name}
+          accountType={person.account_type}
+          agentType={person.agent_type}
+          signupIntent={person.signup_intent}
+        />
+      ) : null}
     </Pressable>
   );
 }

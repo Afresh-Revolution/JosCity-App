@@ -17,19 +17,26 @@ import { friendlyError } from "../utils/errors";
 import { checkActivationRequired, loginBusiness, loginPersonal } from "../api/auth";
 import { useI18n } from "../i18n/I18nProvider";
 import {
-  isBusinessAccountType,
-  isPersonalAccountType,
+  loginMatchesAccount,
+  loginMismatchMessage,
+  type AccountType,
   type StoredSession,
 } from "../storage/session";
+import {
+  getBiometricStatus,
+  unlockBiometricCredentials,
+  type BiometricStatus,
+} from "../biometrics/biometrics";
 import { useTheme } from "../theme/ThemeProvider";
 import type { Palette } from "../theme/colors";
 import AppButton from "./AppButton";
+import BiometricScanButton from "./BiometricScanButton";
 import TextField from "./TextField";
 
 type Props = {
   visible: boolean;
   initialEmail?: string;
-  mode?: "business" | "personal";
+  mode?: AccountType;
   onClose: () => void;
   onLinked: (session: StoredSession) => void | Promise<void>;
 };
@@ -55,7 +62,14 @@ export default function BusinessAccountSheet({
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const personal = mode === "personal";
+  const [biometric, setBiometric] = useState<BiometricStatus | null>(null);
+  const [biometricBusy, setBiometricBusy] = useState(false);
+  const titleKey = mode === "personal" ? "profile.personalSheetTitle" : mode === "agent" ? "profile.agentSheetTitle" : "profile.businessSheetTitle";
+  const bodyKey = mode === "personal" ? "profile.personalSheetBody" : mode === "agent" ? "profile.agentSheetBody" : "profile.businessSheetBody";
+  const emailKey = mode === "business" ? "profile.businessEmail" : "profile.personalEmail";
+  const canUseBiometrics = Boolean(
+    biometric?.enabled && biometric.available && biometric.enrolled && biometric.hint?.accountType === mode
+  );
 
   useEffect(() => {
     if (!visible) return;
@@ -68,7 +82,9 @@ export default function BusinessAccountSheet({
     setTwoFactorRequired(false);
     setError(null);
     setLoading(false);
-  }, [initialEmail, visible]);
+    setBiometricBusy(false);
+    void getBiometricStatus().then(setBiometric);
+  }, [initialEmail, visible, mode]);
 
   useEffect(() => {
     if (!visible) return;
@@ -78,83 +94,79 @@ export default function BusinessAccountSheet({
       return;
     }
     const timer = setTimeout(async () => {
-      const result = await checkActivationRequired(normalized, personal ? "personal" : "business");
+      const result = await checkActivationRequired(normalized, mode === "business" ? "business" : "personal");
       setActivationRequired(Boolean(result.activation_required));
     }, 350);
     return () => clearTimeout(timer);
-  }, [email, personal, visible]);
+  }, [email, mode, visible]);
 
-  const onSubmit = async () => {
+  const finishLogin = async (params: { email: string; password: string }) => {
     setError(null);
-    if (!email.trim() || !password.trim()) {
-      setError(t(personal ? "profile.personalLoginMissing" : "profile.businessLoginMissing"));
-      return;
+    if (!params.email.trim() || !params.password.trim()) {
+      setError(t(mode === "business" ? "profile.businessLoginMissing" : mode === "agent" ? "profile.agentLoginMissing" : "profile.personalLoginMissing"));
+      return false;
     }
-
-    setLoading(true);
-    try {
-      if (personal) {
-        const result = await loginPersonal({
-          email,
-          password,
+    const result = mode === "business"
+      ? await loginBusiness({ email: params.email, password: params.password, activationCode })
+      : await loginPersonal({
+          email: params.email,
+          password: params.password,
           activationCode,
           twoFactorCode,
         });
-        if (result.two_factor_required && !result.token) {
-          setTwoFactorRequired(true);
-          setError(friendlyError(result.message || t("profile.personalTwoFactorHint")));
-          return;
-        }
-        if (!result.success || !result.token) {
-          setError(friendlyError(result.message || t("profile.personalLoginFailed")));
-          return;
-        }
+    if (result.two_factor_required && !result.token) {
+      setTwoFactorRequired(true);
+      setError(friendlyError(result.message || t("profile.personalTwoFactorHint")));
+      return false;
+    }
+    if (!result.success || !result.token) {
+      setError(friendlyError(result.message || t(mode === "business" ? "profile.businessLoginFailed" : mode === "agent" ? "profile.agentLoginFailed" : "profile.personalLoginFailed")));
+      return false;
+    }
+    if (!loginMatchesAccount(mode, result.user, result.user?.account_type)) {
+      setError(loginMismatchMessage(mode));
+      return false;
+    }
+    await onLinked({
+      token: result.token,
+      accountType: mode,
+      user: { ...(result.user || {}), account_type: mode },
+    });
+    return true;
+  };
 
-        const incomingType = result.user?.account_type;
-        if (incomingType && !isPersonalAccountType(String(incomingType))) {
-          setError(t("profile.personalLoginNotPersonal"));
-          return;
-        }
-
-        await onLinked({
-          token: result.token,
-          accountType: "personal",
-          user: {
-            ...(result.user || {}),
-            account_type: "personal",
-          },
-        });
-        return;
-      }
-
-      const result = await loginBusiness({
-        email,
-        password,
-        activationCode,
-      });
-      if (!result.success || !result.token) {
-        setError(friendlyError(result.message || t("profile.businessLoginFailed")));
-        return;
-      }
-
-      const incomingType = result.user?.account_type;
-      if (incomingType && !isBusinessAccountType(String(incomingType))) {
-        setError(t("profile.businessLoginNotBusiness"));
-        return;
-      }
-
-      await onLinked({
-        token: result.token,
-        accountType: "business",
-        user: {
-          ...(result.user || {}),
-          account_type: "business",
-        },
-      });
+  const onSubmit = async () => {
+    setLoading(true);
+    try {
+      await finishLogin({ email, password });
     } catch {
-      setError(t(personal ? "profile.personalLoginNetwork" : "profile.businessLoginNetwork"));
+      setError(t(mode === "business" ? "profile.businessLoginNetwork" : "profile.personalLoginNetwork"));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const onBiometric = async () => {
+    if (biometricBusy || loading) return;
+    setError(null);
+    setBiometricBusy(true);
+    try {
+      const unlocked = await unlockBiometricCredentials();
+      if (!unlocked.success || !unlocked.credentials) {
+        setError(unlocked.message || "Biometric sign-in was cancelled.");
+        setBiometric(await getBiometricStatus());
+        return;
+      }
+      if (unlocked.credentials.accountType !== mode) {
+        setError("Those biometrics belong to a different account type. Sign in with email and password.");
+        return;
+      }
+      setEmail(unlocked.credentials.email);
+      await finishLogin({ email: unlocked.credentials.email, password: unlocked.credentials.password });
+    } catch {
+      setError(t("profile.personalLoginNetwork"));
+    } finally {
+      setBiometricBusy(false);
     }
   };
 
@@ -172,22 +184,18 @@ export default function BusinessAccountSheet({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.content}
           >
-            <Text style={styles.title}>
-              {t(personal ? "profile.personalSheetTitle" : "profile.businessSheetTitle")}
-            </Text>
-            <Text style={styles.subtitle}>
-              {t(personal ? "profile.personalSheetBody" : "profile.businessSheetBody")}
-            </Text>
+            <Text style={styles.title}>{t(titleKey)}</Text>
+            <Text style={styles.subtitle}>{t(bodyKey)}</Text>
 
             <TextField
-              label={t(personal ? "profile.personalEmail" : "profile.businessEmail")}
+              label={t(emailKey)}
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
               textContentType="emailAddress"
-              placeholder={personal ? "you@example.com" : "business@example.com"}
+              placeholder={mode === "business" ? "business@example.com" : "you@example.com"}
               left={<Ionicons name="mail-outline" size={18} color={colors.textMuted} />}
             />
             <TextField
@@ -196,9 +204,7 @@ export default function BusinessAccountSheet({
               onChangeText={setPassword}
               secureTextEntry={!showPassword}
               textContentType="password"
-              placeholder={t(
-                personal ? "profile.personalPasswordHint" : "profile.businessPasswordHint"
-              )}
+              placeholder={t(mode === "business" ? "profile.businessPasswordHint" : "profile.personalPasswordHint")}
               right={
                 <Pressable
                   onPress={() => setShowPassword((value) => !value)}
@@ -222,7 +228,7 @@ export default function BusinessAccountSheet({
                 placeholder={t("profile.businessActivationHint")}
               />
             ) : null}
-            {personal && twoFactorRequired ? (
+            {mode !== "business" && twoFactorRequired ? (
               <TextField
                 label={t("profile.personalTwoFactor")}
                 value={twoFactorCode}
@@ -234,21 +240,33 @@ export default function BusinessAccountSheet({
 
             {error ? <ErrorBanner message={error} /> : null}
 
-            <AppButton
-              label={t("profile.businessContinue")}
-              onPress={() => void onSubmit()}
-              loading={loading}
-            />
+            <View style={styles.actions}>
+              <AppButton
+                label={t("profile.businessContinue")}
+                onPress={() => void onSubmit()}
+                loading={loading}
+                disabled={biometricBusy}
+                style={styles.continue}
+              />
+              {canUseBiometrics ? (
+                <BiometricScanButton
+                  kind={biometric?.kind}
+                  busy={biometricBusy}
+                  disabled={loading}
+                  onPress={() => void onBiometric()}
+                />
+              ) : null}
+            </View>
             <Pressable
               onPress={() => {
                 onClose();
-                router.push(personal ? "/register/personal" : "/register/business");
+                router.push(mode === "personal" ? "/register/personal" : mode === "agent" ? "/register/agent" : "/register/business");
               }}
               style={styles.create}
               accessibilityRole="button"
             >
               <Text style={styles.createText}>
-                {t(personal ? "profile.personalCreate" : "profile.businessCreate")}
+                {t(mode === "personal" ? "profile.personalCreate" : mode === "agent" ? "profile.agentCreate" : "profile.businessCreate")}
               </Text>
             </Pressable>
           </ScrollView>
@@ -300,11 +318,13 @@ function makeStyles(colors: Palette) {
       color: colors.textMuted,
       marginBottom: 18,
     },
-    error: {
-      marginBottom: 12,
-      fontFamily: "Montserrat_400Regular",
-      fontSize: 13,
-      color: colors.error,
+    actions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    continue: {
+      flex: 1,
     },
     create: {
       alignItems: "center",

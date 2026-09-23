@@ -107,7 +107,8 @@ export default function BusinessOverviewScreen() {
   );
 
   const trendUp = (data?.revenue.change_percent || 0) >= 0;
-  const maxBar = Math.max(1, ...(data?.revenue.days.map((day) => day.amount) || [1]));
+  const revenueDays = Array.isArray(data?.revenue?.days) ? data.revenue.days : [];
+  const maxBar = Math.max(1, ...revenueDays.map((day) => Number(day?.amount) || 0));
   const unread = data?.unread_notifications || 0;
   const badge = unread > 99 ? "99+" : String(unread);
 
@@ -167,7 +168,8 @@ export default function BusinessOverviewScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={() => void load("refresh")} />
           }
         >
-          <AgentQuickActions />
+          <AgentQuickActions showRequests />
+          <Pressable accessibilityRole="button" onPress={() => router.push("/business/map" as never)} style={{ padding: 18, margin: 16, borderRadius: 16, backgroundColor: colors.card, flexDirection: "row", gap: 12 }}><Ionicons name="map-outline" size={22} color={colors.primary} /><Text style={{ color: colors.text, fontFamily: "Montserrat_600SemiBold" }}>Map - Your business location</Text></Pressable>
           {error ? <ErrorBanner message={error} /> : null}
 
           <FadeIn>
@@ -275,22 +277,26 @@ export default function BusinessOverviewScreen() {
                 </View>
               </View>
               <View style={styles.chart}>
-                {(data?.revenue.days || []).map((day) => (
-                  <View key={day.key} style={styles.barCol}>
-                    <View style={styles.barTrack}>
-                      <View
-                        style={[
-                          styles.bar,
-                          day.is_today && styles.barToday,
-                          { height: Math.max(8, Math.round((day.amount / maxBar) * 72)) },
-                        ]}
-                      />
+                {revenueDays.map((day, index) => {
+                  const amount = Number(day?.amount) || 0;
+                  const barHeight = Math.max(8, Math.round((amount / maxBar) * 72) || 8);
+                  return (
+                    <View key={day?.key || String(index)} style={styles.barCol}>
+                      <View style={styles.barTrack}>
+                        <View
+                          style={[
+                            styles.bar,
+                            day?.is_today && styles.barToday,
+                            { height: barHeight },
+                          ]}
+                        />
+                      </View>
+                      <Text style={[styles.barLabel, day?.is_today && styles.barLabelToday]}>
+                        {day?.label || ""}
+                      </Text>
                     </View>
-                    <Text style={[styles.barLabel, day.is_today && styles.barLabelToday]}>
-                      {day.label}
-                    </Text>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             </View>
           </FadeIn>

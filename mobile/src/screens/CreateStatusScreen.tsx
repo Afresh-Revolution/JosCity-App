@@ -14,6 +14,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
+import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import PreviewVideo from "../components/media/PreviewVideo";
 import FadeIn from "../components/FadeIn";
@@ -267,6 +268,22 @@ export default function CreateStatusScreen() {
     });
   };
 
+  const pasteStoryText = async () => {
+    try {
+      const clip = (await Clipboard.getStringAsync()).replace(/\u0000/g, "").trim();
+      if (!clip) {
+        showError(t("status.pasteEmpty"));
+        return;
+      }
+      setText((current) => {
+        const next = current.trim() ? `${current.trim()}\n${clip}` : clip;
+        return next.slice(0, 2000);
+      });
+    } catch {
+      showError(t("status.pasteEmpty"));
+    }
+  };
+
   const title =
     type === "photo"
       ? t("status.createPhoto")
@@ -279,9 +296,12 @@ export default function CreateStatusScreen() {
       tab="create"
       showTabBar={false}
       header={
-        <View style={styles.topBar}>
+        <Pressable style={styles.topBar} onPress={Keyboard.dismiss} accessible={false}>
           <Pressable
-            onPress={goBack}
+            onPress={() => {
+              Keyboard.dismiss();
+              goBack();
+            }}
             hitSlop={8}
             style={styles.side}
             accessibilityRole="button"
@@ -291,7 +311,10 @@ export default function CreateStatusScreen() {
           </Pressable>
           <Text style={styles.title}>{title}</Text>
           <Pressable
-            onPress={() => void onPost()}
+            onPress={() => {
+              Keyboard.dismiss();
+              void onPost();
+            }}
             disabled={!canPost}
             style={[styles.postBtn, !canPost && styles.postBtnDisabled]}
             accessibilityRole="button"
@@ -303,7 +326,7 @@ export default function CreateStatusScreen() {
               <Text style={styles.postLabel}>{t("status.share")}</Text>
             )}
           </Pressable>
-        </View>
+        </Pressable>
       }
     >
       <View
@@ -320,17 +343,23 @@ export default function CreateStatusScreen() {
           },
         ]}
       >
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={Keyboard.dismiss}
+          accessible={false}
+        />
         <FadeIn duration={420} translateY={8}>
-          <View style={styles.identity}>
+          <Pressable style={styles.identity} onPress={Keyboard.dismiss} accessible={false}>
             <AvatarCircle name={name} uri={picture} size={40} />
             <Text style={styles.identityName} numberOfLines={1}>
               {name}
             </Text>
-          </View>
+          </Pressable>
         </FadeIn>
 
         {type === "text" ? (
-          <LinearGradient colors={["#667eea", "#764ba2"]} style={styles.textCanvas}>
+          <View style={styles.textCanvas}>
+            <LinearGradient colors={["#667eea", "#764ba2"]} style={StyleSheet.absoluteFill} pointerEvents="none" />
             <TextInput
               value={text}
               onChangeText={setText}
@@ -339,9 +368,22 @@ export default function CreateStatusScreen() {
               style={styles.textInput}
               multiline
               textAlign="center"
+              textAlignVertical="center"
               autoFocus
+              contextMenuHidden={false}
+              maxLength={2000}
+              scrollEnabled
             />
-          </LinearGradient>
+            <Pressable
+              onPress={() => void pasteStoryText()}
+              style={styles.pasteBtn}
+              accessibilityRole="button"
+              accessibilityLabel={t("status.paste")}
+            >
+              <Ionicons name="clipboard-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.pasteLabel}>{t("status.paste")}</Text>
+            </Pressable>
+          </View>
         ) : items.length ? (
           <View style={styles.mediaWrap}>
             <View style={styles.mediaStage}>
@@ -532,19 +574,38 @@ function makeStyles(colors: Palette) {
       color: colors.text,
     },
     textCanvas: {
+      flex: 1,
       minHeight: 280,
       borderRadius: 18,
-      alignItems: "center",
-      justifyContent: "center",
-      padding: 20,
+      overflow: "hidden",
       marginBottom: 16,
     },
     textInput: {
+      flex: 1,
       width: "100%",
       fontFamily: "Montserrat_600SemiBold",
       fontSize: 24,
       color: "#FFFFFF",
-      minHeight: 160,
+      paddingHorizontal: 24,
+      paddingTop: 28,
+      paddingBottom: 64,
+    },
+    pasteBtn: {
+      position: "absolute",
+      bottom: 14,
+      alignSelf: "center",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 16,
+      backgroundColor: "rgba(0,0,0,0.28)",
+    },
+    pasteLabel: {
+      fontFamily: "Montserrat_600SemiBold",
+      fontSize: 13,
+      color: "#FFFFFF",
     },
     mediaWrap: {
       flex: 1,

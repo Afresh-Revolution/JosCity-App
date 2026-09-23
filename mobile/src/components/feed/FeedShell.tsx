@@ -9,7 +9,7 @@ import FeedHeader from "./FeedHeader";
 import FeedTabBar, { type FeedTab } from "./FeedTabBar";
 import { getChatUnreadCount } from "../../api/chat";
 import { useI18n } from "../../i18n/I18nProvider";
-import { getAccountType, isBusinessAccountType } from "../../storage/session";
+import { getAccountType, getUser, isBusinessAccountType, isDedicatedAgentAccount } from "../../storage/session";
 import { useTheme } from "../../theme/ThemeProvider";
 import { startForegroundInterval } from "../../utils/foregroundInterval";
 
@@ -48,10 +48,12 @@ export default function FeedShell({
 }: Props) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const agentFeed = usePathname().startsWith("/agents/");
+  const pathname = usePathname();
+  const agentFeed = pathname === "/agents" || pathname.startsWith("/agents/");
+  const mapPage = pathname === "/map" || pathname.endsWith("/map");
   const { colors, scheme } = useTheme();
   const { t } = useI18n();
-  const [mode, setMode] = useState<"unknown" | "personal" | "business">("unknown");
+  const [mode, setMode] = useState<"unknown" | "personal" | "business" | "agent">("unknown");
   const [chatUnread, setChatUnread] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const prevUnread = useRef<number | null>(null);
@@ -65,7 +67,8 @@ export default function FeedShell({
         },
         body: {
           flex: 1,
-          overflow: "visible",
+          minHeight: 0,
+          overflow: mapPage ? "hidden" : "visible",
         },
         toast: {
           position: "absolute",
@@ -89,7 +92,7 @@ export default function FeedShell({
           textAlign: "center",
         },
       }),
-    [colors, hideHeader]
+    [colors, hideHeader, mapPage]
   );
 
   const pingUnread = useCallback(async () => {
@@ -114,8 +117,10 @@ export default function FeedShell({
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      void getAccountType().then((type) => {
-        if (active) setMode(isBusinessAccountType(type) ? "business" : "personal");
+      void Promise.all([getAccountType(), getUser()]).then(([type, user]) => {
+        if (!active) return;
+        if (isDedicatedAgentAccount(user, type)) setMode("agent");
+        else setMode(isBusinessAccountType(type) ? "business" : "personal");
       });
       void pingUnread();
       const stop = startForegroundInterval(() => {
@@ -152,13 +157,13 @@ export default function FeedShell({
               unreadCount={agentFeed ? 0 : unreadCount}
               searchActive={searchActive}
               onSearch={onSearch}
-              onNotifications={() => router.push((agentFeed ? "/agents/notifications" : "/notifications") as never)}
+              onNotifications={() => router.push((agentFeed || mode === "agent" ? "/agents/notifications" : "/notifications") as never)}
             />
           )}
         </View>
       )}
       <View style={styles.body}>{children}</View>
-      {showTabBar && agentFeed ? <AgentTabBar active="feed" /> : showTabBar && mode !== "unknown" ? (
+      {showTabBar && (agentFeed || mode === "agent") ? <AgentTabBar active={pathname === "/agents" || pathname === "/agents/map" ? "dashboard" : pathname.includes("/wallet") ? "wallet" : pathname.includes("/feed") ? "feed" : pathname.includes("/profile") || pathname.includes("/settings") || pathname.startsWith("/profile/") || pathname === "/notifications-settings" ? "profile" : agentFeed ? "feed" : "profile"} /> : showTabBar && mode !== "unknown" ? (
         mode === "business" ? (
           <BusinessTabBar active={toBusinessTab(tab)} messageUnread={chatUnread} />
         ) : (

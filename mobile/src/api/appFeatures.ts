@@ -13,7 +13,7 @@ export type AppFeaturesMap = Record<FeatureKey, AppFeature>;
 export const DEFAULT_APP_FEATURES: AppFeaturesMap = {
   membership: { enabled: false, coming_soon_label: "Coming soon", title: "Membership" },
   rewards: { enabled: false, coming_soon_label: "Coming soon", title: "Rewards" },
-  wallet: { enabled: false, coming_soon_label: "Coming soon", title: "Wallet" },
+  wallet: { enabled: true, coming_soon_label: "Coming soon", title: "Wallet" },
   cbc_points: { enabled: false, coming_soon_label: "Coming soon", title: "CBC points" },
 };
 

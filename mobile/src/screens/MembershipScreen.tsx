@@ -1,24 +1,22 @@
 import { useCallback, useMemo, useState } from "react";
-import { Alert, Platform, Pressable, RefreshControl, Text, View, StyleSheet } from "react-native";
+import { Alert, Pressable, RefreshControl, Text, View, StyleSheet } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import FadeIn from "../components/FadeIn";
+import SoonBadge from "../components/SoonBadge";
 import SettingsPage, { useSettingsStyles } from "../components/SettingsPage";
-import {
-  getMembership,
-  subscribeMembership,
-  type MembershipInfo,
-} from "../api/account";
-import { formatMembershipAmount, type MembershipPlanItem } from "../api/membership";
+import { getMembership, type MembershipInfo } from "../api/account";
+import { formatMembershipAmount, publishedMembershipItems, type MembershipPlanItem } from "../api/membership";
 import { useMembershipSettings } from "../hooks/useMembershipSettings";
+import { useAppFeatures } from "../hooks/useAppFeatures";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
+import { LEGAL, openExternalUrl } from "../constants/legal";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 
 const BILLING_COPY = "Billed monthly · pause or cancel anytime";
-const STORE_DIGITAL_IAP_REQUIRED =
-  Platform.OS === "ios" || Platform.OS === "android";
+const WEBSITE_BUY_COPY = "Memberships are bought on the JOSCITY website, not in the app.";
 
 function featuresFor(item: MembershipPlanItem): string[] {
   if (Array.isArray(item.features) && item.features.length) {
@@ -44,10 +42,11 @@ export default function MembershipScreen() {
 
   const allowed = useRequirePersonalAccount();
   const router = useRouter();
-  const { personalEnabled, personalPlan, ready } = useMembershipSettings();
+  const { personalPlan, ready } = useMembershipSettings();
+  const { enabled, label } = useAppFeatures();
+  const membershipLive = enabled("membership");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [subscribingId, setSubscribingId] = useState<string | null>(null);
   const [info, setInfo] = useState<MembershipInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,29 +64,19 @@ export default function MembershipScreen() {
     useCallback(() => {
       if (!allowed) return;
       if (!ready) return;
-      if (!personalEnabled) {
-        router.replace("/profile");
-        return;
-      }
       void load().finally(() => setLoading(false));
-    }, [allowed, load, personalEnabled, ready, router])
+    }, [allowed, load, ready])
   );
 
   const packages: MembershipPlanItem[] = useMemo(() => {
-    if (info?.packages?.length) return info.packages;
-    if (info?.items?.length) return info.items;
-    if (personalPlan.items?.length) return personalPlan.items;
-    return [];
-  }, [info, personalPlan.items]);
+    const fromAccount = (info?.packages || []).filter((item) => Number(item.amount || 0) > 0);
+    if (fromAccount.length) return fromAccount;
+    return publishedMembershipItems(personalPlan);
+  }, [info, personalPlan]);
 
-  const visiblePackages = packages.filter(
-    (item) =>
-      Number(item.amount || 0) > 0 ||
-      String(item.title || "").trim() ||
-      String(item.description || "").trim()
-  );
+  const visiblePackages = packages;
 
-  if (!allowed || (ready && !personalEnabled)) return null;
+  if (!allowed) return null;
 
   const current = info?.current || null;
   const memberId = info?.member_id || "";
@@ -103,24 +92,6 @@ export default function MembershipScreen() {
       { text: "Close", style: "cancel" },
       { text: "Copy ID", onPress: () => void Clipboard.setStringAsync(memberId) },
     ]);
-  };
-
-  const onSubscribe = async (item: MembershipPlanItem, renewing: boolean) => {
-    const id = String(item.id || "");
-    if (!id) return;
-    setSubscribingId(id);
-    const result = await subscribeMembership(id);
-    setSubscribingId(null);
-    if (!result.success) {
-      Alert.alert(renewing ? "Could not renew" : "Could not subscribe", result.message || "Try again.");
-      return;
-    }
-    if (result.data?.current) {
-      setInfo((currentInfo) =>
-        currentInfo ? { ...currentInfo, current: result.data?.current || currentInfo.current } : currentInfo
-      );
-    }
-    await load();
   };
 
   return (
@@ -141,6 +112,14 @@ export default function MembershipScreen() {
     >
       <FadeIn>
         {error ? <Text style={s.error}>{error}</Text> : null}
+        {!membershipLive ? (
+          <View style={styles.soonBanner}>
+            <SoonBadge label={label("membership")} />
+            <Text style={styles.soonCopy}>
+              These are the membership packages from the admin panel. Buying stays on the JOSCITY website.
+            </Text>
+          </View>
+        ) : null}
 
         {current ? (
           <>
@@ -191,7 +170,6 @@ export default function MembershipScreen() {
           const id = String(item.id || `${index}`);
           const isCurrent = Boolean(current && current.package_id === id);
           const perkList = featuresFor(item);
-          const busy = subscribingId === id;
           return (
             <View
               key={id}
@@ -214,37 +192,11 @@ export default function MembershipScreen() {
                   <Text style={styles.perkText}>{perk}</Text>
                 </View>
               ))}
-              {STORE_DIGITAL_IAP_REQUIRED ? (
-                <Text style={styles.iosNote}>
-                  {isCurrent
-                    ? "In-app renewal is not available in the mobile app."
-                    : "In-app purchase is not available in the mobile app."}
-                </Text>
-              ) : isCurrent ? (
-                <Pressable
-                  onPress={() => void onSubscribe(item, true)}
-                  disabled={busy}
-                  style={({ pressed }) => [styles.renewBtn, pressed && styles.pressed]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Renew this package"
-                >
-                  <Text style={styles.renewBtnText}>
-                    {busy ? "Renewing..." : "Renew this package"}
-                  </Text>
-                </Pressable>
-              ) : (
-                <Pressable
-                  onPress={() => void onSubscribe(item, false)}
-                  disabled={busy}
-                  style={({ pressed }) => [styles.subscribeBtn, pressed && styles.pressed]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Subscribe"
-                >
-                  <Text style={styles.subscribeBtnText}>
-                    {busy ? "Please wait..." : "Subscribe"}
-                  </Text>
-                </Pressable>
-              )}
+              <Text style={styles.iosNote}>
+                {isCurrent
+                  ? "Renew this package on the JOSCITY website."
+                  : "Buy this package on the JOSCITY website."}
+              </Text>
             </View>
           );
         })}
@@ -253,21 +205,25 @@ export default function MembershipScreen() {
           <Text style={s.empty}>No membership packages have been published yet.</Text>
         ) : null}
 
-        <Text style={styles.footnote}>
-          {STORE_DIGITAL_IAP_REQUIRED
-            ? "Apple and Google require their own in-app billing for digital memberships. Status of an existing membership still appears here. Marketplace checkout for physical goods and local services is unchanged."
-            : "Membership payments are taken from your JOSCITY wallet. Package features are exactly as published by JOSCITY."}
-        </Text>
-        {STORE_DIGITAL_IAP_REQUIRED ? null : (
+        <Text style={styles.footnote}>{WEBSITE_BUY_COPY}</Text>
+        {membershipLive ? (
           <Pressable
-            onPress={() => router.push("/profile/wallet")}
-            style={({ pressed }) => [styles.walletBtn, pressed && styles.pressed]}
+            onPress={() => void openExternalUrl(LEGAL.membership)}
+            style={({ pressed }) => [styles.subscribeBtn, pressed && styles.pressed]}
             accessibilityRole="button"
-            accessibilityLabel="Back to wallet"
+            accessibilityLabel="Buy membership on joscity.com"
           >
-            <Text style={styles.walletBtnText}>Back to wallet</Text>
+            <Text style={styles.subscribeBtnText}>Buy on joscity.com</Text>
           </Pressable>
-        )}
+        ) : null}
+        <Pressable
+          onPress={() => router.push("/profile/wallet")}
+          style={({ pressed }) => [styles.walletBtn, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Back to wallet"
+        >
+          <Text style={styles.walletBtnText}>Back to wallet</Text>
+        </Pressable>
       </FadeIn>
     </SettingsPage>
   );
@@ -275,6 +231,22 @@ export default function MembershipScreen() {
 
 function makeStyles(colors: Palette) {
   return StyleSheet.create({
+  soonBanner: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    gap: 10,
+    backgroundColor: colors.background,
+    alignItems: "flex-start",
+  },
+  soonCopy: {
+    fontFamily: "Montserrat_400Regular",
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.textMuted,
+  },
   currentCard: {
     backgroundColor: colors.primary,
     borderRadius: 16,
@@ -444,21 +416,6 @@ function makeStyles(colors: Palette) {
     fontFamily: "Montserrat_700Bold",
     fontSize: 15,
     color: colors.white,
-  },
-  renewBtn: {
-    marginTop: 10,
-    minHeight: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E0DCD3",
-    backgroundColor: colors.background,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  renewBtnText: {
-    fontFamily: "Montserrat_600SemiBold",
-    fontSize: 15,
-    color: colors.text,
   },
   footnote: {
     marginTop: 8,

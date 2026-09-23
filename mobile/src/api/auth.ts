@@ -90,6 +90,31 @@ export async function loginBusiness(params: {
   return parseAuth(response);
 }
 
+export async function loginAgent(params: {
+  email: string;
+  password: string;
+  activationCode?: string;
+  twoFactorCode?: string;
+}): Promise<AuthResult> {
+  const response = await apiFetch("/auth/agent/login", {
+    method: "POST",
+    timeoutMs: 30000,
+    body: JSON.stringify({
+      email: params.email.toLowerCase().trim(),
+      password: params.password,
+      activation_code: params.activationCode?.trim().replace(/\s+/g, "") || "",
+      two_factor_code: params.twoFactorCode?.trim().replace(/\s+/g, "") || "",
+    }),
+  });
+  return parseAuth(response);
+}
+
+function authAccountKind(accountType: AccountType): "personal" | "business" | "agent" {
+  if (accountType === "business") return "business";
+  if (accountType === "agent") return "agent";
+  return "personal";
+}
+
 export async function checkActivationRequired(
   email: string,
   accountType: AccountType
@@ -99,7 +124,7 @@ export async function checkActivationRequired(
     timeoutMs: 15000,
     body: JSON.stringify({
       email: email.toLowerCase().trim(),
-      account_type: accountType,
+      account_type: authAccountKind(accountType),
     }),
   });
   return parseAuth(response);
@@ -114,7 +139,7 @@ export async function resendActivation(
     timeoutMs: 30000,
     body: JSON.stringify({
       email: email.toLowerCase().trim(),
-      account_type: accountType,
+      account_type: authAccountKind(accountType),
     }),
   });
   return parseAuth(response);
@@ -142,6 +167,7 @@ export async function updatePersonalProfile(params: {
   address: string;
   user_bio?: string;
   nin_number?: string;
+  user_name?: string;
   business_name?: string;
   business_phone?: string;
   business_email?: string;
@@ -160,6 +186,7 @@ export async function updatePersonalProfile(params: {
       user_email: params.user_email.toLowerCase().trim(),
       address: params.address.trim(),
       ...(params.user_bio != null ? { user_bio: params.user_bio } : {}),
+      ...(params.user_name ? { user_name: params.user_name.trim().replace(/^@+/, "") } : {}),
       ...(params.nin_number ? { nin_number: params.nin_number.replace(/\D/g, "") } : {}),
       ...(params.business_name
         ? {
@@ -189,7 +216,7 @@ export async function requestPasswordResetOtp(
     timeoutMs: 30000,
     body: JSON.stringify({
       email: email.toLowerCase().trim(),
-      account_type: accountType,
+      account_type: accountType === "business" ? "business" : "personal",
     }),
   });
   return parseAuth(response);
@@ -220,6 +247,8 @@ export async function registerPersonal(params: {
   address?: string;
   user_password: string;
   referral_code?: string;
+  signup_intent?: "personal" | "agent";
+  user_name?: string;
 }): Promise<AuthResult> {
   const response = await apiFetch("/auth/personal/signup", {
     method: "POST",
@@ -234,6 +263,10 @@ export async function registerPersonal(params: {
       address: params.address?.trim() || "",
       user_password: params.user_password,
       referral_code: params.referral_code?.trim() || "",
+      signup_intent: params.signup_intent || "personal",
+      ...(params.user_name?.trim()
+        ? { user_name: params.user_name.trim().replace(/^@+/, "") }
+        : {}),
     }),
   });
   return parseAuth(response);

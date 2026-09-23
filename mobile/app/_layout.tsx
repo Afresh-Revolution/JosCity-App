@@ -1,6 +1,7 @@
 import "react-native-gesture-handler";
+import LocationPermissionPrompt from "../src/components/LocationPermissionPrompt";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Keyboard, Platform, Text, View } from "react-native";
+import { AppState, Platform, Text, View } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -98,9 +99,11 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <ThemeProvider>
           <I18nProvider>
-            <ThemedRoot />
-            <NoticeHost />
-            <RatingPromptHost />
+            <View style={{ flex: 1, position: "relative" }}>
+              <ThemedRoot />
+              <NoticeHost />
+              <RatingPromptHost />
+            </View>
           </I18nProvider>
         </ThemeProvider>
       </SafeAreaProvider>
@@ -134,13 +137,8 @@ function ThemedRoot() {
     <>
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
       <NotificationTapRouter />
-      <View
-        style={{ flex: 1 }}
-        onStartShouldSetResponderCapture={() => {
-          Keyboard.dismiss();
-          return false;
-        }}
-      >
+      <LocationPermissionPrompt />
+      <View style={{ flex: 1 }}>
         {!online ? (
           <View
             style={{

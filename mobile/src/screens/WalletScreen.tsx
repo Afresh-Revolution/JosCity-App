@@ -13,7 +13,7 @@ import {
   View,
 } from "react-native";
 import JosCityLoader from "../components/JosCityLoader";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, usePathname, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
@@ -24,7 +24,6 @@ import SettingsPage, { useSettingsStyles } from "../components/SettingsPage";
 import SoonBadge from "../components/SoonBadge";
 import TextField from "../components/TextField";
 import {
-  getActivity,
   getMembership,
   getPoints,
   getWallet,
@@ -37,33 +36,37 @@ import {
   verifyPaystackFunding,
   verifySafehavenFunding,
   withdrawWallet,
-  type ActivityItem,
   type MembershipInfo,
   type PointsInfo,
   type WalletInfo,
   type WalletMember,
   type WalletTransaction,
 } from "../api/account";
+import { agentApi } from "../api/agent";
 import { useAppFeatures } from "../hooks/useAppFeatures";
 import { useI18n } from "../i18n/I18nProvider";
 import { useMembershipSettings } from "../hooks/useMembershipSettings";
+import { membershipCatalogSubtitle } from "../api/membership";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
 import { getUser } from "../storage/session";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { formatMemberDisplayId, readNumericUserId } from "../utils/memberDisplayId";
+import { isPaystackFundingEnabled, isWithdrawMethodEnabled } from "../utils/paystackFunding";
 
 type DisplayTx = {
   id: string;
   kind: "funding" | "order" | "payout" | "points";
   title: string;
   subtitle: string;
+  party?: string | null;
+  typeLabel: string;
   amount: number;
   status: string;
   created_at?: string | null;
 };
 
-type Sheet = "fund" | "fundMethod" | "fundManual" | "payout" | "choose" | "bank" | "share" | null;
+type Sheet = "fund" | "fundMethod" | "fundManual" | "payout" | "choose" | "bank" | "share" | "tx" | null;
 
 function formatNaira(value?: number, signed = false) {
   const n = Number(value || 0);
@@ -84,7 +87,7 @@ function formatCount(value?: number) {
   });
 }
 
-function formatShortDate(value?: string | null) {
+function formatTxWhen(value?: string | null) {
   if (!value) return "";
   const numeric = Number(value);
   const date =
@@ -92,11 +95,62 @@ function formatShortDate(value?: string | null) {
       ? new Date(numeric < 1e12 ? numeric * 1000 : numeric)
       : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("en-GB", {
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${date.toLocaleDateString("en-GB", {
     day: "numeric",
     month: "short",
     year: "numeric",
-  });
+  })}, ${hours}:${minutes}`;
+}
+
+function historyState(status?: string | null): "success" | "pending" | "hidden" {
+  const raw = String(status || "").trim().toLowerCase();
+  if (
+    [
+      "rejected",
+      "2",
+      "failed",
+      "cancelled",
+      "canceled",
+      "declined",
+      "expired",
+      "unpaid",
+      "awaiting_payment",
+      "void",
+      "refunded",
+    ].includes(raw)
+  ) {
+    return "hidden";
+  }
+  if (
+    [
+      "approved",
+      "1",
+      "paid",
+      "confirmed",
+      "processing",
+      "shipped",
+      "delivered",
+      "completed",
+      "success",
+      "successful",
+    ].includes(raw)
+  ) {
+    return "success";
+  }
+  if (["pending", "0", "3", "", "awaiting_proof"].includes(raw)) return "pending";
+  if (raw.includes("reject") || raw.includes("fail") || raw.includes("cancel")) return "hidden";
+  if (raw.includes("await") && raw.includes("pay")) return "hidden";
+  return "pending";
+}
+
+function isVisibleHistory(status?: string | null) {
+  return historyState(status) !== "hidden";
+}
+
+function historyLabel(status?: string | null) {
+  return historyState(status) === "pending" ? "Pending" : "Successful";
 }
 
 function membershipBadgeLabel(title?: string | null) {
@@ -121,60 +175,67 @@ function shouldShowMembershipBadge(
   return isActiveMembership(current);
 }
 
-function isApproved(status?: string | null) {
-  const raw = String(status || "").trim().toLowerCase();
-  return raw === "approved" || raw === "1";
-}
-
 function isPending(status?: string | null) {
   const raw = String(status || "").trim().toLowerCase();
   return raw === "pending" || raw === "0" || raw === "";
 }
 
-function kindFromMethod(method?: string | null): DisplayTx["kind"] {
+function kindFromMethod(method?: string | null): DisplayTx["kind"] | null {
   const raw = String(method || "").toLowerCase();
-  if (raw.includes("payout") || raw.includes("withdraw")) return "payout";
-  if (raw.includes("point") || raw.includes("cbc")) return "points";
-  if (raw.includes("membership") || raw.includes("order")) return "order";
-  return "funding";
+  if (!raw) return null;
+  if (raw === "share" || raw.includes("payout") || raw.includes("withdraw")) return "payout";
+  if (raw === "points" || raw === "cbc") return "points";
+  if (
+    raw === "membership" ||
+    raw === "shop_order" ||
+    raw === "listing_purchase" ||
+    raw.includes("escrow_hold")
+  ) {
+    return "order";
+  }
+  if (raw === "share_in") return "funding";
+  return null;
+}
+
+function looksLikeMembership(item: WalletTransaction) {
+  const blob = `${item.method || ""} ${item.title || ""} ${item.subtitle || ""} ${item.kind || ""}`.toLowerCase();
+  return blob.includes("membership") && !blob.includes("cashback");
+}
+
+function typeLabelFor(item: WalletTransaction, kind: DisplayTx["kind"]) {
+  const raw = String(item.method || "").toLowerCase();
+  if (looksLikeMembership(item)) return item.title || "Membership";
+  if (raw === "share") return "Shared";
+  if (raw === "share_in") return "Received";
+  if (raw === "shop_order" || raw === "listing_purchase") return "Marketplace purchase";
+  if (raw.includes("escrow_hold")) return "Help Me Buy escrow";
+  if (raw.startsWith("listing_")) return "Marketplace sale";
+  if (kind === "payout") return "Withdrawal";
+  if (kind === "points") return "Points redeemed";
+  if (kind === "order") return "Membership";
+  return "Wallet funding";
 }
 
 function toDisplayTx(item: WalletTransaction): DisplayTx {
-  const kind = item.kind || kindFromMethod(item.method);
+  const kind =
+    kindFromMethod(item.method) ||
+    (looksLikeMembership(item) ? "order" : item.kind) ||
+    "funding";
   const amount = Number(item.amount || 0);
-  const signed =
-    item.kind || item.title
-      ? amount
-      : kind === "payout" || kind === "order"
-        ? -Math.abs(amount)
-        : Math.abs(amount);
+  const debit = kind === "payout" || kind === "order" || looksLikeMembership(item);
+  const signed = debit ? -Math.abs(amount) : Math.abs(amount);
+  const typeLabel = typeLabelFor(item, kind);
+  const party = String(item.party || "").trim();
+  const backendTitle = String(item.title || "").trim();
+  const backendSubtitle = String(item.subtitle || "").trim();
   return {
     id: item.id || `${kind}-${item.created_at || amount}`,
     kind,
-    title:
-      item.title ||
-      (kind === "payout"
-        ? "Withdrawal"
-        : kind === "points"
-          ? "Points redeemed"
-          : kind === "order"
-            ? "Membership"
-            : "Wallet funding"),
-    subtitle: item.subtitle || item.method || "Bank transfer",
+    title: party || backendTitle || typeLabel,
+    subtitle: backendSubtitle || typeLabel,
+    party: party || null,
+    typeLabel,
     amount: signed,
-    status: item.status,
-    created_at: item.created_at,
-  };
-}
-
-function activityToTx(item: ActivityItem): DisplayTx {
-  const amount = Number(item.amount || 0);
-  return {
-    id: item.id,
-    kind: "order",
-    title: item.title || "Order",
-    subtitle: item.source === "event" ? "Event payment" : "Wallet balance",
-    amount: amount ? -Math.abs(amount) : 0,
     status: item.status,
     created_at: item.created_at,
   };
@@ -195,18 +256,20 @@ export default function WalletScreen() {
 
   const allowed = useRequirePersonalAccount();
   const router = useRouter();
+  const pathname = usePathname();
+  const agentWallet = pathname.startsWith("/agents");
   const { enabled, label } = useAppFeatures();
   const { t } = useI18n();
-  const { personalEnabled } = useMembershipSettings();
+  const { personalPlan } = useMembershipSettings();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
   const [points, setPoints] = useState<PointsInfo | null>(null);
   const [membership, setMembership] = useState<MembershipInfo | null>(null);
-  const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [hidden, setHidden] = useState(false);
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [selectedTx, setSelectedTx] = useState<DisplayTx | null>(null);
   const [amountText, setAmountText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [localMemberId, setLocalMemberId] = useState("");
@@ -219,18 +282,20 @@ export default function WalletScreen() {
   const [recipientError, setRecipientError] = useState<string | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
   const [proofUri, setProofUri] = useState<string | null>(null);
+  const [proofType, setProofType] = useState<string | null>(null);
   const [paystackFailed, setPaystackFailed] = useState(false);
+  const [heldFees, setHeldFees] = useState(0);
 
   const load = useCallback(async () => {
     const user = await getUser();
     const numericId = readNumericUserId(user as Record<string, unknown> | null);
     if (numericId) setLocalMemberId(formatMemberDisplayId(numericId));
 
-    const [walletResult, pointsResult, membershipResult, activityResult] = await Promise.all([
+    const [walletResult, pointsResult, membershipResult, agentStats] = await Promise.all([
       getWallet(),
       getPoints(),
       getMembership(),
-      getActivity(),
+      agentWallet ? agentApi.dashboard().catch(() => null) : Promise.resolve(null),
     ]);
 
     if (!walletResult.success || !walletResult.data) {
@@ -246,8 +311,8 @@ export default function WalletScreen() {
     }
     if (pointsResult.success && pointsResult.data) setPoints(pointsResult.data);
     if (membershipResult.success && membershipResult.data) setMembership(membershipResult.data);
-    if (activityResult.success && activityResult.data) setActivity(activityResult.data);
-  }, []);
+    setHeldFees(Number(agentStats?.held_agent_fees || 0));
+  }, [agentWallet]);
 
   useFocusEffect(
     useCallback(() => {
@@ -279,19 +344,31 @@ export default function WalletScreen() {
   );
 
   const transactions = useMemo(() => {
-    const fromWallet = (wallet?.transactions || []).map(toDisplayTx);
-    const seen = new Set(fromWallet.map((item) => item.id));
-    const extras = activity
-      .map(activityToTx)
-      .filter((item) => item.id && !seen.has(item.id));
-    return [...fromWallet, ...extras]
+    const rows = (wallet?.transactions || [])
+      .map(toDisplayTx)
+      .filter((item) => isVisibleHistory(item.status));
+    const membershipAmount = Number(current?.amount || 0);
+    const hasMembershipDebit = rows.some((item) => /membership/i.test(item.title) && item.amount < 0);
+    if (membershipAmount > 0 && current && !hasMembershipDebit) {
+      rows.push({
+        id: "membership-current",
+        kind: "order",
+        title: current.title || "Membership",
+        subtitle: "Debit",
+        typeLabel: "Membership",
+        amount: -Math.abs(membershipAmount),
+        status: "Approved",
+        created_at: current.renews_at || null,
+      });
+    }
+    return rows
       .sort((a, b) => {
         const aTime = new Date(a.created_at || 0).getTime();
         const bTime = new Date(b.created_at || 0).getTime();
         return bTime - aTime;
       })
-      .slice(0, 4);
-  }, [activity, wallet?.transactions]);
+      .slice(0, 6);
+  }, [current, wallet?.transactions]);
 
   const memberId =
     wallet?.member_id || membership?.member_id || localMemberId || "";
@@ -300,21 +377,23 @@ export default function WalletScreen() {
     ? [current.title, current.renews_at ? `renews ${current.renews_at}` : ""]
         .filter(Boolean)
         .join(" · ")
-    : "Choose a package";
+    : membershipCatalogSubtitle(personalPlan, "Membership packages");
 
-  const membershipLive = personalEnabled && enabled("membership");
+  const membershipLive = enabled("membership");
   const rewardsLive = enabled("rewards");
   const rewardsSoon = label("rewards");
 
   const closeSheet = () => {
     if (submitting) return;
     setSheet(null);
+    setSelectedTx(null);
     setAmountText("");
     setMemberIdText("");
     setRecipient(null);
     setRecipientError(null);
     setAfterPayout(null);
     setProofUri(null);
+    setProofType(null);
     setPaystackFailed(false);
   };
 
@@ -331,10 +410,13 @@ export default function WalletScreen() {
   const available = Number(wallet?.balance || 0);
 
   const funding = wallet?.funding;
-  const paystackOn = Boolean(funding?.paystack?.enabled);
+  const paystackOn = isPaystackFundingEnabled(funding);
   const safehavenOn = Boolean(funding?.safehaven?.enabled);
   const manualOn = Boolean(funding?.manual?.enabled);
   const minFund = Number(funding?.min_amount || 100);
+  const withdrawPaystackOn = isWithdrawMethodEnabled(funding, "paystack");
+  const withdrawManualOn = isWithdrawMethodEnabled(funding, "manual");
+  const minWithdraw = Number(funding?.withdraw?.min_amount || 100);
 
   const openCheckout = async (url?: string) => {
     if (!url) return;
@@ -414,6 +496,7 @@ export default function WalletScreen() {
     });
     if (picked.canceled || !picked.assets[0]?.uri) return;
     setProofUri(picked.assets[0].uri);
+    setProofType(picked.assets[0].mimeType || null);
   };
 
   const submitManual = async () => {
@@ -423,7 +506,10 @@ export default function WalletScreen() {
       return;
     }
     setSubmitting(true);
-    const result = await submitManualFunding(amount, { uri: proofUri });
+    const result = await submitManualFunding(amount, {
+      uri: proofUri,
+      type: proofType || undefined,
+    });
     setSubmitting(false);
     if (!result.success) {
       Alert.alert(t("wallet.fundError"), result.message || t("wallet.tryAgain"));
@@ -438,10 +524,14 @@ export default function WalletScreen() {
     continueFunding();
   };
 
-  const submitBankWithdraw = async () => {
+  const submitBankWithdraw = async (method: "paystack" | "manual") => {
     const amount = parseAmount();
     if (!Number.isFinite(amount) || amount <= 0) {
       Alert.alert(t("wallet.amountTitle"), t("wallet.amountBody"));
+      return;
+    }
+    if (amount < minWithdraw) {
+      Alert.alert(t("wallet.amountTitle"), t("wallet.withdrawMin", { amount: formatNaira(minWithdraw) }));
       return;
     }
     if (amount > available) {
@@ -449,14 +539,17 @@ export default function WalletScreen() {
       return;
     }
     setSubmitting(true);
-    const result = await withdrawWallet(amount);
+    const result = await withdrawWallet(amount, method);
     setSubmitting(false);
     if (!result.success) {
       Alert.alert(t("wallet.withdrawError"), result.message || t("wallet.tryAgain"));
       return;
     }
     closeSheet();
-    Alert.alert(t("wallet.submitted"), t("wallet.submittedBody"));
+    Alert.alert(
+      method === "paystack" ? t("wallet.withdrawSent") : t("wallet.submitted"),
+      method === "paystack" ? t("wallet.withdrawSentBody") : t("wallet.submittedBody")
+    );
     await load();
   };
 
@@ -642,7 +735,7 @@ export default function WalletScreen() {
             </Pressable>
             <Pressable
               onPress={() => {
-                if (!rewardsLive) {
+                if (!rewardsLive || agentWallet) {
                   Alert.alert("CBC points", rewardsSoon);
                   return;
                 }
@@ -690,21 +783,33 @@ export default function WalletScreen() {
           </View>
         </View>
 
+        {agentWallet ? (
+          <View style={styles.escrowCard}>
+            <Text style={styles.sectionTitle}>Protected in escrow</Text>
+            <Text style={styles.escrowValue}>{formatNaira(heldFees)}</Text>
+            <Text style={styles.sectionMeta}>
+              Held agent fees stay protected until the customer confirms delivery.
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.sectionHead}>
           <View style={styles.sectionCopy}>
             <Text style={styles.sectionTitle}>Recent transactions</Text>
             <Text style={styles.sectionMeta}>
-              Every funding, order and payout on your account
+              Successful and pending credits and debits
             </Text>
           </View>
-          <Pressable
-            onPress={() => router.push("/profile/activity")}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="See all transactions"
-          >
-            <Text style={styles.seeAll}>See all</Text>
-          </Pressable>
+          {agentWallet ? null : (
+            <Pressable
+              onPress={() => router.push("/profile/activity")}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="See all transactions"
+            >
+              <Text style={styles.seeAll}>See all</Text>
+            </Pressable>
+          )}
         </View>
 
         {!transactions.length ? (
@@ -712,9 +817,18 @@ export default function WalletScreen() {
         ) : (
           <View style={styles.txList}>
             {transactions.map((item) => {
-              const approved = isApproved(item.status);
+              const pending = historyState(item.status) === "pending";
               return (
-                <View key={item.id} style={styles.txRow}>
+                <Pressable
+                  key={item.id}
+                  onPress={() => {
+                    setSelectedTx(item);
+                    setSheet("tx");
+                  }}
+                  style={({ pressed }) => [styles.txRow, pressed && styles.pressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${item.title}, ${formatNaira(item.amount, true)}`}
+                >
                   <View style={styles.txIcon}>
                     <Ionicons name={txIcon(item.kind)} size={18} color={colors.primary} />
                   </View>
@@ -731,19 +845,18 @@ export default function WalletScreen() {
                     >
                       {formatNaira(item.amount, true)}
                     </Text>
-                    {approved ? (
-                      <View style={styles.approvedPill}>
-                        <Text style={styles.approvedText}>APPROVED</Text>
-                      </View>
+                    {pending ? (
+                      <Text style={styles.txDate}>Pending</Text>
                     ) : (
-                      <Text style={styles.txDate}>
-                        {isPending(item.status)
-                          ? "Pending"
-                          : formatShortDate(item.created_at) || item.status}
-                      </Text>
+                      <View style={[styles.approvedPill, item.amount < 0 && styles.debitPill]}>
+                        <Text style={[styles.approvedText, item.amount < 0 && styles.debitText]}>
+                          {item.amount < 0 ? "DEBIT" : "CREDIT"}
+                        </Text>
+                      </View>
                     )}
                   </View>
-                </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                </Pressable>
               );
             })}
           </View>
@@ -751,16 +864,16 @@ export default function WalletScreen() {
 
         <Text style={styles.accountHeading}>Account</Text>
         <View style={styles.accountList}>
-          {personalEnabled ? (
+          {!agentWallet ? (
             <AccountRow
               title="Membership"
-              subtitle={membershipLive ? membershipSubtitle : label("membership")}
+              subtitle={membershipLive ? membershipSubtitle : membershipCatalogSubtitle(personalPlan, label("membership"))}
               comingSoon={!membershipLive}
               soonLabel={label("membership")}
-              onPress={membershipLive ? () => router.push("/profile/membership") : undefined}
+              onPress={() => router.push("/profile/membership")}
             />
           ) : null}
-          {personalEnabled ? (
+          {!agentWallet ? (
             <AccountRow
               title="Digital membership ID"
               subtitle={memberId || "Your digital ID"}
@@ -774,14 +887,17 @@ export default function WalletScreen() {
             }
             comingSoon={!rewardsLive}
             soonLabel={rewardsSoon}
-            onPress={rewardsLive ? () => router.push("/profile/rewards") : undefined}
+            last={agentWallet}
+            onPress={rewardsLive && !agentWallet ? () => router.push("/profile/rewards") : undefined}
           />
-          <AccountRow
-            title="Referrals"
-            subtitle="Invite Jos residents and businesses"
-            last
-            onPress={() => router.push("/profile/referrals")}
-          />
+          {agentWallet ? null : (
+            <AccountRow
+              title="Referrals"
+              subtitle="Invite Jos residents and businesses"
+              last
+              onPress={() => router.push("/profile/referrals")}
+            />
+          )}
         </View>
 
         <Text style={styles.footnote}>
@@ -801,6 +917,45 @@ export default function WalletScreen() {
         >
           <Pressable style={styles.modalBackdrop} onPress={closeSheet} />
           <View style={styles.modalCard}>
+            {sheet === "tx" && selectedTx ? (
+              <>
+                <Text style={styles.modalTitle}>{selectedTx.title}</Text>
+                <Text style={styles.modalMeta}>{selectedTx.subtitle}</Text>
+                <Text
+                  style={[
+                    styles.detailAmount,
+                    selectedTx.amount > 0 ? styles.txAmountIn : styles.txAmountOut,
+                  ]}
+                >
+                  {formatNaira(selectedTx.amount, true)}
+                </Text>
+                {selectedTx.party ? (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Name</Text>
+                    <Text style={styles.detailValue}>{selectedTx.party}</Text>
+                  </View>
+                ) : null}
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Direction</Text>
+                  <Text style={styles.detailValue}>{selectedTx.amount < 0 ? "Debit" : "Credit"}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Status</Text>
+                  <Text style={styles.detailValue}>{historyLabel(selectedTx.status)}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Date</Text>
+                  <Text style={styles.detailValue}>{formatTxWhen(selectedTx.created_at) || "—"}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Type</Text>
+                  <Text style={styles.detailValue}>{selectedTx.typeLabel}</Text>
+                </View>
+                <Pressable onPress={closeSheet} style={styles.cancelBtn} accessibilityRole="button">
+                  <Text style={styles.cancelText}>Close</Text>
+                </Pressable>
+              </>
+            ) : null}
             {sheet === "payout" ? (
               <>
                 <Text style={styles.modalTitle}>{t("wallet.payoutNeeded")}</Text>
@@ -882,7 +1037,7 @@ export default function WalletScreen() {
                   {sheet === "bank" ? t("wallet.withdraw") : t("wallet.fund")}
                 </Text>
                 <Text style={styles.modalMeta}>
-                  {sheet === "bank" ? t("wallet.withdrawHint") : t("wallet.fundHint")}
+                  {sheet === "bank" ? t("wallet.withdrawChooseHint") : t("wallet.fundHint")}
                 </Text>
                 {sheet === "bank" ? (
                   <Text style={styles.availableLine}>
@@ -901,21 +1056,50 @@ export default function WalletScreen() {
                     editable={!submitting}
                   />
                 </View>
-                <Pressable
-                  onPress={() => void (sheet === "bank" ? submitBankWithdraw() : continueFunding())}
-                  disabled={submitting}
-                  style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
-                  accessibilityRole="button"
-                  accessibilityLabel={sheet === "bank" ? t("wallet.submitReview") : t("wallet.fund")}
-                >
-                  {submitting ? (
-                    <JosCityLoader color={colors.white} />
-                  ) : (
-                    <Text style={styles.submitText}>
-                      {sheet === "bank" ? t("wallet.submitReview") : t("wallet.fund")}
-                    </Text>
-                  )}
-                </Pressable>
+                {sheet === "bank" ? (
+                  <>
+                    {withdrawPaystackOn ? (
+                      <Pressable
+                        onPress={() => void submitBankWithdraw("paystack")}
+                        disabled={submitting}
+                        style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("wallet.withdrawPaystack")}
+                      >
+                        {submitting ? (
+                          <JosCityLoader color={colors.white} />
+                        ) : (
+                          <Text style={styles.submitText}>{t("wallet.withdrawPaystack")}</Text>
+                        )}
+                      </Pressable>
+                    ) : null}
+                    {withdrawManualOn ? (
+                      <Pressable
+                        onPress={() => void submitBankWithdraw("manual")}
+                        disabled={submitting}
+                        style={({ pressed }) => [styles.methodBtn, pressed && styles.pressed]}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("wallet.withdrawManual")}
+                      >
+                        <Text style={styles.methodBtnText}>{t("wallet.withdrawManual")}</Text>
+                      </Pressable>
+                    ) : null}
+                  </>
+                ) : (
+                  <Pressable
+                    onPress={() => void continueFunding()}
+                    disabled={submitting}
+                    style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("wallet.fund")}
+                  >
+                    {submitting ? (
+                      <JosCityLoader color={colors.white} />
+                    ) : (
+                      <Text style={styles.submitText}>{t("wallet.fund")}</Text>
+                    )}
+                  </Pressable>
+                )}
               </>
             ) : null}
 
@@ -950,6 +1134,15 @@ export default function WalletScreen() {
                     style={({ pressed }) => [styles.methodBtn, pressed && styles.pressed]}
                   >
                     <Text style={styles.methodBtnText}>{t("wallet.manualTransfer")}</Text>
+                  </Pressable>
+                ) : null}
+                {!paystackOn && !safehavenOn && !manualOn ? (
+                  <Pressable
+                    onPress={() => void payWithPaystack()}
+                    disabled={submitting}
+                    style={({ pressed }) => [styles.submitBtn, pressed && styles.pressed]}
+                  >
+                    {submitting ? <JosCityLoader color={colors.white} /> : <Text style={styles.submitText}>{t("wallet.paystack")}</Text>}
                   </Pressable>
                 ) : null}
               </>
@@ -1105,7 +1298,7 @@ function AccountRow({
     </>
   );
 
-  if (comingSoon || !onPress) {
+  if (!onPress) {
     return <View style={[styles.accountRow, last && styles.accountRowLast]}>{body}</View>;
   }
 
@@ -1273,6 +1466,20 @@ function makeStyles(colors: Palette) {
     fontSize: 13,
     color: colors.textMuted,
   },
+  escrowCard: {
+    marginBottom: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    padding: 16,
+  },
+  escrowValue: {
+    marginTop: 8,
+    fontFamily: "Montserrat_700Bold",
+    fontSize: 22,
+    color: colors.text,
+  },
   seeAll: {
     marginTop: 4,
     fontFamily: "Montserrat_600SemiBold",
@@ -1323,6 +1530,33 @@ function makeStyles(colors: Palette) {
   txAmountOut: {
     color: colors.text,
   },
+  detailAmount: {
+    marginTop: 16,
+    marginBottom: 8,
+    fontFamily: "Montserrat_700Bold",
+    fontSize: 28,
+  },
+  detailRow: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  detailLabel: {
+    fontFamily: "Montserrat_500Medium",
+    fontSize: 13,
+    color: colors.textMuted,
+  },
+  detailValue: {
+    flexShrink: 1,
+    textAlign: "right",
+    fontFamily: "Montserrat_600SemiBold",
+    fontSize: 13,
+    color: colors.text,
+  },
   txDate: {
     marginTop: 4,
     fontFamily: "Montserrat_400Regular",
@@ -1341,6 +1575,12 @@ function makeStyles(colors: Palette) {
     fontSize: 10,
     letterSpacing: 0.4,
     color: colors.primary,
+  },
+  debitPill: {
+    backgroundColor: colors.iconSoft,
+  },
+  debitText: {
+    color: colors.error,
   },
   accountHeading: {
     marginTop: 18,

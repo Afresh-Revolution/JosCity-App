@@ -9,7 +9,8 @@ function setup() {
   const notifications = {
     setNotificationHandler: value => { state.handler = value.handleNotification; },
     addPushTokenListener: callback => { state.rotated = callback; return { remove() {} }; },
-    getPermissionsAsync: async () => ({ granted: true }),
+    getPermissionsAsync: async () => ({ granted: true, canAskAgain: true, status: 'granted' }),
+    requestPermissionsAsync: async () => ({ granted: true, canAskAgain: true, status: 'granted' }),
     getExpoPushTokenAsync: async () => ({ data: 'ExponentPushToken[expo-token]' }),
     IosAuthorizationStatus: { PROVISIONAL: 3 }, AndroidNotificationPriority: { HIGH: 1 },
   };
@@ -52,4 +53,10 @@ test('a previously focused chat does not suppress a background notification', as
 });
 test('signed-out previews do not register an account token', async () => {
   const { state, api } = setup(); state.auth = null; await api.bootstrapPushNotifications(); assert.equal(state.sent.length, 0);
+});
+test('activatePushNotifications registers the Expo token when permission is granted', async () => {
+  const { state, api } = setup();
+  assert.equal(await api.activatePushNotifications(), true);
+  assert.equal(state.sent.length, 1);
+  assert.equal(state.sent[0].token, 'ExponentPushToken[expo-token]');
 });

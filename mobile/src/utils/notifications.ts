@@ -66,7 +66,16 @@ export function notificationKind(row: ApiNotification): NotificationKind {
   ) {
     return "payments";
   }
-  if (node === "order_review" || text.includes("rate your") || text.includes("left a")) {
+  if (
+    node === "order_review" ||
+    action === "rate_order" ||
+    text.includes("rate your") ||
+    text.includes("tap to rate") ||
+    text.includes("left a") ||
+    node === "agent_job" ||
+    action === "agent_request_accepted" ||
+    action === "agent_job_stage"
+  ) {
     return "orders";
   }
   if (text.includes("order") || text.includes("marketplace") || node === "order" || text.includes("review on")) {
@@ -119,7 +128,8 @@ export function notificationPostId(row: ApiNotification): number {
     node === "admin_notification" ||
     node === "order_review" ||
     node === "business_review" ||
-    node === "marketplace_order"
+    node === "marketplace_order" ||
+    node === "agent_job"
   ) {
     return 0;
   }

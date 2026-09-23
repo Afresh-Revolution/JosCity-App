@@ -82,6 +82,25 @@ export function formatMembershipAmount(plan: Pick<MembershipPlan, "amount"> | Me
   })}`;
 }
 
+export function publishedMembershipItems(plan?: MembershipPlan | null): MembershipPlanItem[] {
+  return (plan?.items || []).filter((item) => Number(item.amount || 0) > 0);
+}
+
+export function membershipCatalogSubtitle(
+  plan?: MembershipPlan | null,
+  fallback = "Membership packages"
+): string {
+  const items = publishedMembershipItems(plan);
+  if (!items.length) return fallback;
+  return items
+    .map((item) => {
+      const title = String(item.title || "").trim();
+      const price = formatMembershipAmount(item);
+      return title ? `${title} · ${price}` : price;
+    })
+    .join(" · ");
+}
+
 export function isPersonalMembershipEnabled(settings: MembershipSettings): boolean {
   return settings.personal.enabled === true;
 }

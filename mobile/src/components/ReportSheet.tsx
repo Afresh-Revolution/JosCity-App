@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import JosCityLoader from "./JosCityLoader";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { showError, showNotice } from "./AppNotice";
+import { ErrorBanner, showNotice } from "./AppNotice";
 import {
   REPORT_REASONS,
   submitSafetyReport,
@@ -42,10 +42,12 @@ export default function ReportSheet({
   const [reason, setReason] = useState("child_safety");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
     if (busy) return;
     setBusy(true);
+    setError(null);
     const result = await submitSafetyReport({
       contentType,
       contentId,
@@ -55,17 +57,17 @@ export default function ReportSheet({
     });
     setBusy(false);
     if (!result.success) {
-      showError(result.message || t("report.failed"));
+      setError(result.message || t("report.failed"));
       return;
     }
+    setDescription("");
+    setReason("child_safety");
+    onClose();
     showNotice({
       title: t("report.sentTitle"),
       message: result.already_reported ? t("report.already") : t("report.sent"),
       tone: "success",
     });
-    setDescription("");
-    setReason("child_safety");
-    onClose();
   };
 
   return (
@@ -74,6 +76,7 @@ export default function ReportSheet({
         <Pressable style={styles.dim} onPress={onClose} />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           <Text style={styles.title}>{t("report.title")}</Text>
+          {error ? <ErrorBanner message={error} /> : null}
           <ScrollView style={styles.reasons} keyboardShouldPersistTaps="handled">
             {REPORT_REASONS.map((item) => (
               <Pressable

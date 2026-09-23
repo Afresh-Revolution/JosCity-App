@@ -48,7 +48,7 @@ import { openExploreEvent } from "../utils/openExploreEvent";
 import { openForumThread } from "../utils/openForum";
 import { openNewsArticle } from "../utils/openNews";
 
-type CategoryId = "people" | "reels" | "events" | "news" | "forums" | "businesses";
+type CategoryId = "people" | "reels" | "events" | "news" | "forums" | "businesses" | "map";
 
 const categories: Array<{
   id: CategoryId;
@@ -61,6 +61,7 @@ const categories: Array<{
   { id: "news", label: "News", icon: "newspaper-outline" },
   { id: "forums", label: "Forums", icon: "chatbubbles-outline" },
   { id: "businesses", label: "Businesses", icon: "storefront-outline" },
+  { id: "map", label: "Map", icon: "map-outline" },
 ];
 
 function matchesQuery(haystack: string, query: string): boolean {
@@ -225,13 +226,14 @@ export default function ExploreScreen() {
   const businessPreview = filteredBusinesses.slice(0, 8);
 
   const openCategory = (id: CategoryId) => {
-    const routes: Record<CategoryId, "/people" | "/reels" | "/events" | "/news" | "/forums" | "/businesses"> = {
+    const routes: Record<CategoryId, "/people" | "/reels" | "/events" | "/news" | "/forums" | "/businesses" | "/map"> = {
       people: "/people",
       reels: "/reels",
       events: "/events",
       news: "/news",
       forums: "/forums",
       businesses: "/businesses",
+      map: "/map",
     };
     router.push(routes[id] as never);
   };
@@ -310,7 +312,7 @@ export default function ExploreScreen() {
                       adjustsFontSizeToFit
                       minimumFontScale={0.7}
                     >
-                      {t(`explore.${item.id}`)}
+                      {item.id === "map" ? "Map" : t(`explore.${item.id}`)}
                     </Text>
                   </View>
                 </Pressable>

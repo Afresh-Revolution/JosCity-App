@@ -26,6 +26,7 @@ import { useI18n } from "../i18n/I18nProvider";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { formatNaira } from "../utils/format";
+import { isPaystackFundingEnabled } from "../utils/paystackFunding";
 
 export default function CacEditPaySheet({
   open,
@@ -47,7 +48,7 @@ export default function CacEditPaySheet({
 
   const funding = state?.funding;
   const amount = Number(state?.next_price || 0);
-  const paystackOn = Boolean(funding?.paystack?.enabled);
+  const paystackOn = isPaystackFundingEnabled(funding);
   const safehavenOn = Boolean(funding?.safehaven?.enabled);
   const manualOn = Boolean(funding?.manual?.enabled);
 

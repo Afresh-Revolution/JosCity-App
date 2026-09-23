@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Alert,
   Image,
@@ -26,8 +26,26 @@ export default function FeedImage({ uri, style, onError }: Props) {
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
   const styles = useMemo(() => makeThumbStyles(), []);
   const viewerStyles = useMemo(() => makeViewerStyles(), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAspectRatio(null);
+    if (!uri) return undefined;
+    Image.getSize(
+      uri,
+      (width, height) => {
+        if (cancelled || !(width > 0) || !(height > 0)) return;
+        setAspectRatio(width / height);
+      },
+      () => undefined
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [uri]);
 
   const save = async () => {
     if (saving) return;
@@ -47,8 +65,12 @@ export default function FeedImage({ uri, style, onError }: Props) {
 
   return (
     <>
-      <HoldTarget onHold={() => setMenu(true)} onTap={() => setOpen(true)} style={[styles.hit, style]}>
-        <Image source={{ uri }} style={styles.fill} onError={onError} />
+      <HoldTarget
+        onHold={() => setMenu(true)}
+        onTap={() => setOpen(true)}
+        style={[styles.hit, aspectRatio ? { aspectRatio } : styles.pending, style]}
+      >
+        <Image source={{ uri }} style={styles.fill} resizeMode="contain" onError={onError} />
       </HoldTarget>
 
       <Modal
@@ -166,7 +188,11 @@ function HoldTarget({
 function makeThumbStyles() {
   return StyleSheet.create({
     hit: {
+      width: "100%",
       overflow: "hidden",
+    },
+    pending: {
+      minHeight: 180,
     },
     fill: {
       width: "100%",

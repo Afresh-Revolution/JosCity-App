@@ -253,6 +253,28 @@ export async function requestPushPermissionOnLaunch(): Promise<boolean> {
   return explainThenRequest();
 }
 
+export async function activatePushNotifications(): Promise<boolean> {
+  if (Platform.OS === "web") return false;
+  await configurePushNotifications();
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return false;
+  await ensureAndroidChannels();
+  await listenForTokenChanges();
+  await markPermissionAsked();
+
+  let current = await Notifications.getPermissionsAsync();
+  if (!isGranted(current, Notifications) && current.canAskAgain !== false && current.status !== "denied") {
+    current = await Notifications.requestPermissionsAsync({
+      ios: { allowAlert: true, allowBadge: true, allowSound: true },
+    });
+  }
+  if (!isGranted(current, Notifications)) return false;
+  if (!(await getAuthToken())) return true;
+  const token = await getExpoPushToken();
+  if (token) await syncTokenWithApi(token);
+  return true;
+}
+
 export async function openSystemNotificationSettings(): Promise<void> {
   try {
     await Linking.openSettings();

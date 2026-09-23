@@ -1,6 +1,6 @@
 import { getAccount, getWallet, type WalletFundingOptions } from "./account";
 import { getUserProfile } from "./auth";
-import { apiFetch, readJson } from "./client";
+import { apiFetch, readJson, uploadForm } from "./client";
 import { getNotifications } from "./notifications";
 import { isTruthyFlag } from "../utils/accountStatus";
 import { timeAgoLong } from "../utils/format";
@@ -94,6 +94,7 @@ export type ListingCheckoutOrder = {
   id: number;
   sellerUserId: number;
   totalNaira: number;
+  sellerName?: string;
   sellerBank: {
     bankName: string;
     bankAccountNumber: string;
@@ -157,6 +158,7 @@ export type CreateListingInput = {
 type Envelope<T> = {
   success?: boolean;
   message?: string;
+  error?: string;
   data?: T;
 };
 
@@ -179,7 +181,7 @@ async function marketplaceRequest<T>(
     if (!response.ok) {
       return {
         success: false,
-        message: friendlyError(payload.message || "Request failed"),
+        message: friendlyError(payload.message || payload.error || "Request failed"),
       };
     }
     return { success: payload.success !== false, message: payload.message, data: payload.data };
@@ -430,8 +432,34 @@ export type ListingPayResult = {
   already?: boolean;
   order_id: number;
   status?: string;
+  cbc_amount?: number;
+  cashback_points?: number | null;
   manual?: WalletFundingOptions["manual"];
 };
+
+export async function payListingCbcCard(
+  orderId: number,
+  input: { cardNumber: string; cvc: string; cardPin: string }
+) {
+  return marketplaceRequest<ListingPayResult>(
+    `/marketplace/orders/${encodeURIComponent(String(orderId))}/pay/cbc-card`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        card_number: input.cardNumber,
+        cvc: input.cvc,
+        card_pin: input.cardPin,
+      }),
+    }
+  );
+}
+
+export async function payListingWallet(orderId: number) {
+  return marketplaceRequest<ListingPayResult>(
+    `/marketplace/orders/${encodeURIComponent(String(orderId))}/pay/wallet`,
+    { method: "POST" }
+  );
+}
 
 export async function startListingPaystack(orderId: number, callback_url?: string) {
   return marketplaceRequest<ListingPayCheckout>(
@@ -465,16 +493,32 @@ export async function submitListingTransfer(
   orderId: number,
   proof: { uri: string; name?: string; type?: string }
 ) {
+  const uri = proof.uri;
+  const ext = (uri.split(".").pop() || "jpg").split("?")[0].toLowerCase();
   const form = new FormData();
   form.append("proof", {
-    uri: proof.uri,
-    name: proof.name || "transfer.jpg",
-    type: proof.type || "image/jpeg",
+    uri,
+    name: proof.name || `transfer.${ext === "png" ? "png" : ext === "webp" ? "webp" : "jpg"}`,
+    type: proof.type || (ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg"),
   } as unknown as Blob);
-  return marketplaceRequest<ListingPayResult>(
-    `/marketplace/orders/${encodeURIComponent(String(orderId))}/pay/manual`,
-    { method: "POST", body: form, timeoutMs: 60000 }
-  );
+  try {
+    const { promise } = uploadForm(
+      `/marketplace/orders/${encodeURIComponent(String(orderId))}/pay/manual`,
+      form,
+      { timeoutMs: 60000 }
+    );
+    const result = await promise;
+    const payload = result.data as Envelope<ListingPayResult> & { error?: string };
+    if (result.aborted) {
+      return { success: false, message: friendlyError("timeout") };
+    }
+    if (!result.ok || payload.success === false) {
+      return { success: false, message: friendlyError(payload.message || payload.error || "upload") };
+    }
+    return { success: true, message: payload.message, data: payload.data };
+  } catch {
+    return { success: false, message: friendlyError("upload") };
+  }
 }
 
 export async function uploadListingMedia(file: {
@@ -1059,6 +1103,7 @@ export type BusinessWallet = {
   lifetime_sales: number;
   currency: string;
   payout_account: BusinessPayoutAccount | null;
+  funding?: WalletFundingOptions | null;
   transactions: BusinessWalletTx[];
 };
 
@@ -1181,14 +1226,17 @@ export async function updateBusinessPayoutAccount(input: {
   return { success: false, message: result.message || "Could not save payout account." };
 }
 
-export async function withdrawBusinessWallet(amount: number): Promise<{
+export async function withdrawBusinessWallet(
+  amount: number,
+  method?: "paystack" | "manual"
+): Promise<{
   success: boolean;
   message?: string;
   data?: BusinessWallet;
 }> {
   const result = await marketplaceRequest<BusinessWallet>("/marketplace/business/wallet/withdraw", {
     method: "POST",
-    body: JSON.stringify({ amount }),
+    body: JSON.stringify({ amount, method: method || "manual" }),
   });
   if (result.success) {
     return {
@@ -1261,14 +1309,31 @@ export async function dismissOrderReview(orderId: number): Promise<{ success: bo
   });
 }
 
+export type SellerOrderItem = {
+  title: string;
+  quantity: number;
+  unit_price_naira: number;
+  listing_id?: number | null;
+};
+
 export type SellerOrder = {
   id: number;
   code: string;
+  buyer_user_id?: number | null;
   buyer_name: string;
+  buyer_account_name?: string | null;
+  buyer_account_type?: string | null;
+  buyer_picture?: string | null;
+  buyer_phone?: string | null;
+  buyer_email?: string | null;
+  buyer_address?: string | null;
+  buyer_notes?: string | null;
   title: string;
+  items?: SellerOrderItem[];
   listing_kind: "goods" | "service";
   total_naira: number;
   status: string;
+  payment_provider?: string | null;
   can_fulfill: boolean;
   created_at?: string | null;
   fulfilled_at?: string | null;
