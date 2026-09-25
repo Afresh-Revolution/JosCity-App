@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Alert, Switch, Text, View } from "react-native";
+import { Alert, Platform, Switch, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import TextField from "./TextField";
 import { useSettingsStyles } from "./SettingsPage";
@@ -37,7 +37,7 @@ export default function BiometricSettingsCard({ email, accountType }: Props) {
 
   if (!status?.available) return null;
 
-  const copy = biometricCopy(status.kind);
+  const copy = biometricCopy(status.kind, Platform.OS);
   const enabled = status.enabled;
 
   const onToggle = async (next: boolean) => {

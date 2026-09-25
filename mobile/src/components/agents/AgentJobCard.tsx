@@ -229,9 +229,9 @@ export default function AgentJobCard({
               ))}
             </ScrollView>
           ) : null}
-          {details ? <Text style={styles.body}>{details}</Text> : <Text style={styles.bodyMuted}>No extra description was added.</Text>}
-          {job.pickup_address ? <Text style={styles.body}>Pickup: {job.pickup_address}</Text> : null}
-          {job.destination_address ? <Text style={styles.body}>Delivery: {job.destination_address}</Text> : null}
+          {details ? <Text selectable style={styles.body}>{details}</Text> : <Text selectable style={styles.bodyMuted}>No extra description was added.</Text>}
+          {job.pickup_address ? <Text selectable style={styles.body}>Pickup: {job.pickup_address}</Text> : null}
+          {job.destination_address ? <Text selectable style={styles.body}>Delivery: {job.destination_address}</Text> : null}
         </View>
       ) : null}
     </View>

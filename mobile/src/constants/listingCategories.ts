@@ -26,9 +26,9 @@ export const SERVICE_UNITS = [
 ] as const;
 
 export const SERVICE_PLACES = [
-  { id: "studio", label: "At my studio" },
-  { id: "client_site", label: "At the client's location" },
-  { id: "both", label: "Studio or client location" },
+  { id: "studio", label: "At my shop or studio" },
+  { id: "client_site", label: "At the customer's location" },
+  { id: "both", label: "At my place or the customer's" },
   { id: "remote", label: "Online / remote" },
 ] as const;
 

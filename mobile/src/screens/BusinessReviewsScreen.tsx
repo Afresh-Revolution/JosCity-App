@@ -217,11 +217,11 @@ export default function BusinessReviewsScreen() {
                   {item.listing_title ? (
                     <Text style={styles.listing}>{item.listing_title}</Text>
                   ) : null}
-                  {item.comment ? <Text style={styles.comment}>{item.comment}</Text> : null}
+                  {item.comment ? <Text selectable style={styles.comment}>{item.comment}</Text> : null}
                   {item.reply_text ? (
                     <View style={styles.replyBox}>
                       <Text style={styles.replyLabel}>{t("reviews.yourReply")}</Text>
-                      <Text style={styles.replyText}>{item.reply_text}</Text>
+                      <Text selectable style={styles.replyText}>{item.reply_text}</Text>
                     </View>
                   ) : replyingId === item.id ? (
                     <View style={styles.replyEditor}>

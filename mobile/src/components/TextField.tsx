@@ -10,6 +10,7 @@ import { useTheme } from "../theme/ThemeProvider";
 
 type Props = TextInputProps & {
   label: string;
+  labelAside?: string;
   left?: ReactNode;
   right?: ReactNode;
   helper?: string;
@@ -19,6 +20,7 @@ type Props = TextInputProps & {
 
 export default function TextField({
   label,
+  labelAside,
   left,
   right,
   helper,
@@ -34,11 +36,21 @@ export default function TextField({
         wrap: {
           marginBottom: 16,
         },
+        labelRow: {
+          flexDirection: "row",
+          alignItems: "baseline",
+          gap: 8,
+          marginBottom: 8,
+        },
         label: {
           fontFamily: "Montserrat_600SemiBold",
           fontSize: 13,
           color: colors.text,
-          marginBottom: 8,
+        },
+        labelAside: {
+          fontFamily: "Montserrat_400Regular",
+          fontSize: 12,
+          color: colors.textMuted,
         },
         field: {
           minHeight: 54,
@@ -93,7 +105,10 @@ export default function TextField({
 
   return (
     <View style={styles.wrap}>
-      <Text style={[styles.label, { color: labelColor || colors.text }]}>{label}</Text>
+      <View style={styles.labelRow}>
+        <Text style={[styles.label, { color: labelColor || colors.text }]}>{label}</Text>
+        {labelAside ? <Text style={styles.labelAside}>{labelAside}</Text> : null}
+      </View>
       <View
         style={[
           styles.field,

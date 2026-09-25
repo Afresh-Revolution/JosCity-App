@@ -94,7 +94,7 @@ export default function NewsDetailScreen() {
               <NewsCollage urls={mediaUrls(item.image_urls)} />
               <Text style={styles.meta}>{meta}</Text>
               <Text style={styles.title}>{item.title || t("explore.newsTitle")}</Text>
-              {body ? <Text style={styles.body}>{body}</Text> : null}
+              {body ? <Text selectable style={styles.body}>{body}</Text> : null}
               {videos.map((url) => (
                 <Pressable
                   key={url}

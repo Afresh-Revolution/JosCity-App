@@ -2,7 +2,7 @@
   "expo": {
     "name": "JosCity",
     "slug": "joscity",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "joscity",
@@ -18,8 +18,12 @@
       "bundleIdentifier": "com.joscity.app",
       "buildNumber": "3",
       "backgroundColor": "#0C3D26",
+      "entitlements": {
+        "com.apple.developer.nfc.readersession.formats": ["TAG"]
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
+        "NFCReaderUsageDescription": "JosCity uses NFC only while you tap your CBrilliance card to pay for a marketplace order. The card tag is sent to JosCity to verify the payment. JosCity does not store your card number or PIN on this device.",
         "NSFaceIDUsageDescription": "JOSCITY uses Face ID so you can sign in without typing your password.",
         "NSMotionUsageDescription": "JOSCITY uses motion activity to improve your position on the Plateau map and show nearby places while you use the app.",
         "UIBackgroundModes": [
@@ -28,7 +32,16 @@
       },
       "privacyManifests": {
         "NSPrivacyTracking": false,
-        "NSPrivacyCollectedDataTypes": [],
+        "NSPrivacyCollectedDataTypes": [
+          {
+            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypePaymentInfo",
+            "NSPrivacyCollectedDataTypeLinked": true,
+            "NSPrivacyCollectedDataTypeTracking": false,
+            "NSPrivacyCollectedDataTypePurposes": [
+              "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+            ]
+          }
+        ],
         "NSPrivacyAccessedAPITypes": [
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
@@ -85,7 +98,8 @@
         "android.permission.READ_MEDIA_VIDEO",
         "android.permission.READ_MEDIA_AUDIO",
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.NFC"
       ]
     },
     "web": {
@@ -117,7 +131,8 @@
           "icon": "./assets/notification-icon.png",
           "color": "#0F3D26",
           "defaultChannel": "notifications",
-          "enableBackgroundRemoteNotifications": true
+          "enableBackgroundRemoteNotifications": true,
+          "sounds": ["./assets/sounds/alarm.wav"]
         }
       ],
       [
@@ -155,6 +170,15 @@
           "enableBackgroundRecording": false
         }
       ],
+      [
+        "react-native-nfc-manager",
+        {
+          "nfcPermission": "JosCity uses NFC only while you tap your CBrilliance card to pay for a marketplace order. The card tag is sent to JosCity to verify the payment. JosCity does not store your card number or PIN on this device.",
+          "includeNdefEntitlement": false
+        }
+      ],
+      "./plugins/withOptionalNfc.js",
+      "./plugins/withNfcMainThread.js",
       [
         "expo-location",
         {

@@ -487,7 +487,7 @@ export default function MemberProfileScreen() {
                   </View>
                   <Text style={styles.handle}>{profile.handle}</Text>
                   {profile.bio || agentProfile?.agent_bio ? (
-                    <Text style={styles.bio}>{agentProfile?.agent_bio || profile.bio}</Text>
+                    <Text selectable style={styles.bio}>{agentProfile?.agent_bio || profile.bio}</Text>
                   ) : null}
                   {isAgentProfile ? (
                     <>
@@ -670,7 +670,21 @@ export default function MemberProfileScreen() {
               {tab === "posts" ? (
                 data.posts.length ? (
                   data.posts.map((post) => (
-                    <PostCard key={post.post_id} post={post as FeedPost} viewerId={viewerId} />
+                    <PostCard
+                      key={post.post_id}
+                      post={post as FeedPost}
+                      viewerId={viewerId}
+                      onDeleted={(deletedId) =>
+                        setData((current) =>
+                          current
+                            ? {
+                                ...current,
+                                posts: current.posts.filter((item) => Number(item.post_id) !== deletedId),
+                              }
+                            : current
+                        )
+                      }
+                    />
                   ))
                 ) : (
                   <Text style={styles.empty}>{t("member.postsEmpty")}</Text>
@@ -730,7 +744,7 @@ export default function MemberProfileScreen() {
                             ))}
                           </View>
                         </View>
-                        {review.comment ? <Text style={styles.bio}>{review.comment}</Text> : null}
+                        {review.comment ? <Text selectable style={styles.bio}>{review.comment}</Text> : null}
                       </View>
                     ))}
                   </View>

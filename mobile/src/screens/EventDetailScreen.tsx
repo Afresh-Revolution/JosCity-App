@@ -144,7 +144,7 @@ export default function EventDetailScreen() {
               <Text style={styles.title}>{eventTitle(event)}</Text>
               <Text style={styles.meta}>{eventLocation(event)}</Text>
               {eventDescription(event) ? (
-                <Text style={styles.body}>{eventDescription(event)}</Text>
+                <Text selectable style={styles.body}>{eventDescription(event)}</Text>
               ) : null}
             </FadeIn>
 

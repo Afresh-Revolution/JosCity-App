@@ -31,10 +31,11 @@ export default function HashtagText({ value, style, tagColor }: Props) {
   const parts = value.split(/([#@][A-Za-z0-9_]+)/g);
 
   return (
-    <Text style={[styles.body, style]}>
+    <Text selectable style={[styles.body, style]}>
       {parts.map((part, index) =>
         part.startsWith("#") || part.startsWith("@") ? (
           <Text
+            selectable
             key={`${part}-${index}`}
             style={[styles.tag, tagColor ? { color: tagColor } : null]}
             onPress={

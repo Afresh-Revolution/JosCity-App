@@ -8,7 +8,8 @@ export type PushPayload = {
   url?: string;
   postId?: string | number;
   rateOrderId?: string | number;
-  kind?: string;
+  notificationType?: string;
+  alarm?: boolean;
 };
 
 export type PushHref =
@@ -28,7 +29,17 @@ const ALLOWED_SCREENS = new Set([
   "forums",
   "home",
   "business",
+  "agent-jobs",
+  "agent-wallet",
+  "agent-profile",
+  "announcement",
 ]);
+
+const SCREEN_ALIASES: Record<string, string> = {
+  "agent-services/jobs": "agent-jobs",
+  "agents/wallet": "agent-wallet",
+  "agents/profile": "agent-profile",
+};
 
 function asId(value: unknown): string {
   const id = String(value ?? "").trim();
@@ -49,7 +60,8 @@ export function resolvePushRoute(data?: PushPayload | null): PushHref {
   const rateOrderId = asId(data.rateOrderId);
   const postId = asId(data.postId) || (data.screen === "post" ? asId(data.entityId) : "");
   const entityId = asId(data.entityId);
-  const screen = String(data.screen || "").trim().toLowerCase();
+  const screen = SCREEN_ALIASES[String(data.screen || "").trim().toLowerCase()]
+    || String(data.screen || "").trim().toLowerCase();
 
   if (data.url) {
     const url = safePath(String(data.url));
@@ -86,6 +98,16 @@ export function resolvePushRoute(data?: PushPayload | null): PushHref {
         return "/home";
       case "business":
         return "/business";
+      case "agent-jobs":
+        return "/agent-services/jobs";
+      case "agent-wallet":
+        return "/agents/wallet";
+      case "agent-profile":
+        return "/agents/profile";
+      case "announcement":
+        return entityId
+          ? { pathname: "/notifications/[id]", params: { id: entityId } }
+          : "/notifications";
       default:
         return "/notifications";
     }

@@ -3,7 +3,6 @@ import {
   Animated,
   Keyboard,
   Modal,
-  Platform,
   PanResponder,
   Pressable,
   StyleSheet,
@@ -12,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { useKeyboardOverlap } from "../../hooks/useKeyboardOverlap";
 import InlinePostComments from "./InlinePostComments";
 import type { Palette } from "../../theme/colors";
 import { useTheme } from "../../theme/ThemeProvider";
@@ -27,13 +27,11 @@ export default function ReelCommentsSheet({ postId, onClose, onCountChange }: Pr
   const insets = useSafeAreaInsets();
   const { height: screenH } = useWindowDimensions();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [frameH, setFrameH] = useState(screenH);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const { keyboardHeight, onContainerLayout } = useKeyboardOverlap();
   const [composerActive, setComposerActive] = useState(false);
 
-  const windowResized = frameH > 0 && frameH < screenH - 80;
-  const kbInset = windowResized ? 0 : keyboardHeight;
-  const usable = Math.max(280, (windowResized ? frameH : screenH) - kbInset);
+  const lift = keyboardHeight;
+  const usable = Math.max(280, screenH - lift);
   const peek = Math.max(insets.top + 56, Math.round(screenH * 0.26));
   const half = Math.round(screenH * 0.58);
   const full = Math.round(screenH - Math.max(insets.top, 12) - 8);
@@ -57,23 +55,9 @@ export default function ReelCommentsSheet({ postId, onClose, onCountChange }: Pr
   const visible = postId != null;
 
   useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const show = Keyboard.addListener(showEvent, (event) => {
-      setKeyboardHeight(Math.max(0, event.endCoordinates?.height || 0));
-    });
-    const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-
-  useEffect(() => {
     if (!visible) {
       opacity.setValue(0);
       height.setValue(half);
-      setKeyboardHeight(0);
       setComposerActive(false);
       wasComposing.current = false;
       return;
@@ -146,7 +130,7 @@ export default function ReelCommentsSheet({ postId, onClose, onCountChange }: Pr
     [height, opacity]
   );
 
-  const composerInset = kbInset > 0 ? 8 : Math.max(insets.bottom, 12);
+  const composerInset = lift > 0 ? 8 : Math.max(insets.bottom, 12);
 
   return (
     <Modal
@@ -161,10 +145,7 @@ export default function ReelCommentsSheet({ postId, onClose, onCountChange }: Pr
         <GestureHandlerRootView
           style={styles.overlay}
           pointerEvents="box-none"
-          onLayout={(event) => {
-            const next = event.nativeEvent.layout.height;
-            if (next > 0) setFrameH(next);
-          }}
+          onLayout={onContainerLayout}
         >
           <Animated.View style={[styles.scrim, { opacity }]}>
             <Pressable
@@ -181,7 +162,7 @@ export default function ReelCommentsSheet({ postId, onClose, onCountChange }: Pr
               {
                 height,
                 maxHeight: composing ? composingH : full,
-                bottom: kbInset,
+                bottom: lift,
               },
             ]}
           >

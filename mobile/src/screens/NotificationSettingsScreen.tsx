@@ -111,7 +111,7 @@ const SECTIONS: Array<{
       {
         key: "rewards",
         label: "Rewards",
-        description: "CBC points earned and redeemed",
+        description: "CBC Coin earned and redeemed",
         featureKey: "rewards",
       },
       {

@@ -7,6 +7,7 @@ import AppButton from "../components/AppButton";
 import TextField from "../components/TextField";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { getAccountType, getAuthToken, getUser, homeRouteForAccount, setUser, switchToSession, type StoredSession, type StoredUser } from "../storage/session";
+import { prepareAccountSwitch } from "../storage/switchAccount";
 import SwitchAccountSheet, { type SwitchAccountType } from "../components/SwitchAccountSheet";
 import BusinessAccountSheet from "../components/BusinessAccountSheet";
 import FeedHeader from "../components/feed/FeedHeader";
@@ -26,7 +27,7 @@ import { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import { useI18n } from "../i18n/I18nProvider";
 import { useTheme } from "../theme/ThemeProvider";
 import { resolveAccountBadgeColor } from "../utils/badgeColor";
-import { normalizeUsername, usernameError } from "../utils/accountNames";
+import { publicUsername, usernameError } from "../utils/accountNames";
 import type { Palette } from "../theme/colors";
 
 function naira(value: unknown) {
@@ -74,7 +75,7 @@ export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard"
   const saveProfileEdits = async () => {
     const firstName = agentPreview.firstName.trim();
     const lastName = agentPreview.lastName.trim();
-    const username = normalizeUsername(agentPreview.username);
+    const username = publicUsername(agentPreview.username);
     if (!firstName || !lastName) {
       setPhotoError("Enter your first and last name.");
       return;
@@ -223,7 +224,11 @@ export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard"
           </Pressable>
           {photoError ? <Text accessibilityRole="alert" style={{ color: colors.error }}>{photoError}</Text> : null}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><Text style={[s.section, { fontSize: 24 }]}>{displayName}</Text><Ionicons name="checkmark-circle" size={23} color={badgeColor} /></View>
-          {agentPreview.username ? <Text style={s.muted}>@{normalizeUsername(agentPreview.username)}</Text> : null}
+          {publicUsername(agentPreview.username) ? (
+            <Text style={s.muted}>@{publicUsername(agentPreview.username)}</Text>
+          ) : agentPreview.email ? (
+            <Text style={s.muted}>{agentPreview.email}</Text>
+          ) : null}
           <Text style={s.muted}>Agent - {agentPreview.address || "Jos North, Plateau"}</Text>
           <Text style={[s.muted, { textAlign: "center" }]}>{agentPreview.bio}</Text>
           <View style={[s.row, { width: "100%", justifyContent: "space-around", paddingVertical: 12 }]}>{[[`${Number(activation.profile?.agent_rating_avg || 0).toFixed(1)}`, "Rating"], [String(activation.profile?.agent_completed_jobs_count ?? 0), "Completed"], [activation.profile?.star_level?.label || "Agent", "Level"]].map(([value, label]) => <View key={label} style={{ alignItems: "center", gap: 5 }}><Text style={s.section}>{value}</Text><Text style={s.muted}>{label}</Text></View>)}</View>
@@ -258,7 +263,7 @@ export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard"
             />
             <TextField
               label="Username"
-              value={agentPreview.username}
+              value={publicUsername(agentPreview.username)}
               onChangeText={(username) => updateAgentPreview({ username: username.replace(/^@+/, "") })}
               autoCapitalize="none"
               autoCorrect={false}
@@ -302,8 +307,19 @@ export default function AgentScreen({ page = "dashboard" }: { page?: "dashboard"
     {detailsOpen && <AgentProfileEditor title="Agent details" copy="These are the same fields from the create account page." onClose={() => setDetailsOpen(false)} onSave={activation.saveDetails} />}
     <SwitchAccountSheet visible={switchChooserOpen} current="agent" allowed={switchAllowed} onClose={() => setSwitchChooserOpen(false)} onSelect={type => {
       setSwitchChooserOpen(false);
-      setSwitchLoginType(type);
-      setSwitchLoginOpen(true);
+      void (async () => {
+        const next = await prepareAccountSwitch(type);
+        if (next.kind === "ready") {
+          await unregisterPushTokenOnLogout();
+          await switchToSession(next.session);
+          void registerPushTokenAfterLogin();
+          router.replace(homeRouteForAccount(next.session.accountType) as never);
+          return;
+        }
+        if (next.kind === "cancelled") return;
+        setSwitchLoginType(type);
+        setSwitchLoginOpen(true);
+      })();
     }} />
     <BusinessAccountSheet
       visible={switchLoginOpen}

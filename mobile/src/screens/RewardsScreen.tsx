@@ -69,7 +69,7 @@ export default function RewardsScreen() {
           <Text style={styles.balance}>{formatCbc(info?.cbc)} CBC</Text>
           <Text style={s.rowMeta}>
             {info?.earning_copy ||
-              "CBC points are earned from posts, likes, comments and recent activity."}
+              "CBC Coin is earned from posts, likes, comments and recent activity."}
           </Text>
         </View>
 
@@ -79,7 +79,7 @@ export default function RewardsScreen() {
             <View key={item.key} style={[s.row, index === list.length - 1 && s.rowLast]}>
               <Text style={s.rowTitle}>{item.label}</Text>
               <Text style={s.rowMeta}>
-                {item.count} · {item.points.toLocaleString("en-NG")} points
+                {item.count} · {item.points.toLocaleString("en-NG")} coins
               </Text>
             </View>
           ))}

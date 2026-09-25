@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AppButton from "../components/AppButton";
@@ -26,9 +26,21 @@ import {
 import { LEGAL, openExternalUrl } from "../constants/legal";
 import { colors } from "../theme/colors";
 import { clearSignupDraft, loadSignupDraft, saveSignupDraft } from "../storage/signupDraft";
+import ReferralCodeField from "../components/ReferralCodeField";
+import { useReferralCode } from "../hooks/useReferralCode";
 
 export default function BusinessRegisterScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ ref?: string | string[] }>();
+  const linkReferralCode = (Array.isArray(params.ref) ? params.ref[0] : params.ref || "").trim().toUpperCase();
+  const {
+    referralCode,
+    setReferralCode,
+    referralLookup,
+    retryReferral,
+    markShortOnBlur,
+    validateReferral,
+  } = useReferralCode(linkReferralCode);
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState(1);
   const [businessName, setBusinessName] = useState("");
@@ -79,6 +91,7 @@ export default function BusinessRegisterScreen() {
         setPassword(draft.password || "");
         setConfirm(draft.confirm || "");
         setCac(draft.cac || "");
+        if (!linkReferralCode && draft.referralCode) setReferralCode(draft.referralCode);
         setAgreed(Boolean(draft.agreed));
       }
       draftReady.current = true;
@@ -102,9 +115,10 @@ export default function BusinessRegisterScreen() {
       password,
       confirm,
       cac,
+      referralCode,
       agreed,
     });
-  }, [step, businessName, businessType, description, address, email, phone, password, confirm, cac, agreed, done]);
+  }, [step, businessName, businessType, description, address, email, phone, password, confirm, cac, referralCode, agreed, done]);
 
   const validateStep = () => {
     if (step === 1) {
@@ -139,6 +153,8 @@ export default function BusinessRegisterScreen() {
       if (cacValue && cacValue.length < 5) {
         return "Enter a valid CAC number, or leave it blank.";
       }
+      const referralError = validateReferral();
+      if (referralError) return referralError;
       if (!agreed) {
         return "Agree to the Terms of Service, Merchant Terms and Privacy Policy to continue.";
       }
@@ -170,6 +186,7 @@ export default function BusinessRegisterScreen() {
         CAC_number: cac,
         business_description: description,
         terms_accepted: agreed,
+        referral_code: referralCode || undefined,
       });
       if (!result.success) {
         setError(friendlyError(result.message || "Registration failed."));
@@ -210,7 +227,7 @@ export default function BusinessRegisterScreen() {
     "How your business appears across JOSCITY.",
     "Where customers can find you in Jos.",
     "The email and password you'll use to manage your business.",
-    "CAC is optional, but verified businesses get more trust and reach.",
+    "CAC is optional, but verified businesses get more trust and reach. Add a referral code if someone invited you.",
   ] as const;
 
   return (
@@ -379,6 +396,18 @@ export default function BusinessRegisterScreen() {
                       autoCapitalize="characters"
                       placeholder="RC1234567"
                       helper="Leave blank if your business isn't CAC registered yet."
+                    />
+                    <ReferralCodeField
+                      value={referralCode}
+                      onChange={(value) => {
+                        setReferralCode(value);
+                        setError(null);
+                      }}
+                      onBlur={markShortOnBlur}
+                      lookup={referralLookup}
+                      onRetry={retryReferral}
+                      labelColor={labelColor}
+                      loading={loading}
                     />
                     <Pressable
                       onPress={() => setAgreed((value) => !value)}

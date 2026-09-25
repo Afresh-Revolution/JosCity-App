@@ -54,6 +54,16 @@ export async function getNotifications(): Promise<ApiNotification[]> {
   );
 }
 
+export async function getNotification(id: number): Promise<ApiNotification | null> {
+  const response = await apiFetch(`/notifications/${id}`, {
+    method: "GET",
+    auth: true,
+  });
+  const data = await readJson<{ success?: boolean; data?: ApiNotification }>(response);
+  if (!response.ok || !data.data?.id) return null;
+  return data.data;
+}
+
 export async function markNotificationRead(id: number): Promise<boolean> {
   return asOk(`/notifications/${id}/read`, { method: "PATCH" });
 }

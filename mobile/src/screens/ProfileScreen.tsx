@@ -44,6 +44,7 @@ import {
   type StoredSession,
   type StoredUser,
 } from "../storage/session";
+import { prepareAccountSwitch } from "../storage/switchAccount";
 import { nudgeRatingPrompt } from "../state/ratingPrompt";
 import { useTheme } from "../theme/ThemeProvider";
 import type { Palette } from "../theme/colors";
@@ -346,7 +347,7 @@ export default function ProfileScreen() {
   };
 
   const switchTitle = "Switch account";
-  const switchSubtitle = "Sign in to the other account with its email and password, or biometrics.";
+  const switchSubtitle = "Accounts you have signed into on this phone open with biometrics when that is turned on.";
   const showSwitchRow = true;
   const switchAllowed: AccountType[] = isBusiness
     ? ["personal", "agent"]
@@ -370,8 +371,16 @@ export default function ProfileScreen() {
 
   const openSwitchLogin = (type: AccountType) => {
     setSwitchChooserOpen(false);
-    setSwitchLoginType(type);
-    setBusinessSheetOpen(true);
+    void (async () => {
+      const next = await prepareAccountSwitch(type);
+      if (next.kind === "ready") {
+        await applySwitchedSession(next.session);
+        return;
+      }
+      if (next.kind === "cancelled") return;
+      setSwitchLoginType(type);
+      setBusinessSheetOpen(true);
+    })();
   };
 
   const signOut = () => {
@@ -632,7 +641,7 @@ export default function ProfileScreen() {
                 disabled={!cbcLive}
                 style={[styles.stat, styles.statMid]}
                 accessibilityRole={cbcLive ? "button" : undefined}
-                accessibilityLabel="CBC points"
+                accessibilityLabel="CBC Coin"
               >
                 <Text style={styles.statLabel}>{t("profile.cbcLabel")}</Text>
                 {cbcLive ? (

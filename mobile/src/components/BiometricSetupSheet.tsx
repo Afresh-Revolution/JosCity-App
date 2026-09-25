@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import {
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -33,7 +34,7 @@ export default function BiometricSetupSheet({
   onSkip,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const copy = biometricCopy(kind);
+  const copy = biometricCopy(kind, Platform.OS);
   const styles = useMemo(() => makeStyles(), []);
   const title = mode === "update" ? `Use ${copy.noun} for this account?` : `Use ${copy.noun} next time?`;
   const body =

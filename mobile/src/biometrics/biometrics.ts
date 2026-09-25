@@ -50,7 +50,7 @@ export async function getBiometricStatus(): Promise<BiometricStatus> {
       available: Boolean(hasHardware),
       enrolled: Boolean(enrolled),
       enabled: enabledRaw === "1",
-      kind: kindFromAuthTypes(types || []),
+      kind: kindFromAuthTypes(types || [], Platform.OS),
       hint: parseBiometricHint(hintRaw),
     };
   } catch {
@@ -81,9 +81,9 @@ export async function enableBiometricLogin(credentials: BiometricCredentials): P
     return { success: false, message: "This device does not support biometric sign-in." };
   }
   if (!status.enrolled) {
-    return { success: false, message: `Set up ${biometricCopy(status.kind).noun} on this device first.` };
+    return { success: false, message: `Set up ${biometricCopy(status.kind, Platform.OS).noun} on this device first.` };
   }
-  const ok = await authenticateBiometrics(`Turn on ${biometricCopy(status.kind).noun} for JOSCITY`);
+  const ok = await authenticateBiometrics(`Turn on ${biometricCopy(status.kind, Platform.OS).noun} for JOSCITY`);
   if (!ok) return { success: false, message: "Biometric confirmation was cancelled." };
   try {
     await SecureStore.setItemAsync(SECRET_KEY, serializeBiometricCredentials(credentials));
@@ -118,7 +118,7 @@ export async function disableBiometricLogin(options?: { confirm?: boolean }): Pr
 }> {
   if (options?.confirm) {
     const status = await getBiometricStatus();
-    const ok = await authenticateBiometrics(`Turn off ${biometricCopy(status.kind).noun} for JOSCITY`);
+    const ok = await authenticateBiometrics(`Turn off ${biometricCopy(status.kind, Platform.OS).noun} for JOSCITY`);
     if (!ok) return { success: false, message: "Biometric confirmation was cancelled." };
   }
   try {
@@ -141,9 +141,9 @@ export async function unlockBiometricCredentials(): Promise<{
     return { success: false, message: "Biometric sign-in is not set up on this device." };
   }
   if (!status.available || !status.enrolled) {
-    return { success: false, message: `Set up ${biometricCopy(status.kind).noun} on this device first.` };
+    return { success: false, message: `Set up ${biometricCopy(status.kind, Platform.OS).noun} on this device first.` };
   }
-  const ok = await authenticateBiometrics(biometricCopy(status.kind).action);
+  const ok = await authenticateBiometrics(biometricCopy(status.kind, Platform.OS).action);
   if (!ok) return { success: false, message: "Biometric sign-in was cancelled." };
   const secret = await readKey(SECRET_KEY);
   const credentials = parseBiometricCredentials(secret);

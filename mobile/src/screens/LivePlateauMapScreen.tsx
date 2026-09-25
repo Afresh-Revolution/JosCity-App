@@ -3,14 +3,20 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
+  Dimensions,
+  findNodeHandle,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
   TextInput,
+  UIManager,
   View,
+  type NativeSyntheticEvent,
+  type TextInputFocusEventData,
 } from "react-native";
 import * as Location from "expo-location";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -21,7 +27,9 @@ import FadeIn from "../components/FadeIn";
 import { useTheme } from "../theme/ThemeProvider";
 import { requestMapLocationAccess } from "../location/permissions";
 import { agentApi as api } from "../api/agent";
+import { showNotice } from "../components/AppNotice";
 import { placeUrl, usePlateauMap } from "../state/usePlateauMap";
+import { useKeyboardOverlap } from "../hooks/useKeyboardOverlap";
 import type { Palette } from "../theme/colors";
 
 const LAYERS = ["Places", "Businesses", "Deliveries"] as const;
@@ -42,7 +50,34 @@ export default function LivePlateauMapScreen({
   const [focused, setFocused] = useState(true);
   const located = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
+  const scrollOffset = useRef(0);
   const mapOffset = useRef(0);
+  const keyboard = useKeyboardOverlap();
+  const keyboardRef = useRef(keyboard);
+  keyboardRef.current = keyboard;
+  const revealInput = (event: NativeSyntheticEvent<TextInputFocusEventData>) => {
+    const target = event.nativeEvent.target;
+    const lift = () => {
+      const handle = typeof target === "number" ? target : findNodeHandle(target);
+      if (!handle) {
+        scrollRef.current?.scrollToEnd({ animated: true });
+        return;
+      }
+      UIManager.measureInWindow(handle, (_x, y, _w, height) => {
+        const latest = keyboardRef.current;
+        const covered = Math.max(latest.overlap, latest.keyboardHeight, Platform.OS === "ios" ? 336 : 280);
+        const limit = Dimensions.get("window").height - covered - 20;
+        const bottom = y + height;
+        if (bottom > limit) {
+          scrollRef.current?.scrollTo({
+            y: scrollOffset.current + (bottom - limit),
+            animated: true,
+          });
+        }
+      });
+    };
+    setTimeout(lift, Platform.OS === "ios" ? 280 : 160);
+  };
 
   const locate = async () => {
     if (locating) return;
@@ -56,18 +91,44 @@ export default function LivePlateauMapScreen({
             { text: "Open settings", onPress: () => void Linking.openSettings() },
           ]);
         } else {
-          m.setNotice("You can browse the map without location access.");
+          showNotice({
+            title: "Location stays off",
+            message: "You can still browse the Plateau map. Turn location on if you want directions from where you are.",
+            tone: "info",
+          });
         }
         return;
       }
       const result = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       m.locate({ lat: result.coords.latitude, lng: result.coords.longitude });
     } catch {
-      m.setError("Could not find your location. Check device location services and try again.");
+      showNotice({
+        title: "Location not found",
+        message: "Check that location services are on for this phone, then try the target button again.",
+        tone: "error",
+      });
     } finally {
       setLocating(false);
     }
   };
+
+  useEffect(() => {
+    if (m.error) {
+      showNotice({
+        title: "Map update failed",
+        message: m.error,
+        tone: "error",
+      });
+      m.setError("");
+    } else if (m.notice) {
+      showNotice({
+        title: "Plateau map",
+        message: m.notice,
+        tone: "info",
+      });
+      m.setNotice("");
+    }
+  }, [m.error, m.notice, m.setError, m.setNotice]);
 
   useFocusEffect(
     useCallback(() => {
@@ -97,7 +158,11 @@ export default function LivePlateauMapScreen({
         const permission = await requestMapLocationAccess(true);
         if (!permission?.granted) {
           m.setSharing(false);
-          m.setError("Location permission is needed to share your agent location.");
+          showNotice({
+            title: "Location permission needed",
+            message: "Allow location access so customers can see you while you are accepting requests.",
+            tone: "error",
+          });
           return;
         }
         if (disposed || AppState.currentState !== "active") return;
@@ -108,7 +173,11 @@ export default function LivePlateauMapScreen({
           void api
             .liveLocation({ lat, lng })
             .catch((e) => {
-              m.setError(e.message);
+              showNotice({
+                title: "Location sharing stopped",
+                message: e instanceof Error ? e.message : "Your live position could not be sent. Sharing is off.",
+                tone: "error",
+              });
               m.setSharing(false);
             })
             .finally(() => {
@@ -130,7 +199,11 @@ export default function LivePlateauMapScreen({
         else watcher = next;
       } catch {
         m.setSharing(false);
-        m.setError("Location sharing could not start.");
+        showNotice({
+          title: "Sharing did not start",
+          message: "Your live position could not be shared. Check location access and try the switch again.",
+          tone: "error",
+        });
       } finally {
         starting = false;
       }
@@ -168,9 +241,18 @@ export default function LivePlateauMapScreen({
       <ScrollView
         ref={scrollRef}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets
         nestedScrollEnabled
         style={styles.scroll}
-        contentContainerStyle={styles.content}
+        onScroll={(event) => {
+          scrollOffset.current = event.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: TAB_BAR_SPACE + 28 + keyboard.overlap },
+        ]}
       >
         <FadeIn style={styles.topBlock}>
           <Text style={styles.intro}>Find places, businesses, and delivery pins across Jos and Plateau.</Text>
@@ -201,16 +283,11 @@ export default function LivePlateauMapScreen({
                 onChangeText={m.setQuery}
                 returnKeyType="search"
                 onSubmitEditing={m.searchNow}
+                onFocus={revealInput}
                 style={styles.searchInput}
               />
             </View>
           ) : null}
-          {m.error ? (
-            <Text accessibilityRole="alert" style={styles.error}>
-              {m.error}
-            </Text>
-          ) : null}
-          {m.notice ? <Text style={styles.notice}>{m.notice}</Text> : null}
         </FadeIn>
 
         <View
@@ -317,6 +394,7 @@ export default function LivePlateauMapScreen({
               placeholder="Address for the selected pin"
               value={address}
               onChangeText={setAddress}
+              onFocus={revealInput}
               placeholderTextColor={colors.textMuted}
               style={styles.field}
             />
@@ -328,13 +406,17 @@ export default function LivePlateauMapScreen({
                 <Pressable
                   disabled={!m.selection || !address.trim() || m.busy}
                   onPress={() =>
-                    void m.run(
-                      () =>
-                        api.jobLocations(job.job_id, {
-                          [mode === "agent" ? "pickup" : "destination"]: { ...m.selection, address },
-                        }),
-                      "Job location saved."
-                    )
+                    void m.run(async () => {
+                      const kind = mode === "agent" ? "pickup" : "destination";
+                      await api.jobLocations(job.job_id, {
+                        [kind]: { ...m.selection, address },
+                      });
+                      showNotice({
+                        title: kind === "pickup" ? "Pickup saved" : "Delivery saved",
+                        message: `Job #${job.job_id} now uses “${address.trim()}” at ${m.selection!.lat.toFixed(5)}, ${m.selection!.lng.toFixed(5)}.`,
+                        tone: "success",
+                      });
+                    }, "")
                   }
                   style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
                 >
@@ -352,12 +434,22 @@ export default function LivePlateauMapScreen({
             <Text style={styles.cardTitle}>Add to map</Text>
             <Text style={styles.body}>
               {m.config.listing_price
-                ? `Publish a named pin for ₦${m.config.listing_price.toLocaleString("en-NG")}, paid from your wallet.`
+                ? `A named pin costs ₦${m.config.listing_price.toLocaleString("en-NG")} from your wallet. It stays off the map until you pay.`
                 : "Map listing payments have not been enabled yet."}
             </Text>
             <Pressable
               disabled={!m.selection || m.busy}
-              onPress={() => void m.run(() => api.createPin(m.selection!), "Position saved. Name and pay below to publish.")}
+              onPress={() => {
+                const price = m.config.listing_price;
+                const where = `${m.selection!.lat.toFixed(5)}, ${m.selection!.lng.toFixed(5)}`;
+                showNotice({
+                  title: price ? "Payment required" : "Payments are off",
+                  message: price
+                    ? `Selected ${where}. This position is not saved on the map until you pay ₦${price.toLocaleString("en-NG")} from your wallet. Enter a location name, then tap Pay and publish.`
+                    : "Map listing payments have not been enabled yet, so this position cannot be published.",
+                  tone: price ? "info" : "error",
+                });
+              }}
               style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
             >
               <Text style={styles.primaryBtnText}>Save selected position</Text>
@@ -367,41 +459,45 @@ export default function LivePlateauMapScreen({
               placeholder="Business location name"
               value={label}
               onChangeText={setLabel}
+              onFocus={revealInput}
               placeholderTextColor={colors.textMuted}
               style={styles.field}
             />
-            {m.mine.map((pin) => (
-              <View key={String(pin.id)} style={{ gap: 8 }}>
-                <Text style={styles.body}>
-                  {pin.label || "Unnamed location"} · {pin.payment_status}
+            <Pressable
+              disabled={!m.selection || !m.config.listing_price || !label.trim() || m.busy}
+              onPress={() =>
+                Alert.alert(
+                  "Publish location?",
+                  `Charge ₦${m.config.listing_price} from your wallet for “${label.trim()}”? It is not on the map until this payment succeeds.`,
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Pay and publish",
+                      onPress: () =>
+                        void m.run(async () => {
+                          const name = label.trim();
+                          await api.publishPin(m.selection!, name, m.config.listing_price!);
+                          showNotice({
+                            title: "Pin published",
+                            message: `${name} is now on the Plateau map at ${m.selection!.lat.toFixed(5)}, ${m.selection!.lng.toFixed(5)}. ₦${m.config.listing_price!.toLocaleString("en-NG")} was charged from your wallet.`,
+                            tone: "success",
+                          });
+                        }, ""),
+                    },
+                  ]
+                )
+              }
+              style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}
+            >
+              <Text style={styles.secondaryBtnText}>Pay and publish</Text>
+            </Pressable>
+            {m.mine
+              .filter((pin) => pin.payment_status === "paid")
+              .map((pin) => (
+                <Text key={String(pin.id)} style={styles.body}>
+                  {pin.label || "Location"} · on the map
                 </Text>
-                {pin.payment_status !== "paid" ? (
-                  <Pressable
-                    disabled={!m.config.listing_price || !label.trim() || m.busy}
-                    onPress={() =>
-                      Alert.alert(
-                        "Publish location?",
-                        `Charge ₦${m.config.listing_price} from your wallet for “${label.trim()}”?`,
-                        [
-                          { text: "Cancel", style: "cancel" },
-                          {
-                            text: "Pay and publish",
-                            onPress: () =>
-                              void m.run(
-                                () => api.payPin(pin.id, label, m.config.listing_price!),
-                                "Your business pin is published."
-                              ),
-                          },
-                        ]
-                      )
-                    }
-                    style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.secondaryBtnText}>Pay and publish</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            ))}
+              ))}
             <Pressable
               onPress={() => router.push("/business/wallet" as never)}
               style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}

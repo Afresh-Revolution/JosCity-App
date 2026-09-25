@@ -15,37 +15,62 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import ImageSaveSheet from "./ImageSaveSheet";
 import { saveRemoteImage } from "../../utils/saveImage";
 
+const aspectCache = new Map<string, number>();
+const DEFAULT_ASPECT = 1;
+
 type Props = {
   uri: string;
   style?: StyleProp<ViewStyle | ImageStyle>;
   onError?: () => void;
+  onPress?: () => void;
+  fit?: "contain" | "cover";
+  naturalAspect?: boolean;
+  blurRadius?: number;
+  accessibilityLabel?: string;
 };
 
-export default function FeedImage({ uri, style, onError }: Props) {
+export default function FeedImage({
+  uri,
+  style,
+  onError,
+  onPress,
+  fit = "contain",
+  naturalAspect = true,
+  blurRadius = 0,
+  accessibilityLabel,
+}: Props) {
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+  const [aspectRatio, setAspectRatio] = useState(
+    () => (uri && aspectCache.get(uri)) || DEFAULT_ASPECT
+  );
   const styles = useMemo(() => makeThumbStyles(), []);
   const viewerStyles = useMemo(() => makeViewerStyles(), []);
 
   useEffect(() => {
+    if (!uri || !naturalAspect) return undefined;
+    const cached = aspectCache.get(uri);
+    if (cached) {
+      setAspectRatio(cached);
+      return undefined;
+    }
     let cancelled = false;
-    setAspectRatio(null);
-    if (!uri) return undefined;
     Image.getSize(
       uri,
       (width, height) => {
         if (cancelled || !(width > 0) || !(height > 0)) return;
-        setAspectRatio(width / height);
+        const next = width / height;
+        aspectCache.set(uri, next);
+        setAspectRatio(next);
       },
       () => undefined
     );
     return () => {
       cancelled = true;
     };
-  }, [uri]);
+  }, [naturalAspect, uri]);
 
   const save = async () => {
     if (saving) return;
@@ -67,14 +92,36 @@ export default function FeedImage({ uri, style, onError }: Props) {
     <>
       <HoldTarget
         onHold={() => setMenu(true)}
-        onTap={() => setOpen(true)}
-        style={[styles.hit, aspectRatio ? { aspectRatio } : styles.pending, style]}
+        onTap={() => (onPress ? onPress() : setOpen(true))}
+        accessibilityLabel={accessibilityLabel}
+        style={[
+          styles.hit,
+          naturalAspect ? { aspectRatio } : null,
+          style,
+        ]}
       >
-        <Image source={{ uri }} style={styles.fill} resizeMode="contain" onError={onError} />
+        <Image
+          source={{ uri }}
+          style={styles.fill}
+          resizeMode={fit}
+          fadeDuration={0}
+          blurRadius={blurRadius}
+          onError={onError}
+          onLoad={(event) => {
+            if (!naturalAspect) return;
+            const width = event.nativeEvent.source?.width;
+            const height = event.nativeEvent.source?.height;
+            if (!(width > 0) || !(height > 0)) return;
+            const next = width / height;
+            if (aspectCache.get(uri) === next) return;
+            aspectCache.set(uri, next);
+            setAspectRatio(next);
+          }}
+        />
       </HoldTarget>
 
       <Modal
-        visible={open}
+        visible={!onPress && open}
         transparent
         animationType="fade"
         statusBarTranslucent
@@ -132,11 +179,13 @@ function HoldTarget({
   onHold,
   onTap,
   style,
+  accessibilityLabel,
 }: {
   children: ReactNode;
   onHold: () => void;
   onTap: () => void;
   style?: StyleProp<ViewStyle | ImageStyle>;
+  accessibilityLabel?: string;
 }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const held = useRef(false);
@@ -151,7 +200,7 @@ function HoldTarget({
   return (
     <Pressable
       accessibilityRole="imagebutton"
-      accessibilityLabel="View image"
+      accessibilityLabel={accessibilityLabel || "View image"}
       delayLongPress={400}
       onPressIn={() => {
         held.current = false;
@@ -190,9 +239,7 @@ function makeThumbStyles() {
     hit: {
       width: "100%",
       overflow: "hidden",
-    },
-    pending: {
-      minHeight: 180,
+      backgroundColor: "#EFECE6",
     },
     fill: {
       width: "100%",

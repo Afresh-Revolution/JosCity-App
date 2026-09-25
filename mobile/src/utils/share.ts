@@ -1,5 +1,4 @@
 import { Platform, Share } from "react-native";
-import { sharePost } from "../api/feed";
 import { postShareUrl } from "./format";
 import { newsShareUrl } from "./news";
 
@@ -14,7 +13,6 @@ export async function sharePostWithLink(postId: number, caption?: string): Promi
         : { message, title: "JOSCITY" }
     );
     if (result.action !== Share.sharedAction) return false;
-    void sharePost(postId).catch(() => undefined);
     return true;
   } catch {
     return false;

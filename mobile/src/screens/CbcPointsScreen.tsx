@@ -30,7 +30,7 @@ export default function CbcPointsScreen() {
   const load = useCallback(async () => {
     const result = await getPoints();
     if (!result.success || !result.data) {
-      setError(result.message || "Could not load CBC points.");
+      setError(result.message || "Could not load CBC Coin.");
       return;
     }
     setError(null);
@@ -51,7 +51,7 @@ export default function CbcPointsScreen() {
   return (
     <SettingsPage
       kicker="Account"
-      title="CBC points"
+      title="CBC Coin"
       loading={loading}
       refreshControl={
         <RefreshControl
@@ -70,7 +70,7 @@ export default function CbcPointsScreen() {
           <Text style={styles.kicker}>CBC BALANCE</Text>
           <Text style={styles.balance}>{formatCbc(info?.cbc)}</Text>
           <Text style={s.rowMeta}>
-            {Number(info?.points || 0).toLocaleString("en-NG")} points · {rate} points = 1 CBC
+            {Number(info?.points || 0).toLocaleString("en-NG")} coins · {rate} coins = 1 CBC Coin
           </Text>
         </View>
 
@@ -80,7 +80,7 @@ export default function CbcPointsScreen() {
             <View key={item.key} style={[s.row, index === list.length - 1 && s.rowLast]}>
               <Text style={s.rowTitle}>{item.label}</Text>
               <Text style={s.rowMeta}>
-                {item.count} · {item.points.toLocaleString("en-NG")} points
+                {item.count} · {item.points.toLocaleString("en-NG")} coins
               </Text>
             </View>
           ))}

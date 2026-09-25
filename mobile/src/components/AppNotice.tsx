@@ -71,6 +71,7 @@ export function NoticeHost() {
   useEffect(() => {
     if (!notice) return;
     const tone = notice.tone || "error";
+    if (notice.message) return;
     if (tone !== "success" && tone !== "info") return;
     const timer = setTimeout(() => setNotice(null), 2600);
     return () => clearTimeout(timer);
@@ -92,7 +93,12 @@ export function NoticeHost() {
       accessibilityRole="alert"
     >
       <Pressable style={styles.dim} onPress={() => setNotice(null)} />
-      <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]}>
+      <View
+        style={[
+          styles.sheet,
+          { paddingBottom: Math.max(insets.bottom, 18), maxHeight: Math.min(440, Math.round(height * 0.48)) },
+        ]}
+      >
         <View style={styles.handle} />
         <View style={styles.iconWrap}>
           <Ionicons name={icon} size={28} color={iconColor} />

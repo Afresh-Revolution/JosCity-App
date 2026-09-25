@@ -29,7 +29,7 @@ export default function FadeIn({
     shift.setValue(translateY);
     scale.setValue(scaleFrom);
 
-    Animated.parallel([
+    const animation = Animated.parallel([
       Animated.timing(opacity, {
         toValue: 1,
         duration,
@@ -51,8 +51,12 @@ export default function FadeIn({
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-    ]).start();
-  }, [delay, duration, opacity, replayKey, scale, scaleFrom, shift, translateY]);
+    ]);
+    animation.start();
+    return () => animation.stop();
+    // Replay only when the caller asks; delay/index changes in lists must not blank the row.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opacity, replayKey, scale, shift]);
 
   return (
     <Animated.View

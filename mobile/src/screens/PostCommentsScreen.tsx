@@ -17,11 +17,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import FadeIn from "../components/FadeIn";
 import AvatarCircle from "../components/feed/AvatarCircle";
-import FeedImage from "../components/feed/FeedImage";
-import FeedVideo from "../components/feed/FeedVideo";
 import { CommentThread, commentKey } from "../components/feed/CommentThread";
 import FeedShell from "../components/feed/FeedShell";
+import { useKeyboardOverlap } from "../hooks/useKeyboardOverlap";
 import HashtagText from "../components/feed/HashtagText";
+import PostMediaGallery from "../components/feed/PostMediaGallery";
 import SaveBookmark from "../components/feed/SaveBookmark";
 import {
   commentOnPost,
@@ -43,31 +43,9 @@ import { resolveSaved, setSavedOverride } from "../state/savedPosts";
 import { getUser, type StoredUser } from "../storage/session";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
-import { absoluteUrl, handleFromName } from "../utils/format";
-import { isImageUrl, isVideoUrl } from "../utils/media";
+import { handleFromName } from "../utils/format";
 import { sharePostWithLink } from "../utils/share";
 import { openMemberProfile } from "../utils/openProfile";
-
-function firstVideo(post?: FeedPost | null): string | undefined {
-  if (!post) return undefined;
-  const typed = post.media?.find((item) => isVideoUrl(item.url, item.type))?.url;
-  const fromUrls = post.media_urls?.find((url, index) =>
-    isVideoUrl(url, post.media_types?.[index])
-  );
-  return absoluteUrl(typed || fromUrls);
-}
-
-function firstImage(post?: FeedPost | null): string | undefined {
-  if (!post) return undefined;
-  const typedImage = post.media?.find((item) => isImageUrl(item.url, item.type))?.url;
-  const fallbackMedia = post.media?.find((item) => !isVideoUrl(item.url, item.type))?.url;
-  const fromUrls = post.media_urls?.find((url, index) =>
-    isImageUrl(url, post.media_types?.[index])
-  );
-  const candidate = typedImage || fromUrls || fallbackMedia;
-  if (candidate && isVideoUrl(candidate)) return undefined;
-  return absoluteUrl(candidate);
-}
 
 export default function PostCommentsScreen() {
   const { colors } = useTheme();
@@ -76,6 +54,7 @@ export default function PostCommentsScreen() {
   const allowed = useRequirePersonalAccount();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { keyboardHeight, overlap, onContainerLayout } = useKeyboardOverlap();
   const params = useLocalSearchParams<{ id?: string }>();
   const postId = Number(params.id || 0);
   const inputRef = useRef<TextInput>(null);
@@ -137,8 +116,6 @@ export default function PostCommentsScreen() {
     };
   }, [allowed, applyPost, loadComments, postId]);
 
-  const image = useMemo(() => firstImage(post), [post]);
-  const video = useMemo(() => firstVideo(post), [post]);
   const caption = (post?.text || post?.caption || "").trim();
   const displayName =
     user?.display_name ||
@@ -181,6 +158,7 @@ export default function PostCommentsScreen() {
   return (
     <FeedShell
       tab="home"
+      showTabBar={keyboardHeight === 0}
       header={
         <View style={styles.topBar}>
           <Pressable
@@ -200,7 +178,14 @@ export default function PostCommentsScreen() {
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={insets.top + 3}
+        onLayout={onContainerLayout}
       >
+        <View
+          style={[
+            styles.flex,
+            Platform.OS === "android" && overlap > 0 ? { paddingBottom: overlap } : null,
+          ]}
+        >
         <ScrollView
           style={styles.flex}
           contentContainerStyle={styles.content}
@@ -236,11 +221,7 @@ export default function PostCommentsScreen() {
                   </Text>
                 </Pressable>
               ) : null}
-              {video ? (
-                <FeedVideo uri={video} style={styles.video} />
-              ) : image ? (
-                <FeedImage uri={image} style={styles.photo} />
-              ) : null}
+              {post ? <PostMediaGallery post={post} /> : null}
               {caption ? <HashtagText value={caption} style={styles.caption} /> : null}
 
               <View style={styles.actions}>
@@ -346,7 +327,12 @@ export default function PostCommentsScreen() {
         <View
           style={[
             styles.composer,
-            { marginBottom: 68 + Math.max(insets.bottom, 10) + 12 },
+            {
+              marginBottom:
+                keyboardHeight > 0 || overlap > 0
+                  ? Math.max(insets.bottom, 8)
+                  : 68 + Math.max(insets.bottom, 10) + 12,
+            },
           ]}
         >
           <AvatarCircle name={displayName} uri={picture} size={36} />
@@ -374,6 +360,7 @@ export default function PostCommentsScreen() {
           </Pressable>
         </View>
         )}
+        </View>
       </KeyboardAvoidingView>
     </FeedShell>
   );
@@ -424,16 +411,6 @@ function makeStyles(colors: Palette) {
     fontFamily: "Montserrat_700Bold",
     fontSize: 15,
     color: colors.text,
-  },
-  photo: {
-    width: "100%",
-    height: undefined,
-    backgroundColor: "#EEEAE3",
-  },
-  video: {
-    width: "100%",
-    height: 220,
-    backgroundColor: "#EEEAE3",
   },
   caption: {
     paddingHorizontal: 16,

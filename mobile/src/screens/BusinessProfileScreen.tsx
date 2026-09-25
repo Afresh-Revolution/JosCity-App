@@ -53,7 +53,8 @@ import {
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { accountStatusKind, accountStatusLabel } from "../utils/accountStatus";
-import { absoluteUrl, formatNaira, handleFromName } from "../utils/format";
+import { absoluteUrl, formatNaira } from "../utils/format";
+import { publicUsername } from "../utils/accountNames";
 import { openListing } from "../utils/openListing";
 import { openMemberProfile } from "../utils/openProfile";
 
@@ -206,9 +207,9 @@ export default function BusinessProfileScreen() {
 
   const onShare = () => {
     const name = profile?.name || "JosCity business";
-    const handle = profile?.handle || "";
+    const handle = businessSubtitle(profile);
     void Share.share({
-      message: `${name} ${handle} on JosCity\nhttps://joscity.com/business/${profile?.user_id || ""}`,
+      message: `${name}${handle ? ` ${handle}` : ""} on JosCity\nhttps://joscity.com/business/${profile?.user_id || ""}`,
     });
   };
 
@@ -420,9 +421,9 @@ export default function BusinessProfileScreen() {
                   size={18}
                 />
               </View>
-              <Text style={styles.handle}>{profile?.email || profile?.handle}</Text>
+              <Text style={styles.handle}>{businessSubtitle(profile)}</Text>
               <Text style={styles.category}>{profile?.category}</Text>
-              {profile?.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
+              {profile?.bio ? <Text selectable style={styles.bio}>{profile.bio}</Text> : null}
               {profile?.location ? (
                 <View style={styles.locationRow}>
                   <Ionicons name="location-outline" size={14} color={colors.textMuted} />
@@ -603,6 +604,16 @@ export default function BusinessProfileScreen() {
                   key={post.post_id}
                   post={post as FeedPost}
                   viewerId={viewerId}
+                  onDeleted={(deletedId) =>
+                    setData((current) =>
+                      current
+                        ? {
+                            ...current,
+                            posts: current.posts.filter((item) => Number(item.post_id) !== deletedId),
+                          }
+                        : current
+                    )
+                  }
                 />
               ))
             ) : (
@@ -613,6 +624,15 @@ export default function BusinessProfileScreen() {
           {tab === "about" ? (
             <View style={styles.about}>
               <AboutRow label={t("business.profileAboutBio")} value={profile?.bio || "—"} />
+              <AboutRow
+                label={t("business.profileAboutEmail")}
+                value={profile?.email || "—"}
+                onPress={
+                  profile?.email
+                    ? () => void Linking.openURL(`mailto:${profile.email}`)
+                    : undefined
+                }
+              />
               <AboutRow
                 label={t("details.cac")}
                 value={
@@ -783,8 +803,15 @@ function isPlaceholderShopName(name?: string | null) {
 }
 
 function isPlaceholderHandle(handle?: string | null) {
-  const value = String(handle || "").trim().toLowerCase();
-  return !value || value === "@business";
+  const value = String(handle || "").trim().toLowerCase().replace(/^@/, "");
+  return !value || value === "business" || /^user_\d+$/.test(value);
+}
+
+function businessSubtitle(profile?: { handle?: string | null; email?: string | null } | null) {
+  const email = String(profile?.email || "").trim();
+  if (email) return email;
+  const chosen = publicUsername(profile?.handle);
+  return chosen ? `@${chosen}` : "";
 }
 
 function storedUserId(user?: StoredUser | null) {
@@ -815,7 +842,9 @@ function pageFromUser(
     profile: {
       user_id: userId,
       name,
-      handle: name ? handleFromName(name) : "",
+      handle: publicUsername(String(user.user_name || user.username || ""))
+        ? `@${publicUsername(String(user.user_name || user.username || ""))}`
+        : "",
       category: String(user.business_type || "").trim(),
       bio: String(user.business_description || user.user_bio || "").trim() || null,
       location: String(user.business_location || user.address || "").trim() || null,
@@ -891,19 +920,32 @@ function pageFromKnownUser(params: {
   return null;
 }
 
+function stampBusinessPosts(page: BusinessPage): BusinessPage {
+  const email = String(page.profile.email || "").trim() || null;
+  return {
+    ...page,
+    posts: page.posts.map((post) => ({
+      ...post,
+      author: {
+        ...post.author,
+        account_type: post.author?.account_type || "business",
+        username: publicUsername(post.author?.username) || null,
+        email: String(post.author?.email || email || "").trim() || null,
+      },
+    })),
+  };
+}
+
 function mergeBusinessPage(
   page: BusinessPage | null,
   fallback: BusinessPage | null
 ): BusinessPage | null {
-  if (!page) return fallback;
-  if (!fallback) {
-    if (isPlaceholderShopName(page.profile.name)) return page;
-    return page;
-  }
+  if (!page) return fallback ? stampBusinessPosts(fallback) : fallback;
+  if (!fallback) return stampBusinessPosts(page);
   const name = isPlaceholderShopName(page.profile.name)
     ? fallback.profile.name
     : page.profile.name;
-  return {
+  return stampBusinessPosts({
     ...page,
     profile: {
       ...fallback.profile,
@@ -912,11 +954,12 @@ function mergeBusinessPage(
       handle: isPlaceholderHandle(page.profile.handle)
         ? fallback.profile.handle
         : page.profile.handle,
+      email: page.profile.email || fallback.profile.email,
       picture: page.profile.picture || fallback.profile.picture,
       cover: page.profile.cover || fallback.profile.cover,
       is_owner: Boolean(page.profile.is_owner || fallback.profile.is_owner),
     },
-  };
+  });
 }
 
 function AboutRow({

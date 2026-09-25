@@ -27,13 +27,23 @@ import { usernameError } from "../utils/accountNames";
 import { LEGAL, openExternalUrl } from "../constants/legal";
 import { useTheme } from "../theme/ThemeProvider";
 import type { Palette } from "../theme/colors";
+import ReferralCodeField from "../components/ReferralCodeField";
+import { useReferralCode } from "../hooks/useReferralCode";
 
 type Gender = "male" | "female" | "";
 
 export default function PersonalRegisterScreen({ agent = false }: { agent?: boolean }) {
   const router = useRouter();
   const params = useLocalSearchParams<{ ref?: string | string[] }>();
-  const referralCode = (Array.isArray(params.ref) ? params.ref[0] : params.ref || "").trim();
+  const linkReferralCode = (Array.isArray(params.ref) ? params.ref[0] : params.ref || "").trim().toUpperCase();
+  const {
+    referralCode,
+    setReferralCode,
+    referralLookup,
+    retryReferral,
+    markShortOnBlur,
+    validateReferral,
+  } = useReferralCode(linkReferralCode);
   const insets = useSafeAreaInsets();
   const { colors, scheme } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -74,6 +84,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
         setFirstName(draft.firstName || "");
         setLastName(draft.lastName || "");
         setUsername(draft.username || "");
+        if (!linkReferralCode && draft.referralCode) setReferralCode(draft.referralCode);
         setGender((draft.gender === "male" || draft.gender === "female" ? draft.gender : "") as Gender);
         setAddress(draft.address || "");
         setNin(draft.nin || "");
@@ -105,6 +116,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
       firstName,
       lastName,
       username,
+      referralCode,
       gender,
       address,
       nin,
@@ -113,7 +125,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
       agentCategories,
       services,
     });
-  }, [agent, step, email, phone, password, confirm, firstName, lastName, username, gender, address, nin, agreed, agentBio, agentCategories, services, done]);
+  }, [agent, step, email, phone, password, confirm, firstName, lastName, username, referralCode, gender, address, nin, agreed, agentBio, agentCategories, services, done]);
 
   const labelColor = colors.primary;
 
@@ -146,6 +158,8 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
       if (handleMessage) return handleMessage;
     }
     if (step === 3) {
+      const referralError = validateReferral();
+      if (referralError) return referralError;
       if (nin.replace(/\D/g, "").length > 0 && nin.replace(/\D/g, "").length !== 11) {
         return "NIN must be 11 digits if you add it.";
       }
@@ -311,11 +325,11 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
                       : "Start with how you’ll sign in to JOSCITY."
                     : step === 2
                       ? "Tell us who you are — this appears on your membership ID. Gender and address are optional."
-                      : "You can add your NIN now or skip it, then agree to the terms."}
+                      : "Add a referral code if someone invited you. NIN is optional, then agree to the terms."}
                 </Text>
               </FadeIn>
 
-              {agent ? <View>
+              {agent && step === 1 ? <View>
                 <TextField label="Agent bio" labelColor={labelColor} value={agentBio} onChangeText={setAgentBio} placeholder="Tell customers how you can help" multiline />
                 <TextField label="Categories / specialties" labelColor={labelColor} value={agentCategories} onChangeText={setAgentCategories} placeholder="Electronics, groceries, fashion..." />
                 <Text style={styles.subtitle}>Help me buy also includes Help me deliver.</Text>
@@ -423,6 +437,18 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
 
                 {step === 3 ? (
                   <>
+                    <ReferralCodeField
+                      value={referralCode}
+                      onChange={(value) => {
+                        setReferralCode(value);
+                        setError(null);
+                      }}
+                      onBlur={markShortOnBlur}
+                      lookup={referralLookup}
+                      onRetry={retryReferral}
+                      labelColor={labelColor}
+                      loading={loading}
+                    />
                     <TextField
                       label="NIN number (optional)"
                       labelColor={labelColor}

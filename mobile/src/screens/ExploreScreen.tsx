@@ -41,6 +41,7 @@ import {
   type DirectoryUser,
 } from "../api/social";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
+import { getAccountType, normalizeAccountType } from "../storage/session";
 import { useI18n } from "../i18n/I18nProvider";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
@@ -48,7 +49,7 @@ import { openExploreEvent } from "../utils/openExploreEvent";
 import { openForumThread } from "../utils/openForum";
 import { openNewsArticle } from "../utils/openNews";
 
-type CategoryId = "people" | "reels" | "events" | "news" | "forums" | "businesses" | "map";
+type CategoryId = "people" | "reels" | "events" | "news" | "forums" | "businesses" | "market" | "map";
 
 const categories: Array<{
   id: CategoryId;
@@ -61,6 +62,7 @@ const categories: Array<{
   { id: "news", label: "News", icon: "newspaper-outline" },
   { id: "forums", label: "Forums", icon: "chatbubbles-outline" },
   { id: "businesses", label: "Businesses", icon: "storefront-outline" },
+  { id: "market", label: "Market", icon: "bag-handle-outline" },
   { id: "map", label: "Map", icon: "map-outline" },
 ];
 
@@ -94,12 +96,14 @@ export default function ExploreScreen() {
   const [events, setEvents] = useState<ExploreEvent[]>(() => getCachedExploreEvents().slice(0, 6));
   const [forumThreads, setForumThreads] = useState<ForumThread[]>([]);
   const [loading, setLoading] = useState(true);
+  const [personalShopper, setPersonalShopper] = useState(false);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    const [tags, members, shops, articles, forums, count] =
+    const [accountType, tags, members, shops, articles, forums, count] =
       await Promise.allSettled([
+        getAccountType(),
         getTrendingHashtags(3),
         getApprovedUsers({ limit: 12, accountType: "personal" }),
         getApprovedUsers({ accountType: "business", allPages: true }),
@@ -107,6 +111,9 @@ export default function ExploreScreen() {
         getForumOverview(4),
         getUnreadNotificationCount(),
       ]);
+    if (accountType.status === "fulfilled") {
+      setPersonalShopper(normalizeAccountType(accountType.value) === "personal");
+    }
     if (tags.status === "fulfilled") setHashtags(tags.value);
     if (members.status === "fulfilled") setPeople(members.value);
     if (shops.status === "fulfilled") setBusinesses(shops.value);
@@ -225,14 +232,19 @@ export default function ExploreScreen() {
   const newsPreview = filteredNews.slice(0, 3);
   const businessPreview = filteredBusinesses.slice(0, 8);
 
+  const quickActions = personalShopper
+    ? categories
+    : categories.filter((item) => item.id !== "market");
+
   const openCategory = (id: CategoryId) => {
-    const routes: Record<CategoryId, "/people" | "/reels" | "/events" | "/news" | "/forums" | "/businesses" | "/map"> = {
+    const routes: Record<CategoryId, "/people" | "/reels" | "/events" | "/news" | "/forums" | "/businesses" | "/market" | "/map"> = {
       people: "/people",
       reels: "/reels",
       events: "/events",
       news: "/news",
       forums: "/forums",
       businesses: "/businesses",
+      market: "/market",
       map: "/map",
     };
     router.push(routes[id] as never);
@@ -295,7 +307,7 @@ export default function ExploreScreen() {
 
           <FadeIn delay={90}>
             <View style={styles.grid}>
-              {categories.map((item) => (
+              {quickActions.map((item) => (
                 <Pressable
                   key={item.id}
                   onPress={() => openCategory(item.id)}

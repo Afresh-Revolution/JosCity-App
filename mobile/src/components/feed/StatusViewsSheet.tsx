@@ -119,9 +119,19 @@ export default function StatusViewsSheet({
                 >
                   <AvatarCircle name={item.name} uri={item.picture} size={44} />
                   <View style={styles.rowCopy}>
-                    <Text style={styles.name} numberOfLines={1}>
-                      {item.name}
-                    </Text>
+                    <View style={styles.nameRow}>
+                      <Text style={styles.name} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      {item.liked ? (
+                        <Ionicons
+                          name="heart"
+                          size={14}
+                          color={colors.badge}
+                          accessibilityLabel={t("status.liked")}
+                        />
+                      ) : null}
+                    </View>
                     <Text style={styles.when} numberOfLines={1}>
                       {item.timeAgo || timeAgo(item.viewedAt)}
                     </Text>
@@ -208,7 +218,13 @@ function makeStyles(colors: Palette) {
     rowCopy: {
       flex: 1,
     },
+    nameRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
     name: {
+      flexShrink: 1,
       fontFamily: "Montserrat_600SemiBold",
       fontSize: 15,
       color: colors.text,

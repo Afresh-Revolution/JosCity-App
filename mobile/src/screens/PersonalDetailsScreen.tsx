@@ -19,7 +19,7 @@ import FadeIn from "../components/FadeIn";
 import TextField from "../components/TextField";
 import { ErrorBanner, showError, showNotice } from "../components/AppNotice";
 import { friendlyError } from "../utils/errors";
-import { normalizeUsername, usernameError } from "../utils/accountNames";
+import { normalizeUsername, publicUsername, usernameError } from "../utils/accountNames";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import { getUserProfile, updatePersonalProfile, uploadCoverPicture, uploadProfilePicture } from "../api/auth";
@@ -30,6 +30,7 @@ import { useI18n } from "../i18n/I18nProvider";
 import {
   getUser,
   isBusinessAccountType,
+  isDedicatedAgentAccount,
   mergeStoredUser,
   setUser,
   type StoredUser,
@@ -47,6 +48,9 @@ type ProfileUser = StoredUser & {
   business_location?: string;
   business_email?: string;
   business_description?: string | null;
+  agent_bio?: string | null;
+  agent_type?: string | null;
+  signup_intent?: string | null;
   CAC_number?: string | null;
   cac_number?: string | null;
   cac_verified?: boolean | null;
@@ -85,9 +89,7 @@ function fullNameFrom(user: ProfileUser | null): string {
 }
 
 function usernameFrom(user: ProfileUser | null): string {
-  return String(user?.user_name || user?.username || "")
-    .replace(/^@+/, "")
-    .trim();
+  return publicUsername(user?.user_name || user?.username);
 }
 
 function phoneFrom(user: ProfileUser | null): string {
@@ -173,9 +175,13 @@ export default function PersonalDetailsScreen() {
     const nextEmail = emailFrom(user);
     const nextPhone = phoneFrom(user);
     const nextAddress = addressFrom(user);
-    const nextBio = isBusinessAccountType(String(user?.account_type))
-      ? aboutFrom(user).slice(0, 280)
-      : String(user?.user_bio || "").trim();
+    const nextBio = (
+      isBusinessAccountType(String(user?.account_type))
+        ? aboutFrom(user)
+        : isDedicatedAgentAccount(user)
+          ? String(user?.agent_bio || user?.user_bio || "").trim()
+          : String(user?.user_bio || "").trim()
+    ).slice(0, 280);
     const nextCac = cacFrom(user);
     const nextNin = ninFrom(user);
     const last = String(user?.user_lastname || user?.last_name || "").trim();
@@ -396,12 +402,10 @@ export default function PersonalDetailsScreen() {
       return;
     }
     const nextUsername = normalizeUsername(username);
-    if (!isBusiness) {
-      const handleMessage = usernameError(nextUsername);
-      if (handleMessage) {
-        setError(handleMessage);
-        return;
-      }
+    const handleMessage = usernameError(nextUsername);
+    if (handleMessage) {
+      setError(handleMessage);
+      return;
     }
     if (isBusiness && !cacLocked && nextCac && (nextCac.length < 5 || !/^[A-Z0-9/-]+$/.test(nextCac))) {
       setError(t("details.cacInvalid"));
@@ -428,6 +432,7 @@ export default function PersonalDetailsScreen() {
               business_email: nextEmail,
               business_location: nextAddress,
               business_description: nextBio,
+              ...(nextUsername ? { user_name: nextUsername } : {}),
               ...(!cacLocked && nextCac ? { CAC_number: nextCac } : {}),
             }
           : {
@@ -463,7 +468,8 @@ export default function PersonalDetailsScreen() {
         user_email: nextEmail,
         email: nextEmail,
         address: nextAddress,
-        user_bio: isBusiness ? stored?.user_bio : nextBio,
+        user_bio: nextBio,
+        agent_bio: isDedicatedAgentAccount(stored) ? nextBio : stored?.agent_bio,
         ...(isBusiness
           ? {
               business_name: name,
@@ -475,6 +481,7 @@ export default function PersonalDetailsScreen() {
               cac_number: storedCac,
               cac_verified: verifiedNow,
               cac_edit: saved.cac_edit || stored?.cac_edit || null,
+              ...(nextUsername ? { user_name: nextUsername, username: nextUsername } : {}),
             }
           : {
               nin_number: storedNin,
@@ -628,19 +635,17 @@ export default function PersonalDetailsScreen() {
                 autoComplete="name"
                 left={<FieldIcon name="person-outline" />}
               />
-              {!isBusiness ? (
-                <TextField
-                  label="Username"
-                  value={username}
-                  onChangeText={(value) => setUsername(value.replace(/^@+/, ""))}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoComplete="username"
-                  placeholder="amina.jos"
-                  helper="Letters, numbers, underscores or periods."
-                  left={<Ionicons name="at-outline" size={18} color={colors.textMuted} />}
-                />
-              ) : null}
+              <TextField
+                label="Username"
+                value={username}
+                onChangeText={(value) => setUsername(value.replace(/^@+/, ""))}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="username"
+                placeholder="josride"
+                helper="Letters, numbers, underscores or periods. This is the name people see, not an account id."
+                left={<Ionicons name="at-outline" size={18} color={colors.textMuted} />}
+              />
               <TextField
                 label="Email"
                 value={email}

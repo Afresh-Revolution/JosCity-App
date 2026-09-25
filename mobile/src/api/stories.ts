@@ -213,6 +213,7 @@ export type StoryViewer = {
   accountType?: string | null;
   viewedAt?: string;
   timeAgo?: string;
+  liked?: boolean;
 };
 
 function asStoryViewer(row: unknown, index: number): StoryViewer | null {
@@ -241,7 +242,47 @@ function asStoryViewer(row: unknown, index: number): StoryViewer | null {
     accountType: String(user.account_type || item.account_type || "") || null,
     viewedAt: viewedAt || undefined,
     timeAgo: timeAgo || undefined,
+    liked: item.liked === true || item.liked === 1 || item.liked === "1" || item.has_liked === true,
   };
+}
+
+export async function getStoryPreview(storyId: number): Promise<{
+  type: StoryType;
+  src: string;
+  caption?: string;
+  backgroundColor?: string;
+  textColor?: string;
+} | null> {
+  if (!storyId) return null;
+  try {
+    const response = await apiFetch(`/stories/${storyId}`, {
+      method: "GET",
+      auth: true,
+      timeoutMs: 12000,
+    });
+    if (!response.ok) return null;
+    const data = await readJson<{
+      data?: {
+        type?: StoryType;
+        src?: string;
+        caption?: string | null;
+        background_color?: string | null;
+        text_color?: string | null;
+      };
+    }>(response);
+    const row = data.data;
+    const type = row?.type === "video" || row?.type === "text" || row?.type === "photo" ? row.type : null;
+    if (!row || !type) return null;
+    return {
+      type,
+      src: String(row.src || ""),
+      caption: row.caption || undefined,
+      backgroundColor: row.background_color || undefined,
+      textColor: row.text_color || undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function getStoryViews(storyId: number): Promise<{
@@ -286,6 +327,12 @@ export async function getStoryViewsCount(storyId: number): Promise<number> {
 
 export async function reactToStory(storyId: number): Promise<void> {
   const response = await apiFetch(`/stories/${storyId}/react`, { method: "POST", auth: true });
-  const data = await readJson<{ success?: boolean; message?: string }>(response);
-  if (!response.ok || data.success === false) throw new Error(data.message || "Could not react to status.");
+  const data = await readJson<{ success?: boolean; message?: string; error?: string }>(response);
+  if (!response.ok || data.success === false) {
+    throw new Error(
+      data.message ||
+        (data as { error?: string }).error ||
+        "Could not react to status."
+    );
+  }
 }

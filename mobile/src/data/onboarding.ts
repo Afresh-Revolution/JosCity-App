@@ -27,7 +27,7 @@ export const onboardingSlides: OnboardingSlide[] = [
   {
     id: "wallet",
     title: "One wallet for the community",
-    body: "Fund your wallet, earn CBC points and carry your JOSCITY digital membership ID.",
+    body: "Fund your wallet, earn CBC Coin and carry your JOSCITY digital membership ID.",
     cta: "Get started",
     hero: require("../../assets/onboarding/collage.jpg"),
     collage: [

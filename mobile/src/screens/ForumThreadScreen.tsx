@@ -201,7 +201,7 @@ export default function ForumThreadScreen() {
                   {timeAgo(thread.created_at) ? ` · ${timeAgo(thread.created_at)}` : ""}
                 </Text>
               </Pressable>
-              {thread.body ? <Text style={styles.body}>{thread.body}</Text> : null}
+              {thread.body ? <Text selectable style={styles.body}>{thread.body}</Text> : null}
               <Text style={styles.repliesHead}>
                 {forumReplyLabel(replies.length || thread.reply_count)}
               </Text>
@@ -227,7 +227,7 @@ export default function ForumThreadScreen() {
                         {timeAgo(reply.created_at) ? ` · ${timeAgo(reply.created_at)}` : ""}
                       </Text>
                     </Text>
-                    <Text style={styles.replyBody}>{reply.body}</Text>
+                    <Text selectable style={styles.replyBody}>{reply.body}</Text>
                   </View>
                 </Pressable>
               ))

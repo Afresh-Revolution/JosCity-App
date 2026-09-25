@@ -10,6 +10,7 @@ import {
 } from "../storage/pendingAgent";
 import { getAuthToken } from "../storage/session";
 import { updateAgentPreview } from "./agentPreview";
+import { publicUsername } from "../utils/accountNames";
 
 export type AgentDashboardStats = {
   active_jobs: number;
@@ -55,7 +56,8 @@ export function useAgentActivation() {
         updateAgentPreview({
           firstName: me.user_firstname || "",
           lastName: me.user_lastname || "",
-          username: String(me.user_name || "").replace(/^@/, ""),
+          username: publicUsername(me.user_name),
+          email: String(me.user_email || "").trim(),
           avatar: me.user_picture || "",
           address: me.agent_base_address || "",
           bio: me.agent_bio || "",

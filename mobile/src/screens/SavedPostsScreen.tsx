@@ -102,11 +102,10 @@ export default function SavedPostsScreen() {
           </View>
         </FadeIn>
       ) : (
-        posts.map((post, index) => (
+        posts.map((post) => (
           <View key={String(post.post_id)} style={styles.postWrap}>
             <PostCard
               post={post}
-              delay={Math.min(index * 50, 200)}
               viewerId={viewerId}
               onDeleted={(id) =>
                 setPosts((current) => current.filter((item) => Number(item.post_id) !== id))

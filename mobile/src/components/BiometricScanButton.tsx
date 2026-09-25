@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Animated, Easing, Pressable, StyleSheet, View } from "react-native";
+import { Animated, Easing, Platform, Pressable, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import JosCityLoader from "./JosCityLoader";
 import { biometricCopy, type BiometricKind } from "../biometrics/logic";
@@ -21,7 +21,7 @@ type Props = {
 export default function BiometricScanButton({ kind = "generic", busy, disabled, onPress }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const copy = biometricCopy(kind || "generic");
+  const copy = biometricCopy(kind || "generic", Platform.OS);
   const scan = useRef(new Animated.Value(0)).current;
   const glow = useRef(new Animated.Value(0)).current;
   const isFace = kind === "face";

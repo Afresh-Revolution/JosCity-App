@@ -4,7 +4,7 @@ export type Service = 'buy' | 'delivery';
 export type AgentRole = 'agent' | 'requester';
 export type Category = { slug: string; name: string };
 export type AgentProfile = {
-  user_id: number; user_firstname: string; user_lastname: string; user_name?: string | null; user_picture?: string;
+  user_id: number; user_firstname: string; user_lastname: string; user_name?: string | null; user_email?: string | null; user_picture?: string;
   agent_type: 'buy' | 'deliver' | 'both' | null; agent_status?: string;
   agent_bio?: string; agent_accepting_requests: boolean; agent_rating_avg: number;
   agent_rating_count?: number;
@@ -208,6 +208,8 @@ export const agentApi = {
   jobLocations: (jobId: number, body: Input) => send(`/map/jobs/${id(jobId)}/locations`, body, 'PUT'),
   mapMine: () => get<MapPin[]>('/map/mine'),
   createPin: (point: Point) => send<MapPin>('/map', point),
+  publishPin: (point: Point, label: string, amount: number) =>
+    send<MapPin>('/map/publish', { ...point, label, amount }),
   payPin: (pinId: string | number, label: string, amount: number) => send<MapPin>(`/map/${id(pinId)}/pay`, { label, amount }),
 };
 

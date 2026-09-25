@@ -159,7 +159,7 @@ export default function ActivityScreen() {
         )}
         {!enabled("rewards") && !enabled("cbc_points") ? (
           <Text style={s.rowMeta}>
-            Rewards stay {label("rewards")} until CBC points launch.
+            Rewards stay {label("rewards")} until CBC Coin launch.
           </Text>
         ) : null}
       </FadeIn>

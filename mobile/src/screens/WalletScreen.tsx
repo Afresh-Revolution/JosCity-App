@@ -711,7 +711,7 @@ export default function WalletScreen() {
             {hidden ? "₦••••••" : formatNaira(wallet?.balance)}
           </Text>
           <Text style={styles.heroPoints}>
-            {rewardsLive ? `${formatCount(cbcValue)} CBC points` : rewardsSoon}
+            {rewardsLive ? `${formatCount(cbcValue)} CBC Coin` : rewardsSoon}
           </Text>
 
           <View style={styles.heroActions}>
@@ -736,7 +736,7 @@ export default function WalletScreen() {
             <Pressable
               onPress={() => {
                 if (!rewardsLive || agentWallet) {
-                  Alert.alert("CBC points", rewardsSoon);
+                  Alert.alert("CBC Coin", rewardsSoon);
                   return;
                 }
                 router.push("/profile/rewards");
@@ -747,7 +747,7 @@ export default function WalletScreen() {
                 pressed && styles.pressed,
               ]}
               accessibilityRole="button"
-              accessibilityLabel={rewardsLive ? "Points" : rewardsSoon}
+              accessibilityLabel={rewardsLive ? "CBC Coin" : rewardsSoon}
             >
               <Ionicons
                 name="link-outline"
@@ -755,7 +755,7 @@ export default function WalletScreen() {
                 color={rewardsLive ? colors.white : "rgba(255,255,255,0.55)"}
               />
               <Text style={[styles.ghostText, !rewardsLive && styles.ghostTextSoon]}>
-                {rewardsLive ? "Points" : "Soon"}
+                {rewardsLive ? "Coin" : "Soon"}
               </Text>
             </Pressable>
           </View>
@@ -771,7 +771,7 @@ export default function WalletScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statCol}>
-            <Text style={styles.statKicker}>CBC POINTS</Text>
+            <Text style={styles.statKicker}>CBC COIN</Text>
             {rewardsLive ? (
               <Text style={styles.statValue}>{formatCount(cbcValue)}</Text>
             ) : (
@@ -881,9 +881,9 @@ export default function WalletScreen() {
             />
           ) : null}
           <AccountRow
-            title="Rewards & CBC points"
+            title="Rewards & CBC Coin"
             subtitle={
-              rewardsLive ? "How points are earned and redeemed" : rewardsSoon
+              rewardsLive ? "How CBC Coin is earned and redeemed" : rewardsSoon
             }
             comingSoon={!rewardsLive}
             soonLabel={rewardsSoon}

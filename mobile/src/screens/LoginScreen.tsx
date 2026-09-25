@@ -50,6 +50,7 @@ import {
 } from "../storage/session";
 import { colors } from "../theme/colors";
 import { friendlyError } from "../utils/errors";
+import { isStoreReviewEmail } from "../utils/storeReviewAccounts";
 
 export default function LoginScreen() {
   const router = useRouter();

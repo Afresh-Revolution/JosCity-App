@@ -23,6 +23,7 @@ const GREETING_KEY = "joscity.greeting";
 const LINKED_TOKEN_KEY = "joscity.linkedAuthToken";
 const LINKED_ACCOUNT_TYPE_KEY = "joscity.linkedAccountType";
 const LINKED_USER_KEY = "joscity.linkedUser";
+const REMEMBERED_KEY = "joscity.rememberedSessions";
 
 export type AccountType = KindAccountType;
 
@@ -120,6 +121,11 @@ export async function saveSession(params: {
   await setAccountType(params.accountType);
   await setUser({ ...params.user, account_type: params.accountType });
   await saveLoginGreeting(getTimeBasedGreeting());
+  await rememberSession({
+    token: params.token,
+    accountType: params.accountType,
+    user: { ...params.user, account_type: params.accountType },
+  });
 }
 
 export async function saveLoginGreeting(greeting: TimeGreeting): Promise<void> {
@@ -155,6 +161,7 @@ export async function clearSession(): Promise<void> {
   await AsyncStorage.removeItem(USER_KEY);
   await AsyncStorage.removeItem(GREETING_KEY);
   await clearLinkedSession();
+  await SecureStore.deleteItemAsync(REMEMBERED_KEY).catch(() => undefined);
 }
 
 export {
@@ -229,10 +236,44 @@ export async function setLinkedSession(session: StoredSession): Promise<void> {
   );
 }
 
+type RememberedSessions = Partial<Record<AccountType, StoredSession>>;
+
+async function readRemembered(): Promise<RememberedSessions> {
+  try {
+    const raw = await SecureStore.getItemAsync(REMEMBERED_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as RememberedSessions;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function rememberSession(session: StoredSession): Promise<void> {
+  if (!session.token) return;
+  const book = await readRemembered();
+  book[session.accountType] = {
+    token: session.token,
+    accountType: session.accountType,
+    user: { ...session.user, account_type: session.accountType },
+  };
+  await SecureStore.setItemAsync(REMEMBERED_KEY, JSON.stringify(book));
+}
+
+export async function getRememberedSession(type: AccountType): Promise<StoredSession | null> {
+  const book = await readRemembered();
+  const saved = book[type];
+  if (saved?.token) return saved;
+  const linked = await getLinkedSession();
+  if (linked?.token && linked.accountType === type) return linked;
+  return null;
+}
+
 export async function switchToSession(next: StoredSession): Promise<void> {
   const current = await getActiveSession();
   if (current?.token) {
     await setLinkedSession(current);
+    await rememberSession(current);
   }
   await saveSession(next);
 }

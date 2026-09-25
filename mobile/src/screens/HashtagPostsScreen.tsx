@@ -105,11 +105,10 @@ export default function HashtagPostsScreen() {
           {!posts.length ? (
             <Text style={styles.empty}>{t("explore.hashtagEmpty")}</Text>
           ) : (
-            posts.map((post, index) => (
+            posts.map((post) => (
               <PostCard
                 key={String(post.post_id)}
                 post={post}
-                delay={Math.min(index * 40, 160)}
                 viewerId={viewerId}
                 onDeleted={(id) =>
                   setPosts((current) => current.filter((item) => Number(item.post_id) !== id))

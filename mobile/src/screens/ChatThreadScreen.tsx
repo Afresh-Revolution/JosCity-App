@@ -1,30 +1,48 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  Alert,
   AppState,
   KeyboardAvoidingView,
-  PanResponder,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import {
+  Gesture,
+  GestureDetector,
+  ScrollView,
+} from "react-native-gesture-handler";
 import JosCityLoader from "../components/JosCityLoader";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import {
+  AudioQuality,
+  IOSOutputFormat,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from "expo-audio";
 import PresenceAvatar from "../components/messages/PresenceAvatar";
+import MessageReceiptMark from "../components/messages/MessageReceipt";
+import StatusReplyBubble from "../components/messages/StatusReplyBubble";
+import VoiceMessageBubble from "../components/messages/VoiceMessageBubble";
 import { ErrorBanner } from "../components/AppNotice";
 import {
   getChatPresence,
   getConversation,
   markConversationRead,
   sendChatMessage,
+  sendVoiceMessage,
+  deleteChatMessage,
   type ChatMessage,
+  type MessageReceipt,
 } from "../api/chat";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
 import { useI18n } from "../i18n/I18nProvider";
@@ -32,10 +50,13 @@ import { getUser } from "../storage/session";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { timeAgo } from "../utils/format";
+import { parseStatusReply } from "../utils/statusReply";
 import { isRecentlyActive } from "../utils/presence";
 import { startForegroundInterval } from "../utils/foregroundInterval";
 import { openMemberProfile } from "../utils/openProfile";
 import ReportSheet from "../components/ReportSheet";
+import PostOptionsSheet from "../components/feed/PostOptionsSheet";
+import * as Clipboard from "expo-clipboard";
 import { clearPushFocus, setPushFocus } from "../push/pushFocus";
 import { reportPushFocus, reportPushFocusCleared } from "../push/pushNotifications";
 
@@ -57,6 +78,8 @@ export default function ChatThreadScreen() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [playingVoiceId, setPlayingVoiceId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -65,8 +88,16 @@ export default function ChatThreadScreen() {
     id: number;
     userId?: number;
   } | null>(null);
+  const [menuMessage, setMenuMessage] = useState<ChatMessage | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    void getUser().then((user) => {
+      const userId = Number(user?.user_id || 0);
+      if (userId) setMyId(userId);
+    });
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -89,13 +120,22 @@ export default function ChatThreadScreen() {
             if (result.conversation.otherAvatar) setAvatar(result.conversation.otherAvatar);
             if (result.conversation.otherUserId) setOtherUserId(result.conversation.otherUserId);
           }
-          setMessages((current) => {
+            setMessages((current) => {
             const merged = new Map(current.map((message) => [message.messageId, message]));
             for (const message of result.messages) {
               const previous = merged.get(message.messageId);
-              merged.set(message.messageId, { ...message, seen: message.seen || previous?.seen });
+              merged.set(message.messageId, {
+                ...message,
+                seen: message.seen || previous?.seen,
+                receipt: strongerReceipt(previous?.receipt, message.receipt, message.seen || previous?.seen),
+              });
             }
-            return [...merged.values()].sort((a, b) => a.messageId - b.messageId);
+            return [...merged.values()].sort((a, b) => {
+              const aPending = a.messageId < 0;
+              const bPending = b.messageId < 0;
+              if (aPending !== bPending) return aPending ? 1 : -1;
+              return a.messageId - b.messageId;
+            });
           });
           // Wait for the loaded conversation to render before acknowledging it.
           requestAnimationFrame(() => {
@@ -130,15 +170,25 @@ export default function ChatThreadScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!conversationId) return () => undefined;
-      setPushFocus("messages", conversationId);
-      void reportPushFocus("messages", conversationId);
-      const stop = startForegroundInterval(() => {
+      const markViewing = () => {
+        setPushFocus("messages", conversationId);
         void reportPushFocus("messages", conversationId);
-      }, 30000);
-      return () => {
-        stop();
+      };
+      const markAway = () => {
         clearPushFocus();
         void reportPushFocusCleared();
+      };
+      if (AppState.currentState === "active") markViewing();
+      else markAway();
+      const stop = startForegroundInterval(markViewing, 30000);
+      const subscription = AppState.addEventListener("change", (state) => {
+        if (state === "active") markViewing();
+        else markAway();
+      });
+      return () => {
+        stop();
+        subscription.remove();
+        markAway();
       };
     }, [conversationId])
   );
@@ -183,7 +233,7 @@ export default function ChatThreadScreen() {
       if (result.message) {
         setMessages((current) => {
           if (current.some((row) => row.messageId === result.message!.messageId)) return current;
-          return [...current, { ...result.message!, senderId: result.message!.senderId || myId }];
+          return [...current, { ...result.message!, senderId: result.message!.senderId || myId, receipt: result.message!.receipt || "sent" }];
         });
         requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
       } else {
@@ -200,10 +250,87 @@ export default function ChatThreadScreen() {
     }
   }, [conversationId, draft, sending, myId, replyTo, t]);
 
+  const onSendVoice = useCallback(
+    async (uri: string, duration: number) => {
+      if (!conversationId || sending) {
+        setRecording(false);
+        return;
+      }
+      const selectedReply = replyTo;
+      const pendingId = -Date.now();
+      setRecording(false);
+      setSending(true);
+      setReplyTo(null);
+      setSendError(null);
+      setMessages((current) => [
+        ...current,
+        {
+          messageId: pendingId,
+          conversationId,
+          senderId: myId,
+          messageContent: "Voice message",
+          messageType: "voice",
+          attachmentUrl: uri,
+          duration: Math.max(1, Math.round(duration)),
+          createdAt: new Date().toISOString(),
+          receipt: "sending",
+        },
+      ]);
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+      try {
+        const result = await sendVoiceMessage(conversationId, uri, duration, selectedReply?.messageId);
+        if (result.message) {
+          setMessages((current) => {
+            const withoutPending = current.filter((row) => row.messageId !== pendingId);
+            if (withoutPending.some((row) => row.messageId === result.message!.messageId)) {
+              return withoutPending;
+            }
+            return [
+              ...withoutPending,
+              { ...result.message!, senderId: result.message!.senderId || myId, receipt: "sent" },
+            ];
+          });
+          requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
+        } else {
+          setMessages((current) => current.filter((row) => row.messageId !== pendingId));
+          setReplyTo(selectedReply);
+          setSendError(result.error || t("messages.voiceFailed"));
+        }
+      } catch {
+        setMessages((current) => current.filter((row) => row.messageId !== pendingId));
+        setReplyTo(selectedReply);
+        setSendError(t("messages.voiceFailed"));
+      } finally {
+        setSending(false);
+      }
+    },
+    [conversationId, sending, myId, replyTo, t]
+  );
+
   const selectReply = useCallback((message: ChatMessage) => {
+    if (message.isDeleted) return;
     setReplyTo(message);
     setTimeout(() => inputRef.current?.focus(), 120);
   }, []);
+
+  const removeMessage = useCallback(
+    async (message: ChatMessage) => {
+      const result = await deleteChatMessage(message.messageId);
+      if (!result?.isDeleted) {
+        Alert.alert("", t("messages.deleteMessageFailed"));
+        return;
+      }
+      setMessages((prev) =>
+        prev.map((row) =>
+          row.messageId === message.messageId
+            ? { ...row, isDeleted: true, messageContent: t("messages.deleted") }
+            : row
+        )
+      );
+      setReplyTo((prev) => (prev?.messageId === message.messageId ? null : prev));
+    },
+    [t]
+  );
 
   const canSend = Boolean(draft.trim()) && !sending;
 
@@ -278,15 +405,15 @@ export default function ChatThreadScreen() {
           <ScrollView
             ref={scrollRef}
             contentContainerStyle={styles.thread}
-            directionalLockEnabled
-            canCancelContentTouches
+            keyboardShouldPersistTaps="handled"
+            delayContentTouches={false}
             onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
           >
             {rows.length === 0 ? (
               <Text style={styles.empty}>No messages yet. Say hello.</Text>
             ) : (
               rows.map((item) => {
-                const mine = myId > 0 && item.senderId === myId;
+                const mine = myId > 0 && Number(item.senderId) === Number(myId);
                 return (
                   <SwipeReplyMessage
                     key={item.messageId}
@@ -296,14 +423,19 @@ export default function ChatThreadScreen() {
                     peerName={name}
                     colors={colors}
                     styles={styles}
-                    onReply={selectReply}
-                    onReport={() =>
-                      setReport({
-                        type: "message",
-                        id: item.messageId,
-                        userId: item.senderId,
-                      })
+                    playing={playingVoiceId === item.messageId}
+                    onToggleVoice={() =>
+                      setPlayingVoiceId((current) =>
+                        current === item.messageId ? null : item.messageId
+                      )
                     }
+                    onVoiceEnded={() =>
+                      setPlayingVoiceId((current) =>
+                        current === item.messageId ? null : current
+                      )
+                    }
+                    onReply={selectReply}
+                    onOpenMenu={setMenuMessage}
                   />
                 );
               })
@@ -337,6 +469,14 @@ export default function ChatThreadScreen() {
               </Pressable>
             </View>
           ) : null}
+          {recording ? (
+            <VoiceRecordBar
+              colors={colors}
+              styles={styles}
+              onSend={(uri, duration) => void onSendVoice(uri, duration)}
+              onCancel={() => setRecording(false)}
+            />
+          ) : (
           <View style={styles.composerRow}>
           <TextInput
             ref={inputRef}
@@ -350,16 +490,31 @@ export default function ChatThreadScreen() {
             style={styles.input}
             multiline
           />
-          <Pressable
-            onPress={() => void onSend()}
-            disabled={!canSend}
-            style={[styles.send, !canSend && styles.sendDisabled]}
-            accessibilityRole="button"
-            accessibilityLabel="Send"
-          >
-            <Ionicons name="send" size={16} color={colors.white} />
-          </Pressable>
+          {sending ? (
+            <View style={styles.send} accessibilityLabel="Sending">
+              <JosCityLoader color={colors.white} size={18} />
+            </View>
+          ) : canSend ? (
+            <Pressable
+              onPress={() => void onSend()}
+              style={styles.send}
+              accessibilityRole="button"
+              accessibilityLabel="Send"
+            >
+              <Ionicons name="send" size={16} color={colors.white} />
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => setRecording(true)}
+              style={styles.send}
+              accessibilityRole="button"
+              accessibilityLabel={t("messages.voice")}
+            >
+              <Ionicons name="mic" size={18} color={colors.white} />
+            </Pressable>
+          )}
           </View>
+          )}
         </View>
       </KeyboardAvoidingView>
       <ReportSheet
@@ -369,6 +524,240 @@ export default function ChatThreadScreen() {
         contentId={report?.id}
         reportedUserId={report?.userId || otherUserId || null}
       />
+      <PostOptionsSheet
+        visible={Boolean(menuMessage && !menuMessage.isDeleted)}
+        title="Message"
+        onClose={() => setMenuMessage(null)}
+        options={[
+          {
+            key: "copy",
+            label: "Copy",
+            onPress: () => {
+              const body = String(menuMessage?.messageContent || "");
+              setMenuMessage(null);
+              if (body) void Clipboard.setStringAsync(body);
+            },
+          },
+          ...(myId > 0 && menuMessage && Number(menuMessage.senderId) === Number(myId)
+            ? [
+                {
+                  key: "delete",
+                  label: t("messages.delete"),
+                  destructive: true,
+                  onPress: () => {
+                    const target = menuMessage;
+                    setMenuMessage(null);
+                    if (!target) return;
+                    setTimeout(() => {
+                      Alert.alert(
+                        t("messages.deleteMessage"),
+                        t("messages.deleteMessageConfirm"),
+                        [
+                          { text: t("common.cancel"), style: "cancel" },
+                          {
+                            text: t("messages.delete"),
+                            style: "destructive",
+                            onPress: () => void removeMessage(target),
+                          },
+                        ]
+                      );
+                    }, 200);
+                  },
+                },
+              ]
+            : [
+                {
+                  key: "report",
+                  label: t("messages.reportMessage"),
+                  destructive: true,
+                  onPress: () => {
+                    const target = menuMessage;
+                    setMenuMessage(null);
+                    if (!target) return;
+                    setReport({
+                      type: "message",
+                      id: target.messageId,
+                      userId: target.senderId,
+                    });
+                  },
+                },
+              ]),
+        ]}
+      />
+    </View>
+  );
+}
+
+const VOICE_NOTE_OPTIONS = {
+  extension: ".m4a",
+  sampleRate: 22050,
+  numberOfChannels: 1,
+  bitRate: 32000,
+  android: {
+    outputFormat: "mpeg4" as const,
+    audioEncoder: "aac" as const,
+  },
+  ios: {
+    outputFormat: IOSOutputFormat.MPEG4AAC,
+    audioQuality: AudioQuality.LOW,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: {
+    mimeType: "audio/webm",
+    bitsPerSecond: 32000,
+  },
+};
+
+const RECEIPT_RANK: Record<MessageReceipt, number> = {
+  sending: 0,
+  sent: 1,
+  received: 2,
+  read: 3,
+};
+
+function strongerReceipt(
+  previous?: MessageReceipt,
+  next?: MessageReceipt,
+  seen?: boolean
+): MessageReceipt | undefined {
+  const left = previous;
+  const right = next || (seen ? "read" : undefined);
+  if (!left) return right;
+  if (!right) return left;
+  return RECEIPT_RANK[left] >= RECEIPT_RANK[right] ? left : right;
+}
+
+function receiptLabel(item: ChatMessage) {
+  const status = item.messageId < 0 ? "sending" : item.receipt || (item.seen ? "read" : "sent");
+  if (status === "sending") return "messages.sending" as const;
+  if (status === "received") return "messages.received" as const;
+  if (status === "read") return "messages.read" as const;
+  return "messages.sent" as const;
+}
+
+function formatVoiceClock(seconds: number) {
+  const total = Math.max(0, Math.round(seconds || 0));
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+function VoiceRecordBar({
+  colors,
+  styles,
+  onSend,
+  onCancel,
+}: {
+  colors: Palette;
+  styles: ReturnType<typeof makeStyles>;
+  onSend: (uri: string, duration: number) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useI18n();
+  const recorder = useAudioRecorder(VOICE_NOTE_OPTIONS);
+  const recState = useAudioRecorderState(recorder, 200);
+  const finishing = useRef(false);
+  const [handingOff, setHandingOff] = useState(false);
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const permission = await requestRecordingPermissionsAsync();
+      if (cancelled) return;
+      if (!permission.granted) {
+        Alert.alert("", t("messages.voicePermission"));
+        onCancelRef.current();
+        return;
+      }
+      try {
+        await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+        if (cancelled) return;
+        await recorder.prepareToRecordAsync();
+        if (cancelled) return;
+        recorder.record();
+      } catch {
+        if (cancelled) return;
+        Alert.alert("", t("messages.voiceFailed"));
+        onCancelRef.current();
+      }
+    })();
+    return () => {
+      cancelled = true;
+      // Send and cancel already stop the recorder. A later stop runs after
+      // expo-audio has released the native object and throws.
+      if (finishing.current) return;
+      try {
+        void recorder.stop();
+      } catch {
+        // Native recorder was already released.
+      }
+    };
+  }, [recorder, t]);
+
+  const seconds = (recState.durationMillis || 0) / 1000;
+
+  const finish = useCallback(
+    async (send: boolean) => {
+      if (finishing.current) return;
+      finishing.current = true;
+      if (send) setHandingOff(true);
+      try {
+        if (recorder.isRecording) await recorder.stop();
+      } catch {
+        // Recorder may already have stopped.
+      }
+      let uri: string | null = null;
+      let recordedSeconds = seconds;
+      try {
+        uri = recorder.uri;
+        recordedSeconds = Math.max(recorder.currentTime || seconds, seconds);
+      } catch {
+        // Native recorder was already released.
+      }
+      const duration = recordedSeconds;
+      if (send && uri && duration >= 0.4) onSend(uri, duration);
+      else onCancel();
+      void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
+    },
+    [onCancel, onSend, recorder, seconds]
+  );
+
+  useEffect(() => {
+    if (seconds >= 60) void finish(true);
+  }, [finish, seconds]);
+
+  return (
+    <View style={styles.recordRow}>
+      <Pressable
+        onPress={() => void finish(false)}
+        style={styles.recordSide}
+        accessibilityRole="button"
+        accessibilityLabel={t("common.cancel")}
+      >
+        <Ionicons name="trash-outline" size={20} color={colors.error} />
+      </Pressable>
+      <View style={styles.recordLive}>
+        <View style={styles.recordDot} />
+        <Text style={styles.recordTime}>{formatVoiceClock(seconds)}</Text>
+      </View>
+      <Pressable
+        onPress={() => void finish(true)}
+        disabled={handingOff}
+        style={styles.send}
+        accessibilityRole="button"
+        accessibilityLabel={t("messages.voiceSend")}
+        accessibilityState={{ busy: handingOff }}
+      >
+        {handingOff ? (
+          <JosCityLoader color={colors.white} size={18} />
+        ) : (
+          <Ionicons name="send" size={16} color={colors.white} />
+        )}
+      </Pressable>
     </View>
   );
 }
@@ -380,8 +769,11 @@ function SwipeReplyMessage({
   peerName,
   colors,
   styles,
+  playing,
+  onToggleVoice,
+  onVoiceEnded,
   onReply,
-  onReport,
+  onOpenMenu,
 }: {
   item: ChatMessage;
   mine: boolean;
@@ -389,8 +781,11 @@ function SwipeReplyMessage({
   peerName: string;
   colors: Palette;
   styles: ReturnType<typeof makeStyles>;
+  playing: boolean;
+  onToggleVoice: () => void;
+  onVoiceEnded: () => void;
   onReply: (message: ChatMessage) => void;
-  onReport: () => void;
+  onOpenMenu: (message: ChatMessage) => void;
 }) {
   const { t } = useI18n();
   const translateX = useRef(new Animated.Value(0)).current;
@@ -412,31 +807,36 @@ function SwipeReplyMessage({
       bounciness: 5,
     }).start();
   }, [translateX]);
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_event, gesture) =>
-          gesture.dx > 3 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1,
-        onMoveShouldSetPanResponderCapture: (_event, gesture) =>
-          gesture.dx > 3 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1,
-        onPanResponderGrant: () => {
-          translateX.stopAnimation();
-        },
-        onPanResponderMove: (_event, gesture) => {
-          translateX.setValue(Math.min(Math.max(gesture.dx, 0), 52));
-        },
-        onPanResponderRelease: (_event, gesture) => {
-          if (gesture.dx >= 30) onReply(item);
-          resetPosition();
-        },
-        onPanResponderTerminate: resetPosition,
-      }),
-    [item, onReply, resetPosition, translateX]
-  );
+  const gesture = useMemo(() => {
+    const pan = Gesture.Pan()
+      .enabled(!item.isDeleted)
+      .activeOffsetX([-40, 8])
+      .failOffsetY([-28, 28])
+      .onUpdate((event) => {
+        translateX.setValue(Math.min(Math.max(event.translationX, 0), 56));
+      })
+      .onEnd((event) => {
+        if (event.translationX >= 24 || event.velocityX >= 700) onReply(item);
+        resetPosition();
+      })
+      .onFinalize(() => {
+        resetPosition();
+      });
+    const longPress = Gesture.LongPress()
+      .enabled(!item.isDeleted)
+      .minDuration(420)
+      .maxDistance(14)
+      .onStart(() => {
+        onOpenMenu(item);
+      });
+    return Gesture.Race(pan, longPress);
+  }, [item, onOpenMenu, onReply, resetPosition, translateX]);
   const quotedSender =
     item.replyToSenderId === myId
       ? "You"
       : item.replyToSenderUsername || peerName;
+  const voice = item.messageType === "voice" && Boolean(item.attachmentUrl) && !item.isDeleted;
+  const statusReply = item.isDeleted ? null : parseStatusReply(item.messageContent);
 
   return (
     <View style={mine ? styles.swipeMine : styles.swipeTheirs}>
@@ -452,44 +852,74 @@ function SwipeReplyMessage({
       >
         <Ionicons name="arrow-undo" size={21} color={colors.primary} />
       </Animated.View>
-      <Animated.View
-        {...panResponder.panHandlers}
-        style={{ transform: [{ translateX }] }}
-      >
-        <View style={[styles.bubbleWrap, mine ? styles.bubbleWrapMine : styles.bubbleWrapTheirs]}>
-        <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
-          {item.replyToId && item.replyToContent ? (
-            <View
-              style={[
-                styles.quotedMessage,
-                mine ? styles.quotedMessageMine : styles.quotedMessageTheirs,
-              ]}
-            >
-              <Text
-                style={[styles.quotedSender, mine && styles.quotedSenderMine]}
-                numberOfLines={1}
-              >
-                {quotedSender}
-              </Text>
-              <Text
-                style={[styles.quotedText, mine && styles.quotedTextMine]}
-                numberOfLines={2}
-              >
-                {item.replyToContent}
-              </Text>
+      <GestureDetector gesture={gesture}>
+        <Animated.View style={{ transform: [{ translateX }] }}>
+          <View style={[styles.bubbleWrap, mine ? styles.bubbleWrapMine : styles.bubbleWrapTheirs]}>
+            <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs, item.isDeleted && styles.bubbleDeleted]}>
+              {item.replyToId && item.replyToContent ? (
+                <View
+                  style={[
+                    styles.quotedMessage,
+                    mine ? styles.quotedMessageMine : styles.quotedMessageTheirs,
+                  ]}
+                >
+                  <Text
+                    style={[styles.quotedSender, mine && styles.quotedSenderMine]}
+                    numberOfLines={1}
+                  >
+                    {quotedSender}
+                  </Text>
+                  <Text
+                    style={[styles.quotedText, mine && styles.quotedTextMine]}
+                    numberOfLines={2}
+                  >
+                    {item.replyToContent}
+                  </Text>
+                </View>
+              ) : null}
+              {voice ? (
+                <VoiceMessageBubble
+                  uri={item.attachmentUrl || ""}
+                  duration={item.duration}
+                  mine={mine}
+                  playing={playing}
+                  onToggle={onToggleVoice}
+                  onFinished={onVoiceEnded}
+                />
+              ) : statusReply ? (
+                <StatusReplyBubble
+                  reply={statusReply}
+                  mine={mine}
+                  authorName={mine ? peerName : "You"}
+                  textStyle={[
+                    styles.bubbleText,
+                    mine && styles.bubbleTextMine,
+                  ]}
+                />
+              ) : (
+                <Text
+                  style={[
+                    styles.bubbleText,
+                    mine && styles.bubbleTextMine,
+                    item.isDeleted && styles.bubbleTextDeleted,
+                  ]}
+                >
+                  {item.isDeleted ? t("messages.deleted") : item.messageContent}
+                </Text>
+              )}
             </View>
-          ) : null}
-          <Text
-            style={[styles.bubbleText, mine && styles.bubbleTextMine]}
-            onLongPress={mine ? undefined : onReport}
-          >
-            {item.messageContent}
-          </Text>
-        </View>
-        <Text style={styles.stamp}>{timeAgo(item.createdAt)}</Text>
-        {mine && item.seen ? <Text style={styles.stamp}>{t("messages.seen")}</Text> : null}
-        </View>
-      </Animated.View>
+            <View style={styles.meta}>
+              <Text style={styles.metaTime}>{timeAgo(item.createdAt)}</Text>
+              {mine && !item.isDeleted ? (
+                <MessageReceiptMark
+                  status={item.messageId < 0 ? "sending" : item.receipt || (item.seen ? "read" : "sent")}
+                  label={t(receiptLabel(item))}
+                />
+              ) : null}
+            </View>
+          </View>
+        </Animated.View>
+      </GestureDetector>
     </View>
   );
 }
@@ -615,6 +1045,14 @@ function makeStyles(colors: Palette) {
   bubbleTextMine: {
     color: colors.white,
   },
+  bubbleDeleted: {
+    backgroundColor: colors.sheet,
+  },
+  bubbleTextDeleted: {
+    fontFamily: "Montserrat_500Medium",
+    fontStyle: "italic",
+    color: colors.textMuted,
+  },
   quotedMessage: {
     marginBottom: 6,
     borderLeftWidth: 3,
@@ -650,6 +1088,17 @@ function makeStyles(colors: Palette) {
   },
   stamp: {
     marginTop: 4,
+    fontFamily: "Montserrat_400Regular",
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  meta: {
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  metaTime: {
     fontFamily: "Montserrat_400Regular",
     fontSize: 11,
     color: colors.textMuted,
@@ -696,6 +1145,41 @@ function makeStyles(colors: Palette) {
     flexDirection: "row",
     alignItems: "flex-end",
     gap: 8,
+  },
+  recordRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 42,
+  },
+  recordSide: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.sheet,
+  },
+  recordLive: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 21,
+    backgroundColor: colors.sheet,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  recordDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.badge,
+  },
+  recordTime: {
+    fontFamily: "Montserrat_600SemiBold",
+    fontSize: 15,
+    color: colors.text,
   },
   input: {
     flex: 1,

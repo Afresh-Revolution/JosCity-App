@@ -1,16 +1,22 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  BackHandler,
+  Dimensions,
+  findNodeHandle,
   Image,
   KeyboardAvoidingView,
   Linking,
   Modal,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
   Share,
   StyleSheet,
   Text,
+  TextInputFocusEventData,
+  UIManager,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -21,6 +27,8 @@ import AppButton from "../components/AppButton";
 import FadeIn from "../components/FadeIn";
 import TextField from "../components/TextField";
 import CbcCardPayForm from "../components/wallet/CbcCardPayForm";
+import CbcTapPayPanel from "../components/wallet/CbcTapPayPanel";
+import { NfcReadError, prepareCardReader, readCardTap, type NfcCardRead } from "../nfc/readCbcCard";
 import { ErrorBanner } from "../components/AppNotice";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import ReportSheet from "../components/ReportSheet";
@@ -34,6 +42,7 @@ import {
   type MarketplaceListing,
 } from "../api/marketplace";
 import { SERVICE_PLACES } from "../constants/listingCategories";
+import { useKeyboardOverlap } from "../hooks/useKeyboardOverlap";
 import { useI18n } from "../i18n/I18nProvider";
 import {
   getAccountType,
@@ -121,6 +130,41 @@ export default function ListingDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [qty, setQty] = useState(1);
   const [sheet, setSheet] = useState(false);
+  const [readerAway, setReaderAway] = useState(false);
+  const [pendingRead, setPendingRead] = useState<{ id: number; tag: NfcCardRead } | null>(null);
+  const [pendingError, setPendingError] = useState<{ id: number; message: string } | null>(null);
+  const readSerial = useRef(0);
+  const sheetScrollRef = useRef<ScrollView>(null);
+  const sheetScrollOffset = useRef(0);
+  const keyboard = useKeyboardOverlap();
+  const keyboardRef = useRef(keyboard);
+  keyboardRef.current = keyboard;
+  const sheetLift = Platform.OS === "android" ? keyboard.overlap : 0;
+
+  const revealPin = (event?: NativeSyntheticEvent<TextInputFocusEventData>) => {
+    const target = event?.nativeEvent.target;
+    const lift = () => {
+      const handle = typeof target === "number" ? target : target ? findNodeHandle(target) : null;
+      if (!handle) {
+        sheetScrollRef.current?.scrollToEnd({ animated: true });
+        return;
+      }
+      UIManager.measureInWindow(handle, (_x, y, _w, height) => {
+        const latest = keyboardRef.current;
+        const covered = Math.max(latest.overlap, latest.keyboardHeight, 280);
+        const limit = Dimensions.get("window").height - covered - 24;
+        const bottom = y + height;
+        if (bottom > limit) {
+          sheetScrollRef.current?.scrollTo({
+            y: sheetScrollOffset.current + (bottom - limit),
+            animated: true,
+          });
+        }
+      });
+    };
+    setTimeout(lift, 180);
+    setTimeout(lift, 420);
+  };
   const [saving, setSaving] = useState(false);
   const [orders, setOrders] = useState<ListingCheckoutOrder[] | null>(null);
   const [fullName, setFullName] = useState("");
@@ -136,8 +180,23 @@ export default function ListingDetailScreen() {
   const [funding, setFunding] = useState<WalletFundingOptions | null>(null);
   const [walletBalance, setWalletBalance] = useState(0);
   const [payBusy, setPayBusy] = useState(false);
+  const [tapBusy, setTapBusy] = useState(false);
   const [orderStatus, setOrderStatus] = useState<Record<number, "paid" | "pending">>({});
   const [reportOpen, setReportOpen] = useState(false);
+
+  useEffect(() => {
+    prepareCardReader();
+  }, []);
+
+  useEffect(() => {
+    if (!sheet || Platform.OS !== "android") return undefined;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (saving || payBusy || tapBusy) return true;
+      setSheet(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [sheet, saving, payBusy, tapBusy]);
 
   useFocusEffect(
     useCallback(() => {
@@ -199,7 +258,12 @@ export default function ListingDetailScreen() {
       ? 20
       : 99;
   const images = listing ? listingImages(listing) : [];
-  const unavailable = Boolean(listing && (!listing.can_purchase || listing.is_sold_out));
+  const unavailable = Boolean(
+    listing &&
+      (listing.can_purchase === false ||
+        (!isService &&
+          (listing.is_sold_out || (listing.quantity_tracked && (listing.stock ?? 0) <= 0))))
+  );
   const unitLower = String(listing?.unit || "").toLowerCase();
   const qtyLabel = isService
     ? unitLower.includes("minute") || unitLower.includes("min")
@@ -270,7 +334,7 @@ export default function ListingDetailScreen() {
     order: ListingCheckoutOrder,
     details: { cardNumber: string; cvc: string; cardPin: string }
   ) => {
-    if (payBusy) return;
+    if (payBusy || tapBusy) return;
     setPayBusy(true);
     const result = await payListingCbcCard(order.id, details);
     setPayBusy(false);
@@ -293,7 +357,7 @@ export default function ListingDetailScreen() {
   };
 
   const payWithWallet = async (order: ListingCheckoutOrder) => {
-    if (payBusy) return;
+    if (payBusy || tapBusy) return;
     if (walletBalance < order.totalNaira) {
       Alert.alert(t("listing.payError"), t("listing.walletNeedFund"), [
         { text: t("common.cancel"), style: "cancel" },
@@ -333,8 +397,251 @@ export default function ListingDetailScreen() {
     );
   }
 
+  const requestCardRead = (openSheet = false) => {
+    const id = readSerial.current + 1;
+    readSerial.current = id;
+    setPendingRead(null);
+    setPendingError(null);
+    setReaderAway(true);
+    setTapBusy(true);
+    void (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      try {
+        const tag = await readCardTap(new AbortController().signal);
+        setPendingRead({ id, tag });
+        if (openSheet) setSheet(true);
+      } catch (caught) {
+        const aborted = caught instanceof NfcReadError && caught.code === "aborted";
+        if (!aborted) {
+          setPendingError({
+            id,
+            message: caught instanceof Error ? caught.message : "Could not read the card. Try again.",
+          });
+          if (openSheet) setSheet(true);
+        }
+      } finally {
+        setReaderAway(false);
+        setTapBusy(false);
+      }
+    })();
+  };
+
+  const tapFromListing = () => {
+    if (!listing || saving || readerAway || payBusy || unavailable || owner || isBusiness) return;
+    const id = readSerial.current + 1;
+    const scan = readCardTap(new AbortController().signal);
+    setSheet(false);
+    readSerial.current = id;
+    setPendingRead(null);
+    setPendingError(null);
+    setReaderAway(true);
+    setTapBusy(true);
+    const orderPromise = checkoutListing({
+      listingId: listing.id,
+      quantity: qty,
+      fullName: fullName.trim(),
+      phone: phone.trim(),
+      email: email.trim(),
+      address: address.trim(),
+      city: city.trim(),
+      state: stateName.trim(),
+      notes: notes.trim(),
+      preferredAt: preferredAt.trim(),
+    });
+    void (async () => {
+      try {
+        const tag = await scan;
+        const result = await orderPromise;
+        if (!result.success || !result.data?.orders?.length) {
+          Alert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"));
+          return;
+        }
+        setOrders(result.data.orders);
+        if (result.data.funding) setFunding(result.data.funding);
+        setPendingRead({ id, tag });
+        setSheet(true);
+      } catch (caught) {
+        const message =
+          caught instanceof NfcReadError && caught.code === "aborted"
+            ? "The card reader closed before a card was read. Tap to pay again and hold the card at the top of the iPhone."
+            : caught instanceof Error
+              ? caught.message
+              : "Could not read the card. Try again.";
+        setPendingError({ id, message });
+        Alert.alert("Tap to pay", message);
+      } finally {
+        setReaderAway(false);
+        setTapBusy(false);
+      }
+    })();
+  };
+
   return (
     <FeedShell tab={tab} header={<View />}>
+      {sheet && !readerAway ? <Modal
+        visible
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          if (!saving && !payBusy && !tapBusy) setSheet(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.sheetWrap}
+          onLayout={keyboard.onContainerLayout}
+        >
+          <Pressable
+            style={styles.sheetDim}
+            onPress={() => !saving && !payBusy && !tapBusy && setSheet(false)}
+          />
+          <View
+            style={[
+              styles.sheet,
+              sheetLift > 0
+                ? { marginBottom: sheetLift, maxHeight: Dimensions.get("window").height - sheetLift - 12 }
+                : null,
+            ]}
+          >
+            <View style={styles.sheetHandle} />
+            {orders?.length ? (
+              <ScrollView
+                ref={sheetScrollRef}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.sheetBody}
+                onScroll={(event) => {
+                  sheetScrollOffset.current = event.nativeEvent.contentOffset.y;
+                }}
+                scrollEventThrottle={16}
+              >
+                <Text style={styles.sheetTitle}>
+                  {isService ? t("listing.bookedTitle") : t("listing.orderedTitle")}
+                </Text>
+                <Text style={styles.sheetLead}>
+                  {isService
+                    ? t("listing.paySellerBooked", { name: sellerName })
+                    : t("listing.paySellerOrdered", { name: sellerName })}
+                </Text>
+                {orders.map((order) => {
+                  const status = orderStatus[order.id];
+                  return (
+                    <View key={order.id} style={styles.bankCard}>
+                      <Text style={styles.bankKicker}>
+                        {t("listing.orderSummary", {
+                          title: orderPayLabel(order),
+                          amount: formatNaira(order.totalNaira),
+                        })}
+                      </Text>
+                      {status === "paid" ? (
+                        <Text style={styles.payNote}>{t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })}</Text>
+                      ) : (
+                        <>
+                          <Text style={styles.payTo}>
+                            {t("listing.walletBalance", { amount: formatNaira(walletBalance) })}
+                          </Text>
+                          <AppButton
+                            label={payBusy ? t("listing.sending") : t("listing.wallet")}
+                            onPress={() => void payWithWallet(order)}
+                            loading={payBusy}
+                            disabled={payBusy || tapBusy}
+                          />
+                          <CbcCardPayForm
+                            amountNaira={order.totalNaira}
+                            quote={funding?.cbc_quote}
+                            busy={payBusy || tapBusy}
+                            onPay={(details) => void payWithCbcCard(order, details)}
+                            onPinFocus={revealPin}
+                          />
+                          <CbcTapPayPanel
+                            orderId={order.id}
+                            amountNaira={order.totalNaira}
+                            disabled={payBusy || tapBusy}
+                            onBusyChange={setTapBusy}
+                            onPinFocus={() => revealPin()}
+                            onRequestRead={requestCardRead}
+                            pendingRead={pendingRead}
+                            pendingError={pendingError}
+                            onPaid={() => {
+                              setOrderStatus((current) => ({ ...current, [order.id]: "paid" }));
+                              Alert.alert(
+                                t("listing.paySuccess"),
+                                t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })
+                              );
+                            }}
+                          />
+                        </>
+                      )}
+                    </View>
+                  );
+                })}
+                <AppButton label={t("listing.done")} onPress={() => setSheet(false)} />
+              </ScrollView>
+            ) : (
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.sheetBody}
+              >
+                <Text style={styles.sheetTitle}>{cta}</Text>
+                <Text style={styles.sheetLead}>
+                  {isService
+                    ? t("listing.paySellerBookIntro", { name: sellerName })
+                    : t("listing.paySellerBuyIntro", { name: sellerName })}
+                </Text>
+                {formError ? <ErrorBanner message={formError} /> : null}
+                <TextField label={t("listing.fullName")} value={fullName} onChangeText={setFullName} />
+                <TextField
+                  label={t("listing.phone")}
+                  value={phone}
+                  onChangeText={setPhone}
+                  keyboardType="phone-pad"
+                />
+                <TextField
+                  label={t("listing.email")}
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                {isService ? (
+                  <TextField
+                    label={t("listing.preferredTime")}
+                    value={preferredAt}
+                    onChangeText={setPreferredAt}
+                    placeholder={t("listing.preferredTimeHint")}
+                  />
+                ) : (
+                  <>
+                    <TextField label={t("listing.address")} value={address} onChangeText={setAddress} />
+                    <TextField label={t("listing.city")} value={city} onChangeText={setCity} />
+                    <TextField label={t("listing.state")} value={stateName} onChangeText={setStateName} />
+                  </>
+                )}
+                {isService && String(listing?.service_location || "") === "client_site" ? (
+                  <TextField
+                    label={t("listing.serviceAddress")}
+                    value={address}
+                    onChangeText={setAddress}
+                    placeholder={t("listing.serviceAddressHint")}
+                  />
+                ) : null}
+                <TextField
+                  label={t("listing.notes")}
+                  value={notes}
+                  onChangeText={setNotes}
+                  multiline
+                  placeholder={t("listing.notesHint")}
+                />
+                <AppButton
+                  label={saving ? t("listing.sending") : `${cta} · ${formatNaira(total)}`}
+                  onPress={() => void submit()}
+                  loading={saving}
+                  disabled={saving}
+                />
+              </ScrollView>
+            )}
+          </View>
+        </KeyboardAvoidingView>
+      </Modal> : null}
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <FadeIn>
           <Pressable
@@ -385,7 +692,7 @@ export default function ListingDetailScreen() {
                 {formatNaira(listing.price)}
                 {listing.unit ? ` · ${listing.unit}` : ""}
               </Text>
-              {listing.description ? <Text style={styles.body}>{listing.description}</Text> : null}
+              {listing.description ? <Text selectable style={styles.body}>{listing.description}</Text> : null}
             </FadeIn>
 
             <FadeIn delay={110}>
@@ -491,11 +798,28 @@ export default function ListingDetailScreen() {
                 <Text style={styles.total}>
                   {t("listing.total")}: {formatNaira(total)}
                 </Text>
-                <AppButton
-                  label={unavailable ? t("listing.unavailable") : cta}
-                  onPress={openCheckout}
-                  disabled={unavailable}
-                />
+                <View style={styles.payRow}>
+                  <AppButton
+                    style={styles.payHalf}
+                    label={
+                      !isService &&
+                      (listing.is_sold_out || (listing.quantity_tracked && (listing.stock ?? 0) <= 0))
+                        ? t("listing.soldOut")
+                        : unavailable
+                          ? t("listing.unavailable")
+                          : cta
+                    }
+                    onPress={openCheckout}
+                    disabled={saving || readerAway}
+                  />
+                  <AppButton
+                    style={styles.payHalf}
+                    label="Tap to pay"
+                    onPress={() => void tapFromListing()}
+                    loading={saving || readerAway}
+                    disabled={unavailable || saving || readerAway}
+                  />
+                </View>
               </FadeIn>
             ) : (
               <FadeIn delay={160}>
@@ -507,133 +831,8 @@ export default function ListingDetailScreen() {
           </>
         ) : null}
       </ScrollView>
-
-      <Modal visible={sheet} animationType="slide" transparent onRequestClose={() => setSheet(false)}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.sheetWrap}
-        >
-          <Pressable style={styles.sheetDim} onPress={() => !saving && !payBusy && setSheet(false)} />
-          <View style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-            {orders?.length ? (
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={styles.sheetBody}
-              >
-                <Text style={styles.sheetTitle}>
-                  {isService ? t("listing.bookedTitle") : t("listing.orderedTitle")}
-                </Text>
-                <Text style={styles.sheetLead}>
-                  {isService
-                    ? t("listing.paySellerBooked", { name: sellerName })
-                    : t("listing.paySellerOrdered", { name: sellerName })}
-                </Text>
-                {orders.map((order) => {
-                  const status = orderStatus[order.id];
-                  return (
-                    <View key={order.id} style={styles.bankCard}>
-                      <Text style={styles.bankKicker}>
-                        {t("listing.orderSummary", {
-                          title: orderPayLabel(order),
-                          amount: formatNaira(order.totalNaira),
-                        })}
-                      </Text>
-                      {status === "paid" ? (
-                        <Text style={styles.payNote}>{t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })}</Text>
-                      ) : (
-                        <>
-                          <Text style={styles.payTo}>
-                            {t("listing.walletBalance", { amount: formatNaira(walletBalance) })}
-                          </Text>
-                          <AppButton
-                            label={payBusy ? t("listing.sending") : t("listing.wallet")}
-                            onPress={() => void payWithWallet(order)}
-                            loading={payBusy}
-                            disabled={payBusy}
-                          />
-                          <CbcCardPayForm
-                            amountNaira={order.totalNaira}
-                            quote={funding?.cbc_quote}
-                            busy={payBusy}
-                            onPay={(details) => void payWithCbcCard(order, details)}
-                          />
-                        </>
-                      )}
-                    </View>
-                  );
-                })}
-                <AppButton label={t("listing.done")} onPress={() => setSheet(false)} />
-              </ScrollView>
-            ) : (
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={styles.sheetBody}
-              >
-                <Text style={styles.sheetTitle}>{cta}</Text>
-                <Text style={styles.sheetLead}>
-                  {isService
-                    ? t("listing.paySellerBookIntro", { name: sellerName })
-                    : t("listing.paySellerBuyIntro", { name: sellerName })}
-                </Text>
-                {formError ? <ErrorBanner message={formError} /> : null}
-                <TextField label={t("listing.fullName")} value={fullName} onChangeText={setFullName} />
-                <TextField
-                  label={t("listing.phone")}
-                  value={phone}
-                  onChangeText={setPhone}
-                  keyboardType="phone-pad"
-                />
-                <TextField
-                  label={t("listing.email")}
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-                {isService ? (
-                  <TextField
-                    label={t("listing.preferredTime")}
-                    value={preferredAt}
-                    onChangeText={setPreferredAt}
-                    placeholder={t("listing.preferredTimeHint")}
-                  />
-                ) : (
-                  <>
-                    <TextField label={t("listing.address")} value={address} onChangeText={setAddress} />
-                    <TextField label={t("listing.city")} value={city} onChangeText={setCity} />
-                    <TextField label={t("listing.state")} value={stateName} onChangeText={setStateName} />
-                  </>
-                )}
-                {isService && String(listing?.service_location || "") === "client_site" ? (
-                  <TextField
-                    label={t("listing.serviceAddress")}
-                    value={address}
-                    onChangeText={setAddress}
-                    placeholder={t("listing.serviceAddressHint")}
-                  />
-                ) : null}
-                <TextField
-                  label={t("listing.notes")}
-                  value={notes}
-                  onChangeText={setNotes}
-                  multiline
-                  placeholder={t("listing.notesHint")}
-                />
-                <AppButton
-                  label={saving ? t("listing.sending") : `${cta} · ${formatNaira(total)}`}
-                  onPress={() => void submit()}
-                  loading={saving}
-                  disabled={saving}
-                />
-              </ScrollView>
-            )}
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      <Modal
-        visible={viewerIndex !== null}
+      {viewerIndex !== null ? <Modal
+        visible
         animationType="fade"
         presentationStyle="fullScreen"
         onRequestClose={() => setViewerIndex(null)}
@@ -686,14 +885,14 @@ export default function ListingDetailScreen() {
             </>
           ) : null}
         </View>
-      </Modal>
-      <ReportSheet
+      </Modal> : null}
+      {reportOpen ? <ReportSheet
         visible={reportOpen}
         onClose={() => setReportOpen(false)}
         contentType="listing"
         contentId={listing?.id || listingId}
         reportedUserId={Number(listing?.seller_user_id) || null}
-      />
+      /> : null}
     </FeedShell>
   );
 }
@@ -840,6 +1039,14 @@ function makeStyles(colors: Palette) {
       fontSize: 12,
       color: colors.text,
     },
+    payRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    payHalf: {
+      flex: 1,
+    },
     qtyRow: {
       marginTop: 22,
       flexDirection: "row",
@@ -889,6 +1096,14 @@ function makeStyles(colors: Palette) {
       fontSize: 13,
       color: colors.textMuted,
     },
+    sheetOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 40,
+      elevation: 40,
+    },
+    sheetOverlayHidden: {
+      opacity: 0,
+    },
     sheetWrap: {
       flex: 1,
       justifyContent: "flex-end",
@@ -898,6 +1113,8 @@ function makeStyles(colors: Palette) {
       backgroundColor: "rgba(0,0,0,0.35)",
     },
     sheet: {
+      zIndex: 2,
+      elevation: 8,
       maxHeight: "88%",
       backgroundColor: colors.background,
       borderTopLeftRadius: 24,

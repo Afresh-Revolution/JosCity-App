@@ -172,18 +172,32 @@ function socialTitle(action: string, name: string): string | null {
   return null;
 }
 
+export function isJoscityNotice(row: ApiNotification): boolean {
+  const node = String(row.node_type || "").toLowerCase();
+  return node === "admin_notification" || Boolean(row.created_by_admin);
+}
+
+export function brandJoscityText(value?: string | null): string {
+  return String(value || "")
+    .replace(/\badmins\b/gi, "Joscity")
+    .replace(/\badmin\b/gi, "Joscity")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 export function notificationTitle(row: ApiNotification): string {
-  const title = String(row.title || "").trim();
+  const title = brandJoscityText(row.title);
   if (title) return title;
   const action = String(row.action || "").trim();
   const composed = socialTitle(action, notificationActorName(row));
   if (composed) return composed;
-  if (action && action !== "friend_request") return action;
-  return "JOSCITY update";
+  if (action && action !== "friend_request") return brandJoscityText(action);
+  return "Joscity update";
 }
 
 export function notificationBody(row: ApiNotification): string {
-  const message = String(row.message || "").trim();
+  if (notificationKind(row) === "message") return "";
+  const message = brandJoscityText(row.message);
   const action = String(row.action || "").trim();
   const title = notificationTitle(row);
   if (!message) return "";
@@ -279,6 +293,46 @@ export function uniqueNotifications(rows: ApiNotification[]): ApiNotification[] 
     if (seen.has(fingerprint)) continue;
     seen.add(fingerprint);
     out.push(row);
+  }
+  return out;
+}
+
+export type StackedNotification = ApiNotification & {
+  stackIds: number[];
+  stackCount: number;
+};
+
+export function stackMessageNotifications(rows: ApiNotification[]): StackedNotification[] {
+  const out: StackedNotification[] = [];
+  const messageIndex = new Map<string, number>();
+  for (const row of rows) {
+    const kind = notificationKind(row);
+    const fromId = Number(row.from_user_id || 0);
+    const conversationId = Number(row.node_id || 0);
+    if (kind !== "message" || fromId <= 0) {
+      out.push({ ...row, stackIds: [row.id], stackCount: 1 });
+      continue;
+    }
+    const key = `${fromId}:${conversationId || "open"}`;
+    const existingAt = messageIndex.get(key);
+    if (existingAt == null) {
+      messageIndex.set(key, out.length);
+      out.push({ ...row, message: null, stackIds: [row.id], stackCount: 1 });
+      continue;
+    }
+    const existing = out[existingAt];
+    const newer =
+      new Date(row.time || 0).getTime() >= new Date(existing.time || 0).getTime();
+    existing.stackIds.push(row.id);
+    existing.stackCount += 1;
+    existing.is_read = Boolean(existing.is_read) && Boolean(row.is_read);
+    existing.message = null;
+    if (newer) {
+      existing.time = row.time;
+      existing.title = row.title;
+      existing.from_user = row.from_user;
+      existing.node_id = row.node_id ?? existing.node_id;
+    }
   }
   return out;
 }

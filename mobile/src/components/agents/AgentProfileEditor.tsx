@@ -7,7 +7,7 @@ import AgentServiceChecks from "./AgentServiceChecks";
 import { updateAgentPreview, useAgentPreview } from "../../state/agentPreview";
 import { useTheme } from "../../theme/ThemeProvider";
 import { type PendingAgentApplication } from "../../api/agentSignup";
-import { usernameError } from "../../utils/accountNames";
+import { publicUsername, usernameError } from "../../utils/accountNames";
 
 export default function AgentProfileEditor({
   onClose,
@@ -21,7 +21,11 @@ export default function AgentProfileEditor({
   copy?: string;
 }) {
   const profile = useAgentPreview();
-  const [draft, setDraft] = useState({ ...profile, nin: profile.nin || "", username: profile.username || "" });
+  const [draft, setDraft] = useState({
+    ...profile,
+    nin: profile.nin || "",
+    username: publicUsername(profile.username),
+  });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const { colors } = useTheme();

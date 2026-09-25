@@ -19,7 +19,7 @@ import {
 const STORED_TOKEN_KEY = "joscity.expoPushToken";
 const INSTALL_ID_KEY = "joscity.installationId";
 const PERMISSION_ASKED_KEY = "joscity.pushPermissionAsked";
-const CHANNELS_SOUND_KEY = "joscity.androidChannels.sound.v3";
+const CHANNELS_SOUND_KEY = "joscity.androidChannels.sound.v4";
 
 const presentedAt = new Map<string, number>();
 const PRESENTED_TTL_MS = 45_000;
@@ -115,8 +115,14 @@ export async function configurePushNotifications(): Promise<void> {
         screen?: string;
         entityId?: string | number;
         eventId?: string | number;
+        alarm?: boolean | string;
+        notificationType?: string;
       } | undefined;
       const scheduledLive = data?.kind === "scheduled_post_published";
+      const alarm =
+        data?.alarm === true ||
+        data?.alarm === "true" ||
+        data?.notificationType === "danger";
       const inForeground = AppState.currentState === "active";
       const viewingThread =
         inForeground && data?.screen === "messages" && isPushFocused("messages", data.entityId);
@@ -127,7 +133,7 @@ export async function configurePushNotifications(): Promise<void> {
       return {
         shouldShowBanner: !suppressBanner,
         shouldShowList: !duplicate,
-        shouldPlaySound: !suppressBanner,
+        shouldPlaySound: alarm ? !inForeground && !duplicate : !suppressBanner,
         shouldSetBadge: true,
         priority: Notifications.AndroidNotificationPriority.HIGH,
       };
@@ -152,11 +158,18 @@ async function ensureAndroidChannels(): Promise<void> {
     },
   };
   const channels = [
-    { id: "messages", name: "Messages", importance: Notifications.AndroidImportance.HIGH },
-    { id: "notifications", name: "Notifications", importance: Notifications.AndroidImportance.HIGH },
-    { id: "rides", name: "Rides", importance: Notifications.AndroidImportance.MAX },
-    { id: "payments", name: "Payments", importance: Notifications.AndroidImportance.HIGH },
-    { id: "default", name: "JosCity", importance: Notifications.AndroidImportance.HIGH },
+    { id: "messages", name: "Messages", importance: Notifications.AndroidImportance.HIGH, sound: "default" as const },
+    { id: "notifications", name: "Notifications", importance: Notifications.AndroidImportance.HIGH, sound: "default" as const },
+    { id: "rides", name: "Rides", importance: Notifications.AndroidImportance.MAX, sound: "default" as const },
+    { id: "payments", name: "Payments", importance: Notifications.AndroidImportance.HIGH, sound: "default" as const },
+    { id: "default", name: "JosCity", importance: Notifications.AndroidImportance.HIGH, sound: "default" as const },
+    {
+      id: "alerts",
+      name: "Joscity alerts",
+      importance: Notifications.AndroidImportance.MAX,
+      sound: "alarm.wav",
+      vibrationPattern: [0, 400, 200, 400, 200, 800] as number[],
+    },
   ];
   const rebuilt = await AsyncStorage.getItem(CHANNELS_SOUND_KEY);
   for (const channel of channels) {
@@ -167,6 +180,8 @@ async function ensureAndroidChannels(): Promise<void> {
       name: channel.name,
       importance: channel.importance,
       ...soundAndVibrate,
+      sound: channel.sound,
+      vibrationPattern: "vibrationPattern" in channel ? channel.vibrationPattern : soundAndVibrate.vibrationPattern,
     });
   }
   if (rebuilt !== "1") {

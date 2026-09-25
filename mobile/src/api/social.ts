@@ -1,6 +1,8 @@
 import { apiFetch, readJson } from "./client";
 import { getFeed } from "./feed";
 import { handleFromName } from "../utils/format";
+import { publicUsername } from "../utils/accountNames";
+import { isVideoUrl } from "../utils/media";
 import { getUser } from "../storage/session";
 import { markUserBlocked, markUserUnblocked } from "../storage/blockedUsers";
 
@@ -508,6 +510,8 @@ type LegacyProfile = {
   business_name?: string;
   user_picture?: string | null;
   user_name?: string | null;
+  user_email?: string | null;
+  business_email?: string | null;
   address?: string | null;
   user_bio?: string | null;
   account_type?: string;
@@ -547,10 +551,10 @@ function photosFromPosts(posts: PersonalPage["posts"]): PersonalPage["photos"] {
     const urls = Array.isArray(post.media_urls) ? (post.media_urls as string[]) : [];
     const items = media.length
       ? media
-      : urls.map((url) => ({ url, type: "image" }));
+      : urls.map((url) => ({ url, type: isVideoUrl(url) ? "video" : "image" }));
     for (const item of items) {
       const type = String(item.type || "").toLowerCase();
-      if (item.url && !type.includes("video")) {
+      if (item.url && !type.includes("video") && !isVideoUrl(item.url, item.type)) {
         photos.push({
           url: String(item.url),
           source: "post",
@@ -617,7 +621,11 @@ async function getPersonalPageFallback(userId: number): Promise<PersonalPage | n
     profile: {
       user_id: id,
       name,
-      handle: row?.user_name ? `@${String(row.user_name).replace(/^@/, "")}` : handleFromName(name),
+      handle: publicUsername(row?.user_name)
+        ? `@${publicUsername(row?.user_name)}`
+        : isBiz
+          ? String(row?.user_email || row?.business_email || "").trim() || handleFromName(name)
+          : handleFromName(name),
       picture: row?.user_picture || null,
       bio: String(row?.user_bio || "").trim() || null,
       location: String(row?.address || "").trim() || null,

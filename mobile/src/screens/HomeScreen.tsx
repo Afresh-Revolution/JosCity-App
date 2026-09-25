@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
   AppState,
@@ -12,7 +12,6 @@ import {
 } from "react-native";
 import JosCityLoader from "../components/JosCityLoader";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import FadeIn from "../components/FadeIn";
 import { ErrorBanner } from "../components/AppNotice";
 import MarqueeText from "../components/MarqueeText";
 import AvatarCircle from "../components/feed/AvatarCircle";
@@ -344,7 +343,211 @@ export default function HomeScreen() {
     : "";
   const peopleAfterIndex = peopleInsertIndex(posts.length);
   const previewPeople = useMemo(() => people.slice(0, 8), [people]);
-  const openPeoplePage = () => router.push("/people");
+  const openPeoplePage = useCallback(() => {
+    router.push("/people");
+  }, [router]);
+  const onDeletedPost = useCallback((deletedId: number) => {
+    setPosts((current) =>
+      current.filter((item) => Number(item.post_id || item.id) !== deletedId)
+    );
+  }, []);
+  const renderFeedHeader = useCallback(
+    () => (
+      <View>
+        {showGreeting && greeting ? (
+          <View style={styles.banner}>
+            <Ionicons
+              name={greetingData?.icon || "sunny-outline"}
+              size={16}
+              color={colors.primary}
+            />
+            {greeting ? (
+              <MarqueeText style={styles.bannerText}>{greeting}</MarqueeText>
+            ) : null}
+            <Pressable hitSlop={8} onPress={() => setShowGreeting(false)}>
+              <Ionicons name="close" size={16} color={colors.textMuted} />
+            </Pressable>
+          </View>
+        ) : null}
+
+        <View style={!showGreeting ? styles.statusSolo : undefined}>
+          <StatusRow
+            groups={storyGroups}
+            currentUserId={user?.user_id}
+            currentUserName={displayName === "there" ? "You" : displayName}
+            currentUserAvatar={picture}
+          />
+        </View>
+
+        <View>
+          <View style={[styles.composer, pendingPost && styles.composerUploading]}>
+            <AvatarCircle name={displayName} uri={picture} size={40} />
+            <Pressable
+              onPress={() => router.push("/create")}
+              style={styles.composerField}
+              accessibilityRole="button"
+              accessibilityLabel={t("home.createPost")}
+            >
+              <Text style={styles.composerPlaceholder} numberOfLines={1}>
+                {t("home.composer", { name: firstName })}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                router.push({ pathname: "/create", params: { attach: "photo" } })
+              }
+              style={styles.composerAction}
+              accessibilityRole="button"
+              accessibilityLabel={t("home.addPhoto")}
+              hitSlop={6}
+            >
+              <Ionicons name="image-outline" size={22} color={colors.primary} />
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                router.push({ pathname: "/create", params: { attach: "video" } })
+              }
+              style={styles.composerAction}
+              accessibilityRole="button"
+              accessibilityLabel={t("home.addVideo")}
+              hitSlop={6}
+            >
+              <Ionicons name="videocam-outline" size={22} color={colors.primary} />
+            </Pressable>
+          </View>
+          {pendingPost ? (
+            <View style={styles.uploadBar}>
+              <View style={styles.uploadMeta}>
+                <Text style={styles.uploadLabel} numberOfLines={1}>
+                  {pendingPost.progress < 0.93
+                    ? t("home.uploading")
+                    : t("home.publishing")}
+                </Text>
+                <Pressable
+                  onPress={cancelPendingPost}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("home.cancelUpload")}
+                >
+                  <Text style={styles.uploadCancel}>{t("common.cancel")}</Text>
+                </Pressable>
+              </View>
+              <View style={styles.uploadTrack}>
+                <View
+                  style={[
+                    styles.uploadFill,
+                    { width: `${Math.round(pendingPost.progress * 100)}%` },
+                  ]}
+                />
+              </View>
+            </View>
+          ) : null}
+        </View>
+
+        {error ? (
+          <View style={{ marginHorizontal: 16 }}>
+            <ErrorBanner message={error} />
+          </View>
+        ) : null}
+
+        {posts.length === 0 && !error ? (
+          <Text style={styles.empty}>{t("home.empty")}</Text>
+        ) : null}
+      </View>
+    ),
+    [
+      colors.primary,
+      colors.textMuted,
+      displayName,
+      error,
+      firstName,
+      greeting,
+      greetingData?.icon,
+      pendingPost,
+      picture,
+      posts.length,
+      router,
+      showGreeting,
+      storyGroups,
+      styles,
+      t,
+      user?.user_id,
+    ]
+  );
+  const renderFeedItem = useCallback(
+    ({ item: post, index }: { item: FeedPost; index: number }) => (
+      <View collapsable={false}>
+        <PostCard
+          post={post}
+          viewerId={user?.user_id}
+          onDeleted={onDeletedPost}
+        />
+        {peopleAfterIndex != null && index === peopleAfterIndex ? (
+          <View
+            onLayout={(event) => {
+              peopleY.current = event.nativeEvent.layout.y;
+            }}
+          >
+            <PeopleRow
+              people={previewPeople}
+              title={t("home.peopleTitle")}
+              subtitle={t("home.peopleSubtitle")}
+              seeAllLabel={t("common.seeAll")}
+              onSeeAll={openPeoplePage}
+            />
+          </View>
+        ) : null}
+      </View>
+    ),
+    [onDeletedPost, openPeoplePage, peopleAfterIndex, previewPeople, t, user?.user_id]
+  );
+  const renderFeedFooter = useCallback(
+    () => (
+      <View>
+        {posts.length === 0 ? (
+          <View
+            onLayout={(event) => {
+              peopleY.current = event.nativeEvent.layout.y;
+            }}
+          >
+            <PeopleRow
+              people={previewPeople}
+              title={t("home.peopleTitle")}
+              subtitle={t("home.peopleSubtitle")}
+              seeAllLabel={t("common.seeAll")}
+              onSeeAll={openPeoplePage}
+            />
+          </View>
+        ) : null}
+
+        {hasMore ? (
+          <Pressable
+            onPress={() => void onLoadMore()}
+            style={styles.loadMore}
+            disabled={loadingMore}
+          >
+            {loadingMore ? (
+              <JosCityLoader color={colors.primary} />
+            ) : (
+              <Text style={styles.loadMoreText}>{t("home.loadMore")}</Text>
+            )}
+          </Pressable>
+        ) : null}
+      </View>
+    ),
+    [
+      colors.primary,
+      hasMore,
+      loadingMore,
+      onLoadMore,
+      openPeoplePage,
+      posts.length,
+      previewPeople,
+      styles.loadMore,
+      styles.loadMoreText,
+      t,
+    ]
+  );
 
   if (!allowed) {
     return (
@@ -381,9 +584,10 @@ export default function HomeScreen() {
             ref={scrollRef}
             data={posts}
             keyExtractor={(post) => String(post.post_id)}
-            initialNumToRender={5}
-            maxToRenderPerBatch={5}
-            windowSize={7}
+            initialNumToRender={8}
+            maxToRenderPerBatch={6}
+            windowSize={21}
+            updateCellsBatchingPeriod={50}
             removeClippedSubviews={false}
             onEndReached={() => { if (!error) void onLoadMore(); }}
             onEndReachedThreshold={0.5}
@@ -401,178 +605,9 @@ export default function HomeScreen() {
                 tintColor={colors.primary}
               />
             }
-            ListHeaderComponent={<>
-          {showGreeting && greeting ? (
-            <FadeIn delay={40} duration={480} translateY={8}>
-              <View style={styles.banner}>
-                <Ionicons
-                  name={greetingData?.icon || "sunny-outline"}
-                  size={16}
-                  color={colors.primary}
-                />
-                {greeting ? (
-                  <MarqueeText style={styles.bannerText}>{greeting}</MarqueeText>
-                ) : null}
-                <Pressable hitSlop={8} onPress={() => setShowGreeting(false)}>
-                  <Ionicons name="close" size={16} color={colors.textMuted} />
-                </Pressable>
-              </View>
-            </FadeIn>
-          ) : null}
-
-          <View style={!showGreeting ? styles.statusSolo : undefined}>
-            <StatusRow
-              groups={storyGroups}
-              currentUserId={user?.user_id}
-              currentUserName={displayName === "there" ? "You" : displayName}
-              currentUserAvatar={picture}
-            />
-          </View>
-
-          <FadeIn delay={90} duration={500}>
-            <View>
-              <View style={[styles.composer, pendingPost && styles.composerUploading]}>
-                <AvatarCircle name={displayName} uri={picture} size={40} />
-                <Pressable
-                  onPress={() => router.push("/create")}
-                  style={styles.composerField}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("home.createPost")}
-                >
-                  <Text style={styles.composerPlaceholder} numberOfLines={1}>
-                    {t("home.composer", { name: firstName })}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() =>
-                    router.push({ pathname: "/create", params: { attach: "photo" } })
-                  }
-                  style={styles.composerAction}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("home.addPhoto")}
-                  hitSlop={6}
-                >
-                  <Ionicons name="image-outline" size={22} color={colors.primary} />
-                </Pressable>
-                <Pressable
-                  onPress={() =>
-                    router.push({ pathname: "/create", params: { attach: "video" } })
-                  }
-                  style={styles.composerAction}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("home.addVideo")}
-                  hitSlop={6}
-                >
-                  <Ionicons name="videocam-outline" size={22} color={colors.primary} />
-                </Pressable>
-              </View>
-              {pendingPost ? (
-                <View style={styles.uploadBar}>
-                  <View style={styles.uploadMeta}>
-                    <Text style={styles.uploadLabel} numberOfLines={1}>
-                      {pendingPost.progress < 0.93
-                        ? t("home.uploading")
-                        : t("home.publishing")}
-                    </Text>
-                    <Pressable
-                      onPress={cancelPendingPost}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                      accessibilityLabel={t("home.cancelUpload")}
-                    >
-                      <Text style={styles.uploadCancel}>{t("common.cancel")}</Text>
-                    </Pressable>
-                  </View>
-                  <View style={styles.uploadTrack}>
-                    <View
-                      style={[
-                        styles.uploadFill,
-                        { width: `${Math.round(pendingPost.progress * 100)}%` },
-                      ]}
-                    />
-                  </View>
-                </View>
-              ) : null}
-            </View>
-          </FadeIn>
-
-          {error ? (
-            <View style={{ marginHorizontal: 16 }}>
-              <ErrorBanner message={error} />
-            </View>
-          ) : null}
-
-          {posts.length === 0 && !error ? (
-            <Text style={styles.empty}>{t("home.empty")}</Text>
-          ) : null}
-
-            </>}
-            renderItem={({ item: post, index }) => {
-            const postId = Number(post.post_id || post.id || 0);
-            return (
-              <Fragment key={String(postId || index)}>
-                <View>
-                  <PostCard
-                    post={post}
-                    delay={Math.min(index * 70, 280)}
-                    viewerId={user?.user_id}
-                    onDeleted={(deletedId) =>
-                      setPosts((current) =>
-                        current.filter((item) => Number(item.post_id || item.id) !== deletedId)
-                      )
-                    }
-                  />
-                </View>
-                {peopleAfterIndex != null && index === peopleAfterIndex ? (
-                  <View
-                    onLayout={(event) => {
-                      peopleY.current = event.nativeEvent.layout.y;
-                    }}
-                  >
-                    <PeopleRow
-                      people={previewPeople}
-                      title={t("home.peopleTitle")}
-                      subtitle={t("home.peopleSubtitle")}
-                      seeAllLabel={t("common.seeAll")}
-                      onSeeAll={openPeoplePage}
-                    />
-                  </View>
-                ) : null}
-              </Fragment>
-            );
-            }}
-            ListFooterComponent={<>
-
-          {posts.length === 0 ? (
-            <View
-              onLayout={(event) => {
-                peopleY.current = event.nativeEvent.layout.y;
-              }}
-            >
-              <PeopleRow
-                people={previewPeople}
-                title={t("home.peopleTitle")}
-                subtitle={t("home.peopleSubtitle")}
-                seeAllLabel={t("common.seeAll")}
-                onSeeAll={openPeoplePage}
-              />
-            </View>
-          ) : null}
-
-          {hasMore ? (
-            <Pressable
-              onPress={() => void onLoadMore()}
-              style={styles.loadMore}
-              disabled={loadingMore}
-            >
-              {loadingMore ? (
-                <JosCityLoader color={colors.primary} />
-              ) : (
-                <Text style={styles.loadMoreText}>{t("home.loadMore")}</Text>
-              )}
-            </Pressable>
-          ) : null}
-            </>}
+            ListHeaderComponent={renderFeedHeader()}
+            renderItem={renderFeedItem}
+            ListFooterComponent={renderFeedFooter()}
           />
         </View>
       )}
@@ -585,7 +620,6 @@ function makeHomeStyles(colors: Palette) {
     feed: {
       flex: 1,
       backgroundColor: colors.background,
-      overflow: "visible",
     },
     scroll: {
       flex: 1,

@@ -36,6 +36,7 @@ import RatingPromptHost from "../src/components/RatingPromptHost";
 import { startScheduledPostNoticeWatcher } from "../src/state/scheduledPostNotice";
 import { startForegroundInterval } from "../src/utils/foregroundInterval";
 import { getNotificationsModule } from "../src/utils/optionalNativeModules";
+import { playAlarmSound } from "../src/utils/uiSounds";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 configurePushNotifications();
@@ -218,6 +219,19 @@ function NotificationTapRouter() {
     void getNotificationsModule().then((notifications) => {
       if (!active || !notifications) return;
       sub = notifications.addNotificationResponseReceivedListener(handleResponse);
+      const received = notifications.addNotificationReceivedListener((notification) => {
+        const data = notification.request.content.data as {
+          alarm?: boolean | string;
+          notificationType?: string;
+        } | undefined;
+        const alarm = data?.alarm === true || data?.alarm === "true" || data?.notificationType === "danger";
+        if (alarm && AppState.currentState === "active") playAlarmSound();
+      });
+      const previousRemove = sub.remove.bind(sub);
+      sub.remove = () => {
+        previousRemove();
+        received.remove();
+      };
       void notifications.getLastNotificationResponseAsync().then(handleResponse).catch(() => undefined);
     }).catch(() => undefined);
 

@@ -12,6 +12,7 @@ export type FeedAuthor = {
   badge_color?: string | null;
   account_type?: string;
   username?: string | null;
+  email?: string | null;
 };
 
 export type FeedMedia = {
@@ -31,6 +32,8 @@ export type FeedPost = {
   media_urls?: string[];
   media_types?: string[];
   post_type?: string;
+  original_post?: (FeedPost & { unavailable?: boolean }) | null;
+  user_shared?: boolean;
   author?: FeedAuthor;
   reactions_count?: number;
   comments_count?: number;
@@ -234,11 +237,40 @@ export async function reportPost(
   });
 }
 
-export async function sharePost(postId: number): Promise<void> {
-  await apiFetch(`/posts/${postId}/share`, {
+export type ReshareResult = {
+  post: FeedPost;
+  unshared: boolean;
+  removedPostIds: number[];
+};
+
+export async function resharePost(postId: number): Promise<ReshareResult> {
+  const response = await apiFetch(`/posts/${postId}/share`, {
     method: "POST",
     auth: true,
   });
+  const result = await readJson<{
+    success: boolean;
+    data?: FeedPost;
+    error?: string;
+    message?: string;
+    unshared?: boolean;
+    removed_post_ids?: number[];
+  }>(response);
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || result.message || "Could not reshare this post.");
+  }
+  if (!result.unshared && !result.data) {
+    throw new Error(result.error || result.message || "Could not reshare this post.");
+  }
+  return {
+    post: result.data
+      ? { ...result.data, post_id: Number(result.data.post_id || result.data.id) }
+      : { post_id: postId },
+    unshared: Boolean(result.unshared),
+    removedPostIds: Array.isArray(result.removed_post_ids)
+      ? result.removed_post_ids.map((id) => Number(id)).filter((id) => id > 0)
+      : [],
+  };
 }
 
 export async function deletePost(postId: number): Promise<boolean> {

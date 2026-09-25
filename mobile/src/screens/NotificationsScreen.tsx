@@ -45,8 +45,11 @@ import {
   notificationTitle,
   notificationWhen,
   isIncomingFriendRequest,
+  isJoscityNotice,
   uniqueNotifications,
+  stackMessageNotifications,
   type NotificationFilter,
+  type StackedNotification,
 } from "../utils/notifications";
 
 type SectionKey = "TODAY" | "EARLIER" | "OLDER";
@@ -88,16 +91,17 @@ export default function NotificationsScreen() {
     void ensureFriendGraph();
   }, [allowed, load]);
 
+  const stacked = useMemo(() => stackMessageNotifications(items), [items]);
   const unreadCount = items.filter((item) => !item.is_read).length;
   const listFilter =
     filter === "membership" && !personalEnabled ? "all" : filter;
   const visible = useMemo(
-    () => items.filter((item) => matchesNotificationFilter(item, listFilter)),
-    [items, listFilter]
+    () => stacked.filter((item) => matchesNotificationFilter(item, listFilter)),
+    [stacked, listFilter]
   );
 
   const sections = useMemo(() => {
-    const grouped: { key: SectionKey; items: ApiNotification[] }[] = [
+    const grouped: { key: SectionKey; items: StackedNotification[] }[] = [
       { key: "TODAY", items: [] },
       { key: "EARLIER", items: [] },
       { key: "OLDER", items: [] },
@@ -116,9 +120,10 @@ export default function NotificationsScreen() {
     setOpenId(null);
   };
 
-  const onDeleteOne = (id: number) => {
-    removeLocal([id]);
-    void deleteNotification(id).then((ok) => {
+  const onDeleteOne = (id: number, extraIds: number[] = []) => {
+    const ids = extraIds.length ? extraIds : [id];
+    removeLocal(ids);
+    void (ids.length > 1 ? deleteNotifications(ids) : deleteNotification(id)).then((ok) => {
       if (!ok) {
         Alert.alert("Could not delete this notification.");
         void load("refresh");
@@ -126,12 +131,14 @@ export default function NotificationsScreen() {
     });
   };
 
-  const onMarkRead = (item: ApiNotification) => {
+  const onMarkRead = (item: ApiNotification & { stackIds?: number[] }) => {
+    const stackIds = item.stackIds?.length ? item.stackIds : [item.id];
     if (!item.is_read) {
+      const skip = new Set(stackIds);
       setItems((current) =>
-        current.map((row) => (row.id === item.id ? { ...row, is_read: true } : row))
+        current.map((row) => (skip.has(row.id) ? { ...row, is_read: true } : row))
       );
-      void markNotificationRead(item.id);
+      void Promise.all(stackIds.map((id) => markNotificationRead(id)));
     }
     if (isIncomingFriendRequest(item)) {
       if (item.from_user_id) openMemberProfile(router, item.from_user_id);
@@ -140,7 +147,18 @@ export default function NotificationsScreen() {
     const postId = notificationPostId(item);
     const action = String(item.action || "").toLowerCase();
     const node = String(item.node_type || "").toLowerCase();
-    if (action.includes("message") || node === "message_request") {
+    if (action.includes("message") || node === "message" || node === "message_request") {
+      const conversationId = Number(item.node_id || 0);
+      if (conversationId > 0 && node !== "message_request") {
+        router.push({
+          pathname: "/messages/[id]",
+          params: {
+            id: String(conversationId),
+            name: notificationActorName(item) || "Chat",
+          },
+        });
+        return;
+      }
       router.push("/messages");
       return;
     }
@@ -160,12 +178,32 @@ export default function NotificationsScreen() {
       }
       return;
     }
-    if (node === "agent_job" || action === "agent_request_accepted" || action === "agent_job_stage") {
+    if (node === "marketplace_order" || node === "order") {
+      router.push("/business/orders");
+      return;
+    }
+    if (
+      node === "agent_job" ||
+      node === "agent_request" ||
+      action.startsWith("agent_")
+    ) {
+      if (action.includes("fee_released") || action.includes("wallet")) {
+        router.push("/agents/wallet");
+        return;
+      }
+      if (action.includes("review")) {
+        router.push("/agents/profile");
+        return;
+      }
       router.push("/agent-services/jobs");
       return;
     }
     if (postId) {
       router.push({ pathname: "/post/[id]", params: { id: String(postId) } });
+      return;
+    }
+    if (isJoscityNotice(item)) {
+      router.push({ pathname: "/notifications/[id]", params: { id: String(item.id) } });
     }
   };
 
@@ -379,15 +417,16 @@ export default function NotificationsScreen() {
                 const icon = notificationIcon(kind, colors);
                 const checked = selected.includes(item.id);
                 const actorName = notificationActorName(item);
-                const body = notificationBody(item);
+                const body = kind === "message" ? "" : notificationBody(item);
+                const count = item.stackCount || 1;
                 return (
-                  <FadeIn key={item.id} delay={Math.min(index * 40, 160)} duration={420} translateY={10}>
+                  <FadeIn key={item.stackIds[0] || item.id} delay={Math.min(index * 40, 160)} duration={420} translateY={10}>
                     <SwipeableNotification
                       enabled={!selecting}
                       open={openId === item.id}
                       onOpen={() => setOpenId(item.id)}
                       onClose={() => setOpenId((current) => (current === item.id ? null : current))}
-                      onDelete={() => onDeleteOne(item.id)}
+                      onDelete={() => onDeleteOne(item.id, item.stackIds)}
                     >
                       <View style={[styles.card, !item.is_read && styles.cardUnread]}>
                         {selecting ? (
@@ -416,10 +455,21 @@ export default function NotificationsScreen() {
                         )}
                         <View style={styles.copy}>
                           <Pressable
-                            onPress={() => (selecting ? toggleSelected(item.id) : onMarkRead(item))}
+                            onPress={() => {
+                              if (selecting) {
+                                const ids = item.stackIds.length ? item.stackIds : [item.id];
+                                setSelected((current) => {
+                                  const has = ids.every((id) => current.includes(id));
+                                  if (has) return current.filter((id) => !ids.includes(id));
+                                  return [...new Set([...current, ...ids])];
+                                });
+                                return;
+                              }
+                              onMarkRead(item);
+                            }}
                             onLongPress={() => {
                               setSelecting(true);
-                              setSelected([item.id]);
+                              setSelected(item.stackIds.length ? item.stackIds : [item.id]);
                               setOpenId(null);
                             }}
                           >
@@ -427,10 +477,15 @@ export default function NotificationsScreen() {
                               <Text style={styles.cardTitle} numberOfLines={2}>
                                 {notificationTitle(item)}
                               </Text>
+                              {count > 1 ? (
+                                <View style={styles.countBadge}>
+                                  <Text style={styles.countBadgeText}>{count > 99 ? "99+" : count}</Text>
+                                </View>
+                              ) : null}
                               {!item.is_read ? <View style={styles.dot} /> : null}
                             </View>
                             {body ? (
-                              <Text style={styles.body} numberOfLines={3}>
+                              <Text selectable style={styles.body} numberOfLines={3}>
                                 {body}
                               </Text>
                             ) : null}
@@ -613,6 +668,20 @@ function makeStyles(colors: Palette) {
     fontFamily: "Montserrat_700Bold",
     fontSize: 15,
     color: colors.text,
+  },
+  countBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  countBadgeText: {
+    color: colors.white,
+    fontFamily: "Montserrat_700Bold",
+    fontSize: 11,
   },
   dot: {
     width: 8,

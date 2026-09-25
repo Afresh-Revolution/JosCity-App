@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ErrorBanner } from "./AppNotice";
 import { friendlyError } from "../utils/errors";
+import { isStoreReviewEmail } from "../utils/storeReviewAccounts";
 import { checkActivationRequired, loginBusiness, loginPersonal } from "../api/auth";
 import { useI18n } from "../i18n/I18nProvider";
 import {

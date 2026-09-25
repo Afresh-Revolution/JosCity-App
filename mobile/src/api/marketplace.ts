@@ -118,9 +118,17 @@ export type ListingCheckoutResult = {
   funding?: WalletFundingOptions;
 };
 
-export type ListingCheckoutInput = {
-  listingId: string | number;
+export type ListingCartItem = {
+  id: string;
+  listing_id: string;
   quantity: number;
+  price: number;
+  listing: MarketplaceListing;
+};
+
+export type ListingCheckoutInput = {
+  listingId?: string | number;
+  quantity?: number;
   fullName: string;
   phone: string;
   email: string;
@@ -160,6 +168,8 @@ type Envelope<T> = {
   message?: string;
   error?: string;
   data?: T;
+  code?: string;
+  attempts_left?: number;
 };
 
 async function marketplaceRequest<T>(
@@ -169,6 +179,8 @@ async function marketplaceRequest<T>(
   success: boolean;
   message?: string;
   data?: T;
+  code?: string;
+  attemptsLeft?: number;
 }> {
   try {
     const { timeoutMs = 20000, ...rest } = init;
@@ -178,15 +190,19 @@ async function marketplaceRequest<T>(
       ...rest,
     });
     const payload = await readJson<Envelope<T>>(response);
+    const code = typeof payload.code === "string" ? payload.code : undefined;
+    const attemptsLeft = typeof payload.attempts_left === "number" ? payload.attempts_left : undefined;
     if (!response.ok) {
       return {
         success: false,
         message: friendlyError(payload.message || payload.error || "Request failed"),
+        code,
+        attemptsLeft,
       };
     }
-    return { success: payload.success !== false, message: payload.message, data: payload.data };
+    return { success: payload.success !== false, message: payload.message, data: payload.data, code, attemptsLeft };
   } catch {
-    return { success: false, message: friendlyError("offline") };
+    return { success: false, message: friendlyError("offline"), code: "NETWORK" };
   }
 }
 
@@ -362,6 +378,19 @@ async function fallbackOverview(): Promise<BusinessOverview> {
   return overview;
 }
 
+export async function getPublicListings(): Promise<MarketplaceListing[]> {
+  const result = await readMarketplace<MarketplaceListing[]>("/marketplace/listings");
+  if (!result.success || !Array.isArray(result.data)) return [];
+  return result.data.map((row) => ({
+    ...row,
+    id: String(row.id),
+    title: row.title || "Listing",
+    price: Number(row.price) || 0,
+    listing_kind: row.listing_kind === "service" ? "service" : "goods",
+    category: row.category || "Other",
+  }));
+}
+
 export async function getMyListings(): Promise<MarketplaceListing[]> {
   const result = await readMarketplace<MarketplaceListing[]>("/marketplace/my-listings");
   if (!result.success || !Array.isArray(result.data)) return [];
@@ -394,14 +423,51 @@ export async function getListing(
   };
 }
 
+export async function getListingCart(): Promise<ListingCartItem[]> {
+  const result = await marketplaceRequest<ListingCartItem[]>("/marketplace/listing-cart");
+  if (!result.success || !Array.isArray(result.data)) return [];
+  return result.data.map((row) => ({
+    ...row,
+    id: String(row.id),
+    listing_id: String(row.listing_id),
+    quantity: Number(row.quantity) || 1,
+    price: Number(row.price) || 0,
+    listing: {
+      ...row.listing,
+      id: String(row.listing?.id || row.listing_id),
+      title: row.listing?.title || "Listing",
+      price: Number(row.listing?.price || row.price) || 0,
+    },
+  }));
+}
+
+export async function addListingToCart(listingId: string | number, quantity = 1) {
+  return marketplaceRequest<unknown>("/marketplace/cart", {
+    method: "POST",
+    body: JSON.stringify({ listingId: Number(listingId), quantity }),
+  });
+}
+
+export async function updateListingCartItem(itemId: string | number, quantity: number) {
+  return marketplaceRequest<unknown>(`/marketplace/cart/${encodeURIComponent(String(itemId))}`, {
+    method: "PATCH",
+    body: JSON.stringify({ quantity }),
+  });
+}
+
+export async function removeListingCartItem(itemId: string | number) {
+  return marketplaceRequest<unknown>(`/marketplace/cart/${encodeURIComponent(String(itemId))}`, {
+    method: "DELETE",
+  });
+}
+
 export async function checkoutListing(
   input: ListingCheckoutInput
 ): Promise<{ success: boolean; message?: string; data?: ListingCheckoutResult }> {
   return marketplaceRequest<ListingCheckoutResult>("/marketplace/listing-checkout", {
     method: "POST",
     body: JSON.stringify({
-      listingId: Number(input.listingId),
-      quantity: input.quantity,
+      ...(input.listingId ? { listingId: Number(input.listingId), quantity: input.quantity } : {}),
       fullName: input.fullName,
       phone: input.phone,
       email: input.email,
@@ -458,6 +524,33 @@ export async function payListingWallet(orderId: number) {
   return marketplaceRequest<ListingPayResult>(
     `/marketplace/orders/${encodeURIComponent(String(orderId))}/pay/wallet`,
     { method: "POST" }
+  );
+}
+
+export type CbcTapStart = {
+  order_id: number;
+  amount: number;
+  currency: string;
+  card_last4: string | null;
+  expires_in_seconds: number;
+  pin_attempts_left: number;
+};
+
+export async function getCbcTapConfig() {
+  return marketplaceRequest<{ enabled: boolean }>("/marketplace/pay/cbc-tap/config");
+}
+
+export async function startListingCbcTap(orderId: number, tag: { uid: string; payload: string }) {
+  return marketplaceRequest<CbcTapStart>(
+    `/marketplace/orders/${encodeURIComponent(String(orderId))}/pay/cbc-tap/start`,
+    { method: "POST", body: JSON.stringify({ uid: tag.uid, payload: tag.payload }) }
+  );
+}
+
+export async function confirmListingCbcTap(orderId: number, cardPin: string) {
+  return marketplaceRequest<ListingPayResult>(
+    `/marketplace/orders/${encodeURIComponent(String(orderId))}/pay/cbc-tap/confirm`,
+    { method: "POST", body: JSON.stringify({ card_pin: cardPin }) }
   );
 }
 
@@ -542,21 +635,30 @@ export async function uploadListingMedia(file: {
     } as unknown as Blob
   );
 
-  const result = await marketplaceRequest<{ url: string; type?: string }>("/marketplace/upload-media", {
-    method: "POST",
-    body: form,
-    timeoutMs: 45000,
-  });
-  if (!result.success || !result.data?.url) {
-    return { success: false, message: result.message || "Upload failed" };
+  try {
+    const { promise } = uploadForm("/marketplace/upload-media", form, { timeoutMs: 60000 });
+    const result = await promise;
+    const payload = result.data as Envelope<{ url?: string; type?: string }> & { error?: string };
+    const url = payload.data?.url;
+    if (result.aborted) {
+      return { success: false, message: friendlyError("timeout") };
+    }
+    if (!result.ok || payload.success === false || !url) {
+      return {
+        success: false,
+        message: friendlyError(payload.message || payload.error || "upload"),
+      };
+    }
+    return {
+      success: true,
+      data: {
+        url,
+        type: payload.data?.type === "video" ? "video" : "image",
+      },
+    };
+  } catch {
+    return { success: false, message: friendlyError("upload") };
   }
-  return {
-    success: true,
-    data: {
-      url: result.data.url,
-      type: result.data.type === "video" ? "video" : "image",
-    },
-  };
 }
 
 export async function createListing(input: CreateListingInput): Promise<{
@@ -923,6 +1025,7 @@ type FeedPostLike = {
     verified?: boolean;
     has_cac?: boolean;
     username?: string | null;
+    email?: string | null;
     account_type?: string;
   };
   reactions_count?: number;

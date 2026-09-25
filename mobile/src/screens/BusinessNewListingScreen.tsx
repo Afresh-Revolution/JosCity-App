@@ -22,10 +22,7 @@ import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import { createListing, uploadListingMedia, type ListingMediaItem } from "../api/marketplace";
 import {
   LISTING_CATEGORIES,
-  SERVICE_PLACES,
-  SERVICE_UNITS,
   type ListingKind,
-  type ServicePlaceId,
 } from "../constants/listingCategories";
 import { useRequireBusinessAccount } from "../hooks/useAccountSession";
 import { useI18n } from "../i18n/I18nProvider";
@@ -47,13 +44,13 @@ export default function BusinessNewListingScreen() {
   const [stock, setStock] = useState("");
   const [unit, setUnit] = useState("");
   const [duration, setDuration] = useState("");
-  const [servicePlace, setServicePlace] = useState<ServicePlaceId | "">("");
+  const [servicePlace, setServicePlace] = useState("");
   const [serviceArea, setServiceArea] = useState("");
   const [availability, setAvailability] = useState("");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [media, setMedia] = useState<ListingMediaItem[]>([]);
-  const [picker, setPicker] = useState<null | "category" | "unit" | "place">(null);
+  const [picker, setPicker] = useState<null | "category">(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState<"draft" | "published" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,12 +76,25 @@ export default function BusinessNewListingScreen() {
       Alert.alert(t("listing.permissionTitle"), t("listing.permissionLibrary"));
       return;
     }
-    const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 0.8,
-      allowsMultipleSelection: true,
-      selectionLimit: room,
-    });
+    let picked: ImagePicker.ImagePickerResult;
+    try {
+      picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.8,
+        allowsMultipleSelection: room > 1,
+        selectionLimit: room,
+      });
+    } catch {
+      try {
+        picked = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ["images"],
+          quality: 0.8,
+        });
+      } catch {
+        setError(t("listing.uploadFailed"));
+        return;
+      }
+    }
     if (picked.canceled || !picked.assets?.length) return;
 
     setUploading(true);
@@ -111,7 +121,6 @@ export default function BusinessNewListingScreen() {
   };
 
   const isService = kind === "service";
-  const placeLabel = SERVICE_PLACES.find((item) => item.id === servicePlace)?.label || "";
 
   const validate = (status: "draft" | "published"): string | null => {
     const name = title.trim();
@@ -126,6 +135,9 @@ export default function BusinessNewListingScreen() {
     if (!category) return t("listing.categoryRequired");
     if (!description.trim()) {
       return isService ? t("listing.descriptionRequiredService") : t("listing.descriptionRequired");
+    }
+    if (!isService && !media.some((item) => item.type !== "video" && item.url)) {
+      return t("listing.photoRequired");
     }
     return null;
   };
@@ -152,7 +164,7 @@ export default function BusinessNewListingScreen() {
       quantityTracked: hasStock,
       unit: unit.trim() || null,
       durationNote: isService ? duration.trim() || null : null,
-      serviceLocation: isService ? servicePlace || null : null,
+      serviceLocation: isService ? servicePlace.trim() || null : null,
       serviceArea: isService ? serviceArea.trim() || null : null,
       availabilityNote: isService ? availability.trim() || null : null,
       media,
@@ -283,13 +295,13 @@ export default function BusinessNewListingScreen() {
               </View>
               {isService ? (
                 <View style={styles.half}>
-                  <Text style={styles.fieldLabel}>{t("listing.pricedAs")}</Text>
-                  <Pressable onPress={() => setPicker("unit")} style={styles.select}>
-                    <Text style={[styles.selectValue, !unit && styles.selectPlaceholder]}>
-                      {unit || t("listing.pricedAsPlaceholder")}
-                    </Text>
-                    <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
-                  </Pressable>
+                  <TextField
+                    label={t("listing.pricedAs")}
+                    value={unit}
+                    onChangeText={setUnit}
+                    placeholder={t("listing.pricedAsPlaceholder")}
+                    autoCapitalize="none"
+                  />
                 </View>
               ) : (
                 <View style={styles.half}>
@@ -312,13 +324,13 @@ export default function BusinessNewListingScreen() {
                   placeholder={t("listing.durationPlaceholder")}
                   autoCapitalize="sentences"
                 />
-                <Text style={styles.fieldLabel}>{t("listing.where")}</Text>
-                <Pressable onPress={() => setPicker("place")} style={styles.select}>
-                  <Text style={[styles.selectValue, !servicePlace && styles.selectPlaceholder]}>
-                    {placeLabel || t("listing.wherePlaceholder")}
-                  </Text>
-                  <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
-                </Pressable>
+                <TextField
+                  label={t("listing.where")}
+                  value={servicePlace}
+                  onChangeText={setServicePlace}
+                  placeholder={t("listing.wherePlaceholder")}
+                  autoCapitalize="sentences"
+                />
                 <TextField
                   label={t("listing.serviceArea")}
                   value={serviceArea}
@@ -405,61 +417,23 @@ export default function BusinessNewListingScreen() {
       >
         <Pressable style={styles.dim} onPress={() => setPicker(null)}>
           <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>
-              {picker === "unit"
-                ? t("listing.pricedAs")
-                : picker === "place"
-                  ? t("listing.where")
-                  : t("listing.category")}
-            </Text>
+            <Text style={styles.sheetTitle}>{t("listing.category")}</Text>
             <ScrollView style={styles.sheetList}>
-              {picker === "unit"
-                ? SERVICE_UNITS.map((item) => (
+              {LISTING_CATEGORIES.map((item) => (
                     <Pressable
                       key={item}
                       onPress={() => {
-                        setUnit(item);
+                        setCategory(item);
                         setPicker(null);
                       }}
                       style={styles.sheetRow}
                     >
                       <Text style={styles.sheetLabel}>{item}</Text>
-                      {unit === item ? (
+                      {category === item ? (
                         <Ionicons name="checkmark" size={18} color={colors.primary} />
                       ) : null}
                     </Pressable>
-                  ))
-                : picker === "place"
-                  ? SERVICE_PLACES.map((item) => (
-                      <Pressable
-                        key={item.id}
-                        onPress={() => {
-                          setServicePlace(item.id);
-                          setPicker(null);
-                        }}
-                        style={styles.sheetRow}
-                      >
-                        <Text style={styles.sheetLabel}>{item.label}</Text>
-                        {servicePlace === item.id ? (
-                          <Ionicons name="checkmark" size={18} color={colors.primary} />
-                        ) : null}
-                      </Pressable>
-                    ))
-                  : LISTING_CATEGORIES.map((item) => (
-                      <Pressable
-                        key={item}
-                        onPress={() => {
-                          setCategory(item);
-                          setPicker(null);
-                        }}
-                        style={styles.sheetRow}
-                      >
-                        <Text style={styles.sheetLabel}>{item}</Text>
-                        {category === item ? (
-                          <Ionicons name="checkmark" size={18} color={colors.primary} />
-                        ) : null}
-                      </Pressable>
-                    ))}
+                  ))}
             </ScrollView>
           </View>
         </Pressable>

@@ -1,4 +1,5 @@
-import { apiFetch, readJson } from "./client";
+import { Platform } from "react-native";
+import { apiFetch, readJson, uploadForm } from "./client";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -15,14 +16,21 @@ export type ChatConversation = {
   unreadCount: number;
 };
 
+export type MessageReceipt = "sending" | "sent" | "received" | "read";
+
 export type ChatMessage = {
   messageId: number;
   conversationId: number;
   senderId: number;
   username?: string;
   messageContent: string;
+  messageType?: "text" | "voice" | string;
+  attachmentUrl?: string;
+  duration?: number;
   createdAt: string;
   seen?: boolean;
+  receipt?: MessageReceipt;
+  isDeleted?: boolean;
   replyToId?: number;
   replyToContent?: string;
   replyToSenderId?: number;
@@ -142,15 +150,38 @@ function normalizeMessage(value: unknown, conversationId?: number): ChatMessage 
   const messageId = pickNumber(record.message_id, record.messageId, record.id);
   const senderId = pickNumber(record.sender_id, record.senderId);
   if (!messageId || !senderId) return null;
+  const isDeleted =
+    record.is_deleted === true ||
+    record.isDeleted === true ||
+    record.deleted === true;
+  const messageType =
+    pickString(record.message_type, record.messageType, record.type) || "text";
+  const meta = toRecord(record.attachment_meta ?? record.attachmentMeta);
+  const messageContent =
+    pickString(record.message_content, record.messageContent, record.content) || "";
+  const attachmentUrl = pickString(
+    record.attachment_url,
+    record.attachmentUrl,
+    meta.url,
+    messageType === "voice" && /^https?:\/\//i.test(messageContent) ? messageContent : ""
+  );
   return {
     messageId,
     conversationId:
       pickNumber(record.conversation_id, record.conversationId) || conversationId || 0,
     senderId,
     username: pickString(record.username, record.sender_username),
-    messageContent: pickString(record.message_content, record.messageContent, record.content) || "",
+    messageContent: isDeleted
+      ? "Message deleted"
+      : messageType === "voice"
+        ? "Voice message"
+        : messageContent,
+    messageType,
+    attachmentUrl,
+    duration: pickNumber(meta.duration, record.duration),
     createdAt: pickString(record.created_at, record.createdAt) || new Date().toISOString(),
     seen: record.seen === true || record.seen === 1 || record.seen === "1",
+    isDeleted,
     replyToId: pickNumber(record.reply_to_id, record.replyToId),
     replyToContent: pickString(record.reply_to_content, record.replyToContent),
     replyToSenderId: pickNumber(record.reply_to_sender_id, record.replyToSenderId),
@@ -268,18 +299,24 @@ export async function getConversation(
       .filter(Boolean) as ChatMessage[],
     (row) => row.messageId
   );
-  // A direct recipient's read cursor is authoritative; the viewer's cursor is not.
+  // A direct recipient's cursors decide sent, received, and read for outgoing messages.
   if (viewerId && conversation?.conversationType === "direct") {
     const peer = (data.participants || []).map(toRecord).find((row) => {
       const id = pickNumber(row.user_id, row.userId);
       return id && id !== viewerId;
     });
-    const lastReadId = pickNumber(peer?.last_read_message_id, peer?.lastReadMessageId);
-    if (lastReadId !== undefined) {
-      for (const message of messages) {
-        if (message.senderId === viewerId && message.messageId <= lastReadId) {
-          message.seen = true;
-        }
+    const lastReadId = pickNumber(peer?.last_read_message_id, peer?.lastReadMessageId) || 0;
+    const lastDeliveredId =
+      pickNumber(peer?.last_delivered_message_id, peer?.lastDeliveredMessageId) || 0;
+    for (const message of messages) {
+      if (message.senderId !== viewerId || message.messageId < 0) continue;
+      if (lastReadId && message.messageId <= lastReadId) {
+        message.seen = true;
+        message.receipt = "read";
+      } else if (lastDeliveredId && message.messageId <= lastDeliveredId) {
+        message.receipt = "received";
+      } else {
+        message.receipt = "sent";
       }
     }
   }
@@ -308,6 +345,61 @@ export async function sendChatMessage(
     };
   }
   return { message: normalizeMessage(data.message ?? data.data, conversationId) };
+}
+
+export async function sendVoiceMessage(
+  conversationId: number,
+  uri: string,
+  duration: number,
+  replyToId?: number
+): Promise<{ message: ChatMessage | null; error?: string }> {
+  const form = new FormData();
+  const fileUri =
+    Platform.OS === "ios" && uri && !uri.startsWith("file://") ? `file://${uri}` : uri;
+  form.append("voice", {
+    uri: fileUri,
+    name: "voice.m4a",
+    type: "audio/mp4",
+  } as unknown as Blob);
+  form.append("messageType", "voice");
+  form.append("duration", String(Math.max(1, Math.round(duration || 1))));
+  if (replyToId) form.append("replyToId", String(replyToId));
+
+  const { promise } = uploadForm(`/chat/conversations/${conversationId}/messages`, form, {
+    timeoutMs: 60000,
+  });
+  const result = await promise;
+  if (!result.ok) {
+    return {
+      message: null,
+      error:
+        pickString(result.data.message, result.data.error) ||
+        "Could not send this voice message.",
+    };
+  }
+  return {
+    message: normalizeMessage(result.data.message ?? result.data.data, conversationId),
+  };
+}
+
+export async function deleteChatMessage(messageId: number): Promise<ChatMessage | null> {
+  const response = await apiFetch(`/chat/messages/${messageId}`, {
+    method: "DELETE",
+    auth: true,
+    timeoutMs: 20000,
+  });
+  const data = await readJson<{ message?: unknown }>(response);
+  if (!response.ok) return null;
+  return (
+    normalizeMessage(data.message) || {
+      messageId,
+      conversationId: 0,
+      senderId: 0,
+      messageContent: "Message deleted",
+      createdAt: new Date().toISOString(),
+      isDeleted: true,
+    }
+  );
 }
 
 export async function markConversationRead(conversationId: number): Promise<boolean> {

@@ -14,6 +14,7 @@ export type PersonalSignupDraft = {
   firstName: string;
   lastName: string;
   username?: string;
+  referralCode?: string;
   gender: string;
   address: string;
   nin: string;
@@ -35,6 +36,7 @@ export type BusinessSignupDraft = {
   password: string;
   confirm: string;
   cac: string;
+  referralCode?: string;
   agreed: boolean;
 };
 
@@ -55,7 +57,8 @@ function hasProgress(draft: SignupDraft): boolean {
       draft.email.trim() ||
       draft.phone.trim() ||
       draft.firstName.trim() ||
-      draft.agentBio.trim()
+      draft.agentBio.trim() ||
+      draft.referralCode?.trim()
   );
 }
 

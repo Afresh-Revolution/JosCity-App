@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import FadeIn from "../FadeIn";
 import AvatarCircle from "./AvatarCircle";
 import BusinessVerifiedBadge from "../BusinessVerifiedBadge";
 import FollowBusinessButton from "./FollowBusinessButton";
@@ -85,33 +84,31 @@ export default function PeopleRow({
   if (!people.length) return null;
 
   return (
-    <FadeIn delay={180} duration={520}>
-      <View style={styles.section}>
-        <View style={styles.heading}>
-          <View style={styles.headingCopy}>
-            <Text style={styles.title}>{heading}</Text>
-            <Text style={styles.subtitle}>{sub}</Text>
-          </View>
-          <Pressable
-            onPress={onSeeAll}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={seeAll}
-          >
-            <Text style={styles.seeAll}>{seeAll}</Text>
-          </Pressable>
+    <View style={styles.section}>
+      <View style={styles.heading}>
+        <View style={styles.headingCopy}>
+          <Text style={styles.title}>{heading}</Text>
+          <Text style={styles.subtitle}>{sub}</Text>
         </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.scroller}
+        <Pressable
+          onPress={onSeeAll}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={seeAll}
         >
-          {people.map((person) => (
-            <PersonCard key={person.user_id} person={person} />
-          ))}
-        </ScrollView>
+          <Text style={styles.seeAll}>{seeAll}</Text>
+        </Pressable>
       </View>
-    </FadeIn>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.scroller}
+      >
+        {people.map((person) => (
+          <PersonCard key={person.user_id} person={person} />
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 

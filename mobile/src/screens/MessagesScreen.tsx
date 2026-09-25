@@ -44,6 +44,7 @@ import { getAccountType, getUser, isBusinessAccountType } from "../storage/sessi
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { timeAgo } from "../utils/format";
+import { parseStatusReply } from "../utils/statusReply";
 import { peerIsOnline } from "../utils/presence";
 import { startForegroundInterval } from "../utils/foregroundInterval";
 
@@ -158,11 +159,7 @@ export default function MessagesScreen() {
       };
     });
 
-    const conversationHasHistory = (chat: ChatConversation) =>
-      Boolean(String(chat.lastMessageContent || "").trim() || chat.unreadCount > 0);
-    const chatsWithHistory = businessMode
-      ? patched
-      : patched.filter((chat) => conversationHasHistory(chat) && !isHiddenInboxChat(chat));
+    const chatsWithHistory = patched.filter((chat) => !isHiddenInboxChat(chat));
     const inChat = new Set<number>();
     const inChatNames = new Set<string>();
     for (const chat of chatsWithHistory) {
@@ -641,8 +638,16 @@ export default function MessagesScreen() {
                         <Text style={styles.time}>{timeAgo(chat.lastMessageAt)}</Text>
                       </View>
                       <View style={styles.bottomLine}>
-                        <Text style={styles.preview} numberOfLines={1}>
-                          {chat.lastMessageContent || t("messages.empty")}
+                        <Text
+                          style={[
+                            styles.preview,
+                            chat.lastMessageContent === t("messages.deleted") && styles.previewDeleted,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {parseStatusReply(chat.lastMessageContent)?.reply ||
+                            chat.lastMessageContent ||
+                            t("messages.empty")}
                         </Text>
                         {unread > 0 ? (
                           <View style={styles.badge}>
@@ -904,6 +909,10 @@ function makeStyles(colors: Palette) {
     fontFamily: "Montserrat_400Regular",
     fontSize: 13,
     color: colors.textMuted,
+  },
+  previewDeleted: {
+    fontFamily: "Montserrat_500Medium",
+    fontStyle: "italic",
   },
   meta: {
     marginTop: 3,

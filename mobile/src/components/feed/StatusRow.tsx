@@ -13,7 +13,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import PreviewVideo from "../media/PreviewVideo";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import FadeIn from "../FadeIn";
 import { useI18n } from "../../i18n/I18nProvider";
 import { cacheOpenStatus, statusGroupKey } from "../../state/openStatus";
 import {
@@ -72,7 +71,7 @@ export default function StatusRow({
   };
 
   return (
-    <FadeIn delay={70} duration={480} translateY={8}>
+    <View>
       <View style={styles.card}>
         <ScrollView
           horizontal
@@ -104,7 +103,7 @@ export default function StatusRow({
         onClose={() => setPickerOpen(false)}
         onSelect={onSelectType}
       />
-    </FadeIn>
+    </View>
   );
 }
 
@@ -301,7 +300,7 @@ function StoryPreview({
   if (story?.type === "text" && story.content) {
     return (
       <LinearGradient colors={["#667eea", "#764ba2"]} style={styles.textPreview}>
-        <Text style={styles.textPreviewCopy} numberOfLines={4}>
+        <Text selectable style={styles.textPreviewCopy} numberOfLines={4}>
           {story.content}
         </Text>
       </LinearGradient>

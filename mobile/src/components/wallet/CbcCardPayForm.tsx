@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { NativeSyntheticEvent, Pressable, StyleSheet, Text, TextInputFocusEventData, View } from "react-native";
 import TextField from "../TextField";
 import type { Palette } from "../../theme/colors";
 import { useTheme } from "../../theme/ThemeProvider";
@@ -18,13 +18,14 @@ type Props = {
   busy?: boolean;
   error?: string | null;
   onPay: (details: CardDetails) => void;
+  onPinFocus?: (event: NativeSyntheticEvent<TextInputFocusEventData>) => void;
 };
 
 function digits(value: string) {
   return value.replace(/\D/g, "");
 }
 
-export default function CbcCardPayForm({ amountNaira, quote, busy, error, onPay }: Props) {
+export default function CbcCardPayForm({ amountNaira, quote, busy, error, onPay, onPinFocus }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [cardNumber, setCardNumber] = useState("");
@@ -84,6 +85,7 @@ export default function CbcCardPayForm({ amountNaira, quote, busy, error, onPay 
             label="Card PIN"
             value={cardPin}
             onChangeText={setCardPin}
+            onFocus={onPinFocus}
             keyboardType="number-pad"
             editable={!busy}
             secureTextEntry

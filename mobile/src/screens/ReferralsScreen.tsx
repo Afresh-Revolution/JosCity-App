@@ -73,14 +73,14 @@ export default function ReferralsScreen() {
           <Text style={styles.code}>{code}</Text>
           {info && info.code_active === false ? (
             <Text style={styles.holdNote}>
-              Your code stays on this account until you have made at least two posts.
+              Your code stays on this account until you have made at least one post.
             </Text>
           ) : null}
           {info?.referred_by_code ? (
             <Text style={styles.holdNote}>
               Joined with {info.referred_by_code}
               {info.posts_count != null && info.posts_count < 2
-                ? " · kept until you make at least two posts"
+                ? " · kept until you make at least one post"
                 : ""}
             </Text>
           ) : null}

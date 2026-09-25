@@ -237,6 +237,15 @@ export async function verifyPasswordResetOtp(
   return parseAuth(response);
 }
 
+export async function lookupReferral(code: string): Promise<{ name: string; code_active: boolean }> {
+  const response = await apiFetch(`/account/referrals/lookup?code=${encodeURIComponent(code.trim().toUpperCase())}`);
+  const body = await readJson<{ success?: boolean; message?: string; data?: { name: string; code_active: boolean } }>(response);
+  if (!response.ok || !body?.success || !body.data) {
+    throw new Error(body?.message || "Could not verify this referral code. Please try again.");
+  }
+  return body.data;
+}
+
 export async function registerPersonal(params: {
   user_firstname: string;
   user_lastname: string;
@@ -282,6 +291,7 @@ export async function registerBusiness(params: {
   CAC_number?: string;
   business_description?: string;
   terms_accepted: boolean;
+  referral_code?: string;
 }): Promise<AuthResult> {
   const response = await apiFetch("/auth/business/signup", {
     method: "POST",
@@ -296,6 +306,7 @@ export async function registerBusiness(params: {
       CAC_number: params.CAC_number?.trim() || "",
       business_description: params.business_description?.trim() || "",
       terms_accepted: params.terms_accepted,
+      referral_code: params.referral_code?.trim() || "",
     }),
   });
   return parseAuth(response);
@@ -409,22 +420,19 @@ export async function uploadCoverPicture(params: {
   );
 
   try {
-    const response = await apiFetch("/profile/cover", {
-      method: "POST",
-      auth: true,
-      timeoutMs: 45000,
-      body: form,
+    const { promise } = uploadForm("/profile/cover", form, {
+      timeoutMs: 60000,
     });
-    const data = await readJson<{
-      success?: boolean;
-      user_cover?: string;
-      message?: string;
-    }>(response);
-    if (!response.ok) {
+    const result = await promise;
+    const data = result.data as typeof result.data & { user_cover?: string };
+    if (!result.ok) {
       return {
         success: false,
         message: data.message || "Failed to upload cover photo",
       };
+    }
+    if (!data.user_cover) {
+      return { success: false, message: "Could not upload cover photo" };
     }
     return {
       success: true,

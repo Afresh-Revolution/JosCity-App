@@ -23,6 +23,7 @@
     "expo": "~57.0.24",
     "expo-asset": "~57.0.16",
     "expo-audio": "~57.0.5",
+    "expo-build-properties": "~57.0.22",
     "expo-clipboard": "~57.0.2",
     "expo-constants": "~57.0.17",
     "expo-dev-client": "~57.0.19",
@@ -53,6 +54,7 @@
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
     "react-native-maps": "1.27.2",
+    "react-native-nfc-manager": "^3.17.2",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-web": "^0.21.2"

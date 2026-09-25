@@ -43,6 +43,7 @@ import {
 import { createDirectConversation, sendChatMessage } from "../api/chat";
 import { getUser } from "../storage/session";
 import { timeAgo } from "../utils/format";
+import { statusReplyBody } from "../utils/statusReply";
 import { playableVideoUrl } from "../utils/media";
 import { runVideoPlayer } from "../utils/videoPlayer";
 import { openMemberProfile } from "../utils/openProfile";
@@ -363,8 +364,16 @@ export default function StatusViewerScreen() {
       else {
         const result = await createDirectConversation(story.userId);
         if (!result || !("conversationId" in result)) throw new Error(result && "message" in result ? result.message || "Message request pending. Try again after it is accepted." : "Could not open this chat.");
-        const context = (story.type === "text" ? story.content : story.caption || `${story.type} status`).slice(0, 240);
-        const sent = await sendChatMessage(result.conversationId, `Reply to your status #${story.id}: ${context}\n\n${reply.trim()}`);
+        const sent = await sendChatMessage(
+          result.conversationId,
+          statusReplyBody({
+            storyId: story.id,
+            type: story.type,
+            content: story.content,
+            caption: story.caption,
+            reply: reply.trim(),
+          })
+        );
         if (!sent.message) throw new Error(sent.error || "Could not send reply.");
         setReply(""); setPaused(true); setComposing(false);
         router.push({ pathname: "/messages/[id]", params: { id: String(result.conversationId), name: story.userName, avatar: story.avatar || "" } });
@@ -478,7 +487,7 @@ export default function StatusViewerScreen() {
         style={[styles.captionWrap, { paddingBottom: insets.bottom + 18 }]}
         pointerEvents="box-none"
       >
-        {story.caption ? <Text style={styles.caption}>{story.caption}</Text> : null}
+        {story.caption ? <Text selectable style={styles.caption}>{story.caption}</Text> : null}
         {!story.isOwner && <View style={{ gap: 10, padding: 12, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.75)" }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}><Pressable accessibilityRole="button" accessibilityLabel="React with a heart" disabled={interactionBusy || reacted.includes(story.id)} onPress={() => void interact(true)} style={styles.iconBtn}><Ionicons name={reacted.includes(story.id) ? "heart" : "heart-outline"} size={28} color="white" /></Pressable><TextInput accessibilityLabel="Reply to status" placeholder="Reply privately..." placeholderTextColor="#CCCCCC" value={reply} onChangeText={setReply} onFocus={() => { elapsedRef.current += Date.now() - startRef.current; setComposing(true); }} onBlur={() => { startRef.current = Date.now(); if (!reply.trim()) setComposing(false); }} maxLength={2000} style={{ flex: 1, color: "white", minHeight: 48 }} /><Pressable accessibilityRole="button" accessibilityLabel="Send reply to chat" disabled={interactionBusy || !reply.trim()} onPress={() => void interact(false)} style={[styles.iconBtn, { opacity: interactionBusy || !reply.trim() ? 0.4 : 1 }]}><Ionicons name="send" size={23} color="white" /></Pressable></View>
           {feedback ? <Text accessibilityLiveRegion="polite" style={styles.caption}>{feedback}</Text> : null}
@@ -732,7 +741,7 @@ function StoryMedia({
   }
   return (
     <LinearGradient colors={["#667eea", "#764ba2"]} style={styles.textCanvas}>
-      <Text style={styles.textCopy}>{story.content}</Text>
+      <Text selectable style={styles.textCopy}>{story.content}</Text>
     </LinearGradient>
   );
 }

@@ -23,6 +23,7 @@ type Props = {
   showTabBar?: boolean;
   hideHeader?: boolean;
   statusBarStyle?: "light" | "dark" | "auto";
+  overlay?: ReactNode;
 };
 
 export const TAB_BAR_SPACE = 96;
@@ -45,6 +46,7 @@ export default function FeedShell({
   showTabBar = true,
   hideHeader = false,
   statusBarStyle,
+  overlay,
 }: Props) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -170,6 +172,7 @@ export default function FeedShell({
           <FeedTabBar active={tab} messageUnread={chatUnread} />
         )
       ) : null}
+      {overlay}
       {toast ? (
         <Pressable
           onPress={() => {

@@ -65,26 +65,45 @@ export function serializeBiometricCredentials(credentials: BiometricCredentials)
   });
 }
 
-export function kindFromAuthTypes(types: number[]): BiometricKind {
-  if (types.includes(BIOMETRIC_AUTH_TYPES.FACIAL_RECOGNITION)) return "face";
-  if (types.includes(BIOMETRIC_AUTH_TYPES.IRIS)) return "iris";
-  if (types.includes(BIOMETRIC_AUTH_TYPES.FINGERPRINT)) return "fingerprint";
+export function kindFromAuthTypes(types: number[], platform?: string): BiometricKind {
+  const hasFace = types.includes(BIOMETRIC_AUTH_TYPES.FACIAL_RECOGNITION);
+  const hasIris = types.includes(BIOMETRIC_AUTH_TYPES.IRIS);
+  const hasFingerprint = types.includes(BIOMETRIC_AUTH_TYPES.FINGERPRINT);
+  if (platform === "android") {
+    if (hasFingerprint) return "fingerprint";
+    if (hasIris) return "iris";
+    if (hasFace) return "generic";
+    return "generic";
+  }
+  if (hasFace) return "face";
+  if (hasIris) return "iris";
+  if (hasFingerprint) return "fingerprint";
   return "generic";
 }
 
-export function biometricCopy(kind: BiometricKind): {
+export function biometricCopy(
+  kind: BiometricKind,
+  platform?: string
+): {
   noun: string;
   action: string;
   icon: "scan-outline" | "finger-print-outline" | "eye-outline";
 } {
-  if (kind === "face") {
+  const android = platform === "android";
+  if (kind === "face" && !android) {
     return { noun: "Face ID", action: "Sign in with Face ID", icon: "scan-outline" };
   }
-  if (kind === "iris") {
+  if (kind === "fingerprint") {
+    if (android) {
+      return { noun: "Fingerprint", action: "Sign in with fingerprint", icon: "finger-print-outline" };
+    }
+    return { noun: "Touch ID", action: "Sign in with Touch ID", icon: "finger-print-outline" };
+  }
+  if (kind === "iris" && !android) {
     return { noun: "iris unlock", action: "Sign in with iris", icon: "eye-outline" };
   }
-  if (kind === "fingerprint") {
-    return { noun: "fingerprint", action: "Sign in with fingerprint", icon: "finger-print-outline" };
+  if (android) {
+    return { noun: "Biometrics", action: "Sign in with biometrics", icon: "finger-print-outline" };
   }
   return { noun: "biometrics", action: "Sign in with biometrics", icon: "finger-print-outline" };
 }

@@ -33,6 +33,7 @@ import { getUser, type StoredUser } from "../storage/session";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { handleFromName } from "../utils/format";
+import { publicUsername } from "../utils/accountNames";
 
 const MAX_PHOTOS = 5;
 const MAX_VIDEOS = 3;
@@ -51,8 +52,12 @@ function displayNameFor(user: StoredUser | null): string {
 }
 
 function handleFor(user: StoredUser | null, name: string): string {
-  const raw = String(user?.user_name || user?.username || "").trim();
-  if (raw) return raw.startsWith("@") ? raw : `@${raw.replace(/^@/, "")}`;
+  const chosen = publicUsername(user?.user_name || user?.username);
+  if (chosen) return `@${chosen}`;
+  const isBusiness = String(user?.account_type || "").toLowerCase() === "business";
+  const email = String(user?.business_email || user?.user_email || user?.email || "").trim();
+  if (isBusiness && email) return email;
+  if (isBusiness) return "";
   return handleFromName(name);
 }
 
