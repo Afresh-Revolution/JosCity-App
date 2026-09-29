@@ -3,6 +3,7 @@ import {
   Animated,
   Alert,
   AppState,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -33,10 +34,15 @@ import PresenceAvatar from "../components/messages/PresenceAvatar";
 import MessageReceiptMark from "../components/messages/MessageReceipt";
 import StatusReplyBubble from "../components/messages/StatusReplyBubble";
 import VoiceMessageBubble from "../components/messages/VoiceMessageBubble";
+import TypingDots from "../components/messages/TypingDots";
+import ChatEmojiPicker from "../components/messages/ChatEmojiPicker";
 import { ErrorBanner } from "../components/AppNotice";
 import {
   getChatPresence,
   getConversation,
+  getConversationTyping,
+  setConversationTyping,
+  clearConversationTyping,
   markConversationRead,
   sendChatMessage,
   sendVoiceMessage,
@@ -89,8 +95,24 @@ export default function ChatThreadScreen() {
     userId?: number;
   } | null>(null);
   const [menuMessage, setMenuMessage] = useState<ChatMessage | null>(null);
+  const [peerTyping, setPeerTyping] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
+  const typingIdleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const amTypingRef = useRef(false);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvent, () => setKeyboardOpen(true));
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardOpen(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   useEffect(() => {
     void getUser().then((user) => {
@@ -220,13 +242,64 @@ export default function ChatThreadScreen() {
 
   const shownOnline = online === true || isRecentlyActive(latestFromPeer);
 
+  const stopTyping = useCallback(() => {
+    if (typingIdleRef.current) {
+      clearTimeout(typingIdleRef.current);
+      typingIdleRef.current = null;
+    }
+    if (amTypingRef.current && conversationId) {
+      amTypingRef.current = false;
+      void clearConversationTyping(conversationId);
+    }
+  }, [conversationId]);
+
+  const bumpTyping = useCallback(() => {
+    if (!conversationId) return;
+    if (!amTypingRef.current) {
+      amTypingRef.current = true;
+      void setConversationTyping(conversationId);
+    } else {
+      void setConversationTyping(conversationId);
+    }
+    if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
+    typingIdleRef.current = setTimeout(() => {
+      stopTyping();
+    }, 1800);
+  }, [conversationId, stopTyping]);
+
+  useEffect(() => {
+    if (!allowed || !conversationId) {
+      setPeerTyping(false);
+      return;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      const users = await getConversationTyping(conversationId);
+      if (!cancelled) setPeerTyping(users.length > 0);
+    };
+    void tick();
+    const stop = startForegroundInterval(() => void tick(), 2000);
+    return () => {
+      cancelled = true;
+      stop();
+      stopTyping();
+    };
+  }, [allowed, conversationId, stopTyping]);
+
+  useEffect(() => {
+    if (!peerTyping) return;
+    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+  }, [peerTyping]);
+
   const onSend = useCallback(async () => {
     const text = draft.trim();
     if (!text || !conversationId || sending) return;
+    stopTyping();
     const selectedReply = replyTo;
     setSending(true);
     setDraft("");
     setReplyTo(null);
+    setEmojiOpen(false);
     setSendError(null);
     try {
       const result = await sendChatMessage(conversationId, text, selectedReply?.messageId);
@@ -248,7 +321,7 @@ export default function ChatThreadScreen() {
     } finally {
       setSending(false);
     }
-  }, [conversationId, draft, sending, myId, replyTo, t]);
+  }, [conversationId, draft, sending, myId, replyTo, stopTyping, t]);
 
   const onSendVoice = useCallback(
     async (uri: string, duration: number) => {
@@ -369,9 +442,16 @@ export default function ChatThreadScreen() {
               {name}
             </Text>
             {otherUserId ? (
-              <Text style={shownOnline ? styles.online : styles.offline}>
-                {shownOnline ? t("messages.online") : t("messages.offline")}
-              </Text>
+              peerTyping ? (
+                <View style={styles.typingStatus}>
+                  <Text style={styles.typingStatusText}>{t("messages.typing")}</Text>
+                  <TypingDots compact />
+                </View>
+              ) : (
+                <Text style={shownOnline ? styles.online : styles.offline}>
+                  {shownOnline ? t("messages.online") : t("messages.offline")}
+                </Text>
+              )
             ) : null}
           </View>
         </Pressable>
@@ -394,8 +474,10 @@ export default function ChatThreadScreen() {
 
       <KeyboardAvoidingView
         style={styles.body}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={8}
+        // Android already resizes via softwareKeyboardLayoutMode:"resize".
+        // Extra KAV height/padding stacks a large empty band above the keyboard.
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
       >
         {loading ? (
           <View style={styles.centered}>
@@ -440,10 +522,27 @@ export default function ChatThreadScreen() {
                 );
               })
             )}
+            {peerTyping ? (
+              <View style={styles.typingBubbleRow}>
+                <View style={styles.typingBubble}>
+                  <TypingDots />
+                </View>
+              </View>
+            ) : null}
           </ScrollView>
         )}
 
-        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <View
+          style={[
+            styles.composer,
+            {
+              // Safe-area padding only when the keyboard is closed; otherwise it
+              // stacks on top of KeyboardAvoidingView and leaves a large gap.
+              paddingBottom:
+                keyboardOpen || emojiOpen ? 6 : Math.max(insets.bottom, 12),
+            },
+          ]}
+        >
           {sendError ? (
             <View style={styles.sendError}>
               <ErrorBanner message={sendError} />
@@ -478,18 +577,40 @@ export default function ChatThreadScreen() {
             />
           ) : (
           <View style={styles.composerRow}>
-          <TextInput
-            ref={inputRef}
-            value={draft}
-            onChangeText={(value) => {
-              setDraft(value);
-              if (sendError) setSendError(null);
-            }}
-            placeholder="Write a message"
-            placeholderTextColor={colors.textMuted}
-            style={styles.input}
-            multiline
-          />
+          <View style={styles.inputShell}>
+            <Pressable
+              onPress={() => {
+                setEmojiOpen((open) => !open);
+                // Keep the keyboard up while picking multiple emojis.
+                requestAnimationFrame(() => inputRef.current?.focus());
+              }}
+              style={styles.emojiBtn}
+              accessibilityRole="button"
+              accessibilityLabel={t("messages.reactions")}
+            >
+              <Ionicons
+                name={emojiOpen ? "keypad-outline" : "happy-outline"}
+                size={22}
+                color={colors.primary}
+              />
+            </Pressable>
+            <TextInput
+              ref={inputRef}
+              value={draft}
+              onChangeText={(value) => {
+                setDraft(value);
+                if (sendError) setSendError(null);
+                if (value.trim()) bumpTyping();
+                else stopTyping();
+              }}
+              onBlur={stopTyping}
+              placeholder="Write a message"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+              multiline
+              blurOnSubmit={false}
+            />
+          </View>
           {sending ? (
             <View style={styles.send} accessibilityLabel="Sending">
               <JosCityLoader color={colors.white} size={18} />
@@ -505,7 +626,10 @@ export default function ChatThreadScreen() {
             </Pressable>
           ) : (
             <Pressable
-              onPress={() => setRecording(true)}
+              onPress={() => {
+                setEmojiOpen(false);
+                setRecording(true);
+              }}
               style={styles.send}
               accessibilityRole="button"
               accessibilityLabel={t("messages.voice")}
@@ -515,6 +639,14 @@ export default function ChatThreadScreen() {
           )}
           </View>
           )}
+          <ChatEmojiPicker
+            visible={emojiOpen && !recording}
+            onSelect={(emoji) => {
+              setDraft((current) => `${current}${emoji}`);
+              bumpTyping();
+              inputRef.current?.focus();
+            }}
+          />
         </View>
       </KeyboardAvoidingView>
       <ReportSheet
@@ -978,6 +1110,33 @@ function makeStyles(colors: Palette) {
     fontSize: 12,
     color: "#22C55E",
   },
+  typingStatus: {
+    marginTop: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  typingStatusText: {
+    fontFamily: "Montserrat_600SemiBold",
+    fontSize: 12,
+    color: colors.primary,
+  },
+  typingBubbleRow: {
+    alignSelf: "flex-start",
+    marginTop: 4,
+    marginBottom: 8,
+    marginLeft: 4,
+  },
+  typingBubble: {
+    minHeight: 36,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 18,
+    borderBottomLeftRadius: 6,
+    backgroundColor: colors.sheet,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   body: {
     flex: 1,
   },
@@ -1146,6 +1305,34 @@ function makeStyles(colors: Palette) {
     alignItems: "flex-end",
     gap: 8,
   },
+  inputShell: {
+    flex: 1,
+    minHeight: 42,
+    maxHeight: 120,
+    borderRadius: 21,
+    backgroundColor: colors.sheet,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    paddingLeft: 4,
+    paddingRight: 12,
+  },
+  input: {
+    flex: 1,
+    minHeight: 42,
+    maxHeight: 120,
+    paddingHorizontal: 6,
+    paddingTop: 10,
+    paddingBottom: 10,
+    fontFamily: "Montserrat_400Regular",
+    fontSize: 14,
+    color: colors.text,
+  },
+  emojiBtn: {
+    width: 36,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   recordRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1179,19 +1366,6 @@ function makeStyles(colors: Palette) {
   recordTime: {
     fontFamily: "Montserrat_600SemiBold",
     fontSize: 15,
-    color: colors.text,
-  },
-  input: {
-    flex: 1,
-    minHeight: 42,
-    maxHeight: 120,
-    borderRadius: 21,
-    backgroundColor: colors.sheet,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 10,
-    fontFamily: "Montserrat_400Regular",
-    fontSize: 14,
     color: colors.text,
   },
   send: {

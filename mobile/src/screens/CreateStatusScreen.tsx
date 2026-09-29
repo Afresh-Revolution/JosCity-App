@@ -21,6 +21,7 @@ import FadeIn from "../components/FadeIn";
 import { showError } from "../components/AppNotice";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedShell from "../components/feed/FeedShell";
+import MentionSuggestList from "../components/feed/MentionSuggestList";
 import { createStory, getStories, type StoryMediaFile, type StoryType } from "../api/stories";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
 import { useI18n } from "../i18n/I18nProvider";
@@ -42,6 +43,7 @@ import {
 } from "../utils/statusMedia";
 import { mergePendingStatus, mapStoryGroups, type StatusStory } from "../utils/stories";
 import { seedStoryMediaFromLocal } from "../storage/storyMediaCache";
+import { insertMentionAtCursor, mentionHandle, useMentionSuggest } from "../utils/mentions";
 
 function displayNameFor(user: StoredUser | null): string {
   return (
@@ -82,6 +84,8 @@ export default function CreateStatusScreen() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const autoOpened = useRef(false);
   const openGalleryRef = useRef<(mode: "replace" | "append") => Promise<boolean>>(async () => false);
+  const mentionSource = type === "text" ? text : caption;
+  const { mentions, clearMentions } = useMentionSuggest(mentionSource);
 
   const goBack = () => {
     if (router.canGoBack()) {
@@ -374,6 +378,17 @@ export default function CreateStatusScreen() {
               maxLength={2000}
               scrollEnabled
             />
+            {mentions.length ? (
+              <View style={styles.mentionOverlay}>
+                <MentionSuggestList
+                  people={mentions}
+                  onSelect={(person) => {
+                    setText((current) => insertMentionAtCursor(current, mentionHandle(person)));
+                    clearMentions();
+                  }}
+                />
+              </View>
+            ) : null}
             <Pressable
               onPress={() => void pasteStoryText()}
               style={styles.pasteBtn}
@@ -468,6 +483,15 @@ export default function CreateStatusScreen() {
                 multiline
                 textAlignVertical="top"
               />
+              {mentions.length ? (
+                <MentionSuggestList
+                  people={mentions}
+                  onSelect={(person) => {
+                    setCaption((current) => insertMentionAtCursor(current, mentionHandle(person)));
+                    clearMentions();
+                  }}
+                />
+              ) : null}
             </View>
           </View>
         ) : (
@@ -579,6 +603,13 @@ function makeStyles(colors: Palette) {
       borderRadius: 18,
       overflow: "hidden",
       marginBottom: 16,
+    },
+    mentionOverlay: {
+      position: "absolute",
+      left: 12,
+      right: 12,
+      bottom: 56,
+      zIndex: 4,
     },
     textInput: {
       flex: 1,

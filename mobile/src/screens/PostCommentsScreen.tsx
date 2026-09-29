@@ -21,6 +21,7 @@ import { CommentThread, commentKey } from "../components/feed/CommentThread";
 import FeedShell from "../components/feed/FeedShell";
 import { useKeyboardOverlap } from "../hooks/useKeyboardOverlap";
 import HashtagText from "../components/feed/HashtagText";
+import MentionSuggestList from "../components/feed/MentionSuggestList";
 import PostMediaGallery from "../components/feed/PostMediaGallery";
 import SaveBookmark from "../components/feed/SaveBookmark";
 import {
@@ -38,6 +39,7 @@ import {
   type FeedPost,
 } from "../api/feed";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
+import { insertMentionAtCursor, mentionHandle, useMentionSuggest } from "../utils/mentions";
 import { cacheOpenPost, getCachedOpenPost } from "../state/openPost";
 import { resolveSaved, setSavedOverride } from "../state/savedPosts";
 import { getUser, type StoredUser } from "../storage/session";
@@ -74,6 +76,7 @@ export default function PostCommentsScreen() {
   const [sending, setSending] = useState(false);
 
   const [missing, setMissing] = useState(false);
+  const { mentions, clearMentions } = useMentionSuggest(draft);
 
   useEffect(() => {
     void getUser().then(setUser);
@@ -326,7 +329,7 @@ export default function PostCommentsScreen() {
         {missing ? null : (
         <View
           style={[
-            styles.composer,
+            styles.composerWrap,
             {
               marginBottom:
                 keyboardHeight > 0 || overlap > 0
@@ -335,13 +338,23 @@ export default function PostCommentsScreen() {
             },
           ]}
         >
+          {mentions.length ? (
+            <MentionSuggestList
+              people={mentions}
+              onSelect={(person) => {
+                setDraft((current) => insertMentionAtCursor(current, mentionHandle(person)));
+                clearMentions();
+              }}
+            />
+          ) : null}
+          <View style={styles.composer}>
           <AvatarCircle name={displayName} uri={picture} size={36} />
           <View style={styles.composerField}>
             <TextInput
               ref={inputRef}
               value={draft}
               onChangeText={setDraft}
-              placeholder={replyTo ? `Reply to ${replyTo.name}` : "Write a comment"}
+              placeholder={replyTo ? `Reply to ${replyTo.name}` : "Write a comment… @ to mention"}
               placeholderTextColor={colors.textMuted}
               style={styles.composerInput}
               returnKeyType="send"
@@ -358,6 +371,7 @@ export default function PostCommentsScreen() {
               Send
             </Text>
           </Pressable>
+          </View>
         </View>
         )}
         </View>
@@ -467,16 +481,19 @@ function makeStyles(colors: Palette) {
   threadPad: {
     paddingHorizontal: 16,
   },
-  composer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+  composerWrap: {
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingTop: 8,
     paddingBottom: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     backgroundColor: colors.background,
+    gap: 6,
+  },
+  composer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   composerField: {
     flex: 1,

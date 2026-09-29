@@ -91,6 +91,9 @@ export function notificationKind(row: ApiNotification): NotificationKind {
     return "referrals";
   }
   if (action.includes("like") || action.includes("react")) return "like";
+  if (action.includes("mention") || action.includes("collaborat") || node === "post_collaboration") {
+    return "comment";
+  }
   if (action.includes("comment") || action.includes("replied")) return "comment";
   if (action.includes("share")) return "share";
   if (node === "friend_request" || action.includes("friend")) return "friend";
@@ -116,6 +119,17 @@ export function isIncomingFriendRequest(row: ApiNotification): boolean {
   return node === "friend_request" || action === "friend_request";
 }
 
+export function isCollaborationInvite(row: ApiNotification): boolean {
+  const node = String(row.node_type || "").toLowerCase();
+  const action = String(row.action || "").toLowerCase();
+  if (action.includes("accepted") || action.includes("declined")) return false;
+  return (
+    node === "post_collaboration" ||
+    action === "collaboration_invite" ||
+    action.includes("collaborate")
+  );
+}
+
 export function notificationPostId(row: ApiNotification): number {
   const node = String(row.node_type || "").toLowerCase();
   const action = String(row.action || row.message || row.title || "").toLowerCase();
@@ -133,13 +147,22 @@ export function notificationPostId(row: ApiNotification): number {
   ) {
     return 0;
   }
-  if (node === "post" || node === "share" || node === "comment") return id;
+  if (
+    node === "post" ||
+    node === "share" ||
+    node === "comment" ||
+    node === "post_collaboration"
+  ) {
+    return id;
+  }
   if (
     action.includes("post") ||
     action.includes("comment") ||
     action.includes("react") ||
     action.includes("like") ||
-    action.includes("share")
+    action.includes("share") ||
+    action.includes("mention") ||
+    action.includes("collaborat")
   ) {
     return id;
   }
@@ -165,8 +188,11 @@ function socialTitle(action: string, name: string): string | null {
     return `${actor} accepted your message request`;
   }
   if (key === "new_message") return `${actor} sent you a message`;
+  if (key === "collaboration_invite") return `${actor} invited you to collaborate on a post`;
+  if (key === "collaboration_accepted") return `${actor} accepted your collaboration invite`;
+  if (key === "collaboration_declined") return `${actor} declined your collaboration invite`;
   if (raw.toLowerCase().startsWith(`${actor.toLowerCase()} `)) return raw;
-  if (/^(commented|replied|mentioned|reacted|liked|shared|viewed)\b/i.test(raw)) {
+  if (/^(commented|replied|mentioned|reacted|liked|shared|viewed|invited)\b/i.test(raw)) {
     return `${actor} ${raw}`;
   }
   return null;

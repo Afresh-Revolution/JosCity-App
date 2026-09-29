@@ -20,9 +20,11 @@ import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import PeopleRow from "../components/feed/PeopleRow";
 import PostCard from "../components/feed/PostCard";
 import StatusRow from "../components/feed/StatusRow";
+import BusinessListingsRow from "../components/explore/BusinessListingsRow";
 import { getFeed, type FeedPost } from "../api/feed";
 import { getUserProfile } from "../api/auth";
 import { getAccount } from "../api/account";
+import { getPublicListings, type MarketplaceListing } from "../api/marketplace";
 import { getStories } from "../api/stories";
 import { getApprovedUsers, getUnreadNotificationCount, type DirectoryUser } from "../api/social";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
@@ -64,6 +66,7 @@ export default function HomeScreen() {
   const [user, setUser] = useState<StoredUser | null>(null);
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [people, setPeople] = useState<DirectoryUser[]>([]);
+  const [listings, setListings] = useState<MarketplaceListing[]>([]);
   const [unread, setUnread] = useState(0);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -148,8 +151,9 @@ export default function HomeScreen() {
   }, []);
 
   const loadExtras = useCallback(async () => {
-    const [directory, count, account, profile] = await Promise.allSettled([
+    const [directory, market, count, account, profile] = await Promise.allSettled([
       getApprovedUsers({ limit: 40, accountType: "personal" }),
+      getPublicListings(),
       getUnreadNotificationCount(),
       getAccount(),
       getUserProfile(),
@@ -157,6 +161,7 @@ export default function HomeScreen() {
       refreshFriendGraph(),
     ]);
     if (directory.status === "fulfilled") setPeople(directory.value);
+    if (market.status === "fulfilled") setListings(market.value);
     if (count.status === "fulfilled") setUnread(count.value);
     const stored = (await getUser()) || {};
     const profileUser =
@@ -342,9 +347,19 @@ export default function HomeScreen() {
     ? formatGreetingLine(greetingData, firstName)
     : "";
   const peopleAfterIndex = peopleInsertIndex(posts.length);
+  const listingsAfterIndex =
+    peopleAfterIndex == null
+      ? posts.length > 0
+        ? Math.min(2, posts.length - 1)
+        : null
+      : Math.min(peopleAfterIndex + 2, posts.length - 1);
   const previewPeople = useMemo(() => people.slice(0, 8), [people]);
+  const previewListings = useMemo(() => listings.slice(0, 12), [listings]);
   const openPeoplePage = useCallback(() => {
     router.push("/people");
+  }, [router]);
+  const openMarketPage = useCallback(() => {
+    router.push("/market");
   }, [router]);
   const onDeletedPost = useCallback((deletedId: number) => {
     setPosts((current) =>
@@ -497,9 +512,28 @@ export default function HomeScreen() {
             />
           </View>
         ) : null}
+        {listingsAfterIndex != null && index === listingsAfterIndex ? (
+          <BusinessListingsRow
+            listings={previewListings}
+            title={t("home.listingsTitle")}
+            subtitle={t("home.listingsSubtitle")}
+            seeAllLabel={t("common.seeAll")}
+            onSeeAll={openMarketPage}
+          />
+        ) : null}
       </View>
     ),
-    [onDeletedPost, openPeoplePage, peopleAfterIndex, previewPeople, t, user?.user_id]
+    [
+      listingsAfterIndex,
+      onDeletedPost,
+      openMarketPage,
+      openPeoplePage,
+      peopleAfterIndex,
+      previewListings,
+      previewPeople,
+      t,
+      user?.user_id,
+    ]
   );
   const renderFeedFooter = useCallback(
     () => (
@@ -517,7 +551,22 @@ export default function HomeScreen() {
               seeAllLabel={t("common.seeAll")}
               onSeeAll={openPeoplePage}
             />
+            <BusinessListingsRow
+              listings={previewListings}
+              title={t("home.listingsTitle")}
+              subtitle={t("home.listingsSubtitle")}
+              seeAllLabel={t("common.seeAll")}
+              onSeeAll={openMarketPage}
+            />
           </View>
+        ) : listingsAfterIndex == null && previewListings.length ? (
+          <BusinessListingsRow
+            listings={previewListings}
+            title={t("home.listingsTitle")}
+            subtitle={t("home.listingsSubtitle")}
+            seeAllLabel={t("common.seeAll")}
+            onSeeAll={openMarketPage}
+          />
         ) : null}
 
         {hasMore ? (
@@ -538,10 +587,13 @@ export default function HomeScreen() {
     [
       colors.primary,
       hasMore,
+      listingsAfterIndex,
       loadingMore,
       onLoadMore,
+      openMarketPage,
       openPeoplePage,
       posts.length,
+      previewListings,
       previewPeople,
       styles.loadMore,
       styles.loadMoreText,

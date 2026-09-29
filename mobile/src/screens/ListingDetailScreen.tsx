@@ -12,7 +12,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInputFocusEventData,
@@ -29,7 +28,7 @@ import TextField from "../components/TextField";
 import CbcCardPayForm from "../components/wallet/CbcCardPayForm";
 import CbcTapPayPanel from "../components/wallet/CbcTapPayPanel";
 import { NfcReadError, prepareCardReader, readCardTap, type NfcCardRead } from "../nfc/readCbcCard";
-import { ErrorBanner } from "../components/AppNotice";
+import { ErrorBanner, showNotice } from "../components/AppNotice";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import ReportSheet from "../components/ReportSheet";
 import { getWallet, getWalletFunding, type WalletFundingOptions } from "../api/account";
@@ -38,6 +37,7 @@ import {
   getListing,
   payListingCbcCard,
   payListingWallet,
+  updateListingOrderBuyerDetails,
   type ListingCheckoutOrder,
   type MarketplaceListing,
 } from "../api/marketplace";
@@ -55,6 +55,12 @@ import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { absoluteUrl, formatNaira } from "../utils/format";
 import { formatDurationNote } from "../utils/listingDisplay";
+import {
+  fieldErrorMap,
+  missingFields,
+  scrollToFormError,
+  type FieldCheck,
+} from "../utils/formValidation";
 import type { FeedTab } from "../components/feed/FeedTabBar";
 
 function buyerName(user: StoredUser | null): string {
@@ -176,6 +182,10 @@ export default function ListingDetailScreen() {
   const [preferredAt, setPreferredAt] = useState("");
   const [notes, setNotes] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [formRequired, setFormRequired] = useState<string[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const formErrorRef = useRef<View>(null);
+  const checkoutScrollRef = useRef<ScrollView>(null);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [funding, setFunding] = useState<WalletFundingOptions | null>(null);
   const [walletBalance, setWalletBalance] = useState(0);
@@ -183,6 +193,9 @@ export default function ListingDetailScreen() {
   const [tapBusy, setTapBusy] = useState(false);
   const [orderStatus, setOrderStatus] = useState<Record<number, "paid" | "pending">>({});
   const [reportOpen, setReportOpen] = useState(false);
+  const [checkoutIntent, setCheckoutIntent] = useState<"book" | "tap">("book");
+  const [detailsSaved, setDetailsSaved] = useState(false);
+  const [savingDetails, setSavingDetails] = useState(false);
 
   useEffect(() => {
     prepareCardReader();
@@ -217,7 +230,11 @@ export default function ListingDetailScreen() {
         setEmail((current) => current || String(stored?.user_email || stored?.email || "").trim());
         setPhone(
           (current) =>
-            current || String(stored?.user_phone || stored?.business_phone || "").trim()
+            current || String(stored?.user_phone || stored?.business_phone || stored?.phone || "").trim()
+        );
+        setAddress(
+          (current) =>
+            current || String(stored?.address || stored?.user_address || stored?.location || "").trim()
         );
         const [fund, wallet] = await Promise.all([getWalletFunding(), getWallet()]);
         if (!cancelled && fund.success && fund.data) setFunding(fund.data);
@@ -278,7 +295,33 @@ export default function ListingDetailScreen() {
   const total = (listing?.price || 0) * qty;
   const sellerName = payeeName(listing, orders?.[0] || null);
 
-  const openCheckout = () => {
+  const clearFieldError = (key: string) => {
+    setFieldErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const profileContactReady = () => {
+    const name = fullName.trim() || buyerName(user);
+    const phoneValue = phone.trim() || String(user?.user_phone || user?.phone || "").trim();
+    const emailValue = email.trim() || String(user?.user_email || user?.email || "").trim();
+    if (!name || !phoneValue || !emailValue) {
+      Alert.alert(
+        t("listing.checkoutMissingGuide"),
+        "Add your name, phone, and email in your profile, then try again."
+      );
+      return null;
+    }
+    if (!fullName.trim()) setFullName(name);
+    if (!phone.trim()) setPhone(phoneValue);
+    if (!email.trim()) setEmail(emailValue);
+    return { fullName: name, phone: phoneValue, email: emailValue };
+  };
+
+  const openCheckout = (intent: "book" | "tap" = "book") => {
     if (!listing) return;
     if (owner) return;
     if (isBusiness) {
@@ -289,45 +332,119 @@ export default function ListingDetailScreen() {
       Alert.alert(t("listing.unavailableTitle"), t("listing.unavailableBody"));
       return;
     }
+    setCheckoutIntent(intent);
     setFormError(null);
+    setFormRequired([]);
+    setFieldErrors({});
     setOrders(null);
     setOrderStatus({});
+    setDetailsSaved(false);
+    setPreferredAt("");
+    setNotes("");
+
+    // Pay-first only for CBC NFC pay on services.
+    if (isService && intent === "tap") {
+      void startServiceTapPay();
+      return;
+    }
+
     setSheet(true);
+  };
+
+  const checkoutFieldChecks = (): FieldCheck[] => {
+    const checks: FieldCheck[] = [
+      { key: "fullName", label: t("listing.fullName"), ok: !!fullName.trim() },
+      { key: "phone", label: t("listing.phone"), ok: !!phone.trim() },
+      { key: "email", label: t("listing.email"), ok: !!email.trim() },
+    ];
+    if (!isService) {
+      checks.push(
+        { key: "address", label: t("listing.address"), ok: !!address.trim() },
+        { key: "city", label: t("listing.city"), ok: !!city.trim() },
+        { key: "state", label: t("listing.state"), ok: !!stateName.trim() }
+      );
+    }
+    return checks;
+  };
+
+  const validateCheckoutForm = () => {
+    const missing = missingFields(checkoutFieldChecks());
+    if (!missing.length) {
+      setFormError(null);
+      setFormRequired([]);
+      setFieldErrors({});
+      return true;
+    }
+    setFieldErrors(fieldErrorMap(missing));
+    setFormRequired(missing.map((item) => item.label));
+    setFormError(t("listing.checkoutMissingGuide"));
+    scrollToFormError(checkoutScrollRef, formErrorRef);
+    return false;
   };
 
   const submit = async () => {
     if (!listing || saving) return;
-    if (!fullName.trim() || !phone.trim() || !email.trim()) {
-      setFormError(t("listing.contactRequired"));
-      return;
-    }
-    if (!isService && (!address.trim() || !city.trim() || !stateName.trim())) {
-      setFormError(t("listing.addressRequired"));
-      return;
-    }
+    if (!validateCheckoutForm()) return;
     setSaving(true);
     setFormError(null);
+    setFormRequired([]);
+    setFieldErrors({});
     const result = await checkoutListing({
       listingId: listing.id,
       quantity: qty,
       fullName: fullName.trim(),
       phone: phone.trim(),
       email: email.trim(),
-      address: address.trim(),
-      city: city.trim(),
-      state: stateName.trim(),
+      address: isService ? address.trim() || "Service booking" : address.trim(),
+      city: isService ? city.trim() || "Jos" : city.trim(),
+      state: isService ? stateName.trim() || "Plateau" : stateName.trim(),
       notes: notes.trim(),
       preferredAt: preferredAt.trim(),
     });
     setSaving(false);
     if (!result.success || !result.data?.orders?.length) {
+      setFormRequired([]);
       setFormError(result.message || t("listing.checkoutFailed"));
+      scrollToFormError(checkoutScrollRef, formErrorRef);
       return;
     }
     setOrders(result.data.orders);
     if (result.data.funding) setFunding(result.data.funding);
     const wallet = await getWallet();
     if (wallet.success && wallet.data) setWalletBalance(Number(wallet.data.balance || 0));
+  };
+
+  const markOrderPaid = (order: ListingCheckoutOrder) => {
+    setOrderStatus((current) => ({ ...current, [order.id]: "paid" }));
+    setDetailsSaved(false);
+    setSheet(true);
+  };
+
+  const savePostPayDetails = async (): Promise<boolean> => {
+    if (!orders?.length || savingDetails) return false;
+    const contact = profileContactReady();
+    if (!contact) return false;
+    setSavingDetails(true);
+    setFormError(null);
+    for (const order of orders) {
+      if (orderStatus[order.id] !== "paid") continue;
+      const result = await updateListingOrderBuyerDetails(order.id, {
+        fullName: contact.fullName,
+        phone: contact.phone,
+        email: contact.email,
+        preferredAt: preferredAt.trim(),
+        notes: notes.trim(),
+      });
+      if (!result.success) {
+        setSavingDetails(false);
+        setFormError(result.message || t("listing.checkoutFailed"));
+        return false;
+      }
+    }
+    setSavingDetails(false);
+    setDetailsSaved(true);
+    showNotice({ title: t("listing.paySuccess"), message: t("listing.detailsSaved"), tone: "success" });
+    return true;
   };
 
   const payWithCbcCard = async (
@@ -342,18 +459,20 @@ export default function ListingDetailScreen() {
       Alert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"));
       return;
     }
-    setOrderStatus((current) => ({ ...current, [order.id]: "paid" }));
-    Alert.alert(
-      t("listing.paySuccess"),
-      result.data?.cbc_amount
-        ? t("listing.cbcPaySuccessBody", {
-            amount: formatNaira(order.totalNaira),
-            cbc: Number(result.data.cbc_amount).toLocaleString("en-US", {
-              maximumFractionDigits: 4,
-            }),
-          })
-        : t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })
-    );
+    markOrderPaid(order);
+    if (!isService) {
+      Alert.alert(
+        t("listing.paySuccess"),
+        result.data?.cbc_amount
+          ? t("listing.cbcPaySuccessBody", {
+              amount: formatNaira(order.totalNaira),
+              cbc: Number(result.data.cbc_amount).toLocaleString("en-US", {
+                maximumFractionDigits: 4,
+              }),
+            })
+          : t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })
+      );
+    }
   };
 
   const payWithWallet = async (order: ListingCheckoutOrder) => {
@@ -376,17 +495,82 @@ export default function ListingDetailScreen() {
       return;
     }
     setWalletBalance((current) => Math.max(0, current - order.totalNaira));
-    setOrderStatus((current) => ({ ...current, [order.id]: "paid" }));
-    Alert.alert(
-      t("listing.paySuccess"),
-      t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })
-    );
+    markOrderPaid(order);
+    if (!isService) {
+      Alert.alert(
+        t("listing.paySuccess"),
+        t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })
+      );
+    }
   };
 
   const shareListing = async () => {
     if (!listing) return;
-    const message = `${listing.title} · ${formatNaira(listing.price)}\nhttps://joscity.com/listing/${listing.id}`;
-    await Share.share({ message, title: listing.title }).catch(() => undefined);
+    const { shareEntity } = await import("../utils/share");
+    await shareEntity(
+      "listing",
+      listing.id,
+      `${listing.title} · ${formatNaira(listing.price)}`,
+      `https://joscity.com/listing/${listing.id}`
+    );
+  };
+
+  const startServiceTapPay = () => {
+    if (!listing || saving || readerAway || payBusy || unavailable || owner || isBusiness) return;
+    const contact = profileContactReady();
+    if (!contact) return;
+
+    const id = readSerial.current + 1;
+    const scan = readCardTap(new AbortController().signal);
+    setSheet(false);
+    readSerial.current = id;
+    setPendingRead(null);
+    setPendingError(null);
+    setReaderAway(true);
+    setTapBusy(true);
+    const orderPromise = checkoutListing({
+      listingId: listing.id,
+      quantity: qty,
+      fullName: contact.fullName,
+      phone: contact.phone,
+      email: contact.email,
+      address: "Service booking",
+      city: "Jos",
+      state: "Plateau",
+      notes: "",
+      preferredAt: "",
+    });
+    void (async () => {
+      try {
+        const tag = await scan;
+        const result = await orderPromise;
+        if (!result.success || !result.data?.orders?.length) {
+          Alert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"));
+          return;
+        }
+        setOrders(result.data.orders);
+        if (result.data.funding) setFunding(result.data.funding);
+        setPendingRead({ id, tag });
+        setDetailsSaved(false);
+        setSheet(true);
+      } catch (caught) {
+        const message =
+          caught instanceof NfcReadError && caught.code === "aborted"
+            ? "The card reader closed before a card was read. Try CBC NFC pay again and hold the card to the phone."
+            : caught instanceof Error
+              ? caught.message
+              : "Could not read the card. Try again.";
+        setPendingError({ id, message });
+        Alert.alert(t("explore.cartTap"), message);
+      } finally {
+        setReaderAway(false);
+        setTapBusy(false);
+      }
+    })();
+  };
+
+  const tapFromListing = () => {
+    startServiceTapPay();
   };
 
   if (!ready || (loading && !listing)) {
@@ -419,56 +603,6 @@ export default function ListingDetailScreen() {
           });
           if (openSheet) setSheet(true);
         }
-      } finally {
-        setReaderAway(false);
-        setTapBusy(false);
-      }
-    })();
-  };
-
-  const tapFromListing = () => {
-    if (!listing || saving || readerAway || payBusy || unavailable || owner || isBusiness) return;
-    const id = readSerial.current + 1;
-    const scan = readCardTap(new AbortController().signal);
-    setSheet(false);
-    readSerial.current = id;
-    setPendingRead(null);
-    setPendingError(null);
-    setReaderAway(true);
-    setTapBusy(true);
-    const orderPromise = checkoutListing({
-      listingId: listing.id,
-      quantity: qty,
-      fullName: fullName.trim(),
-      phone: phone.trim(),
-      email: email.trim(),
-      address: address.trim(),
-      city: city.trim(),
-      state: stateName.trim(),
-      notes: notes.trim(),
-      preferredAt: preferredAt.trim(),
-    });
-    void (async () => {
-      try {
-        const tag = await scan;
-        const result = await orderPromise;
-        if (!result.success || !result.data?.orders?.length) {
-          Alert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"));
-          return;
-        }
-        setOrders(result.data.orders);
-        if (result.data.funding) setFunding(result.data.funding);
-        setPendingRead({ id, tag });
-        setSheet(true);
-      } catch (caught) {
-        const message =
-          caught instanceof NfcReadError && caught.code === "aborted"
-            ? "The card reader closed before a card was read. Tap to pay again and hold the card at the top of the iPhone."
-            : caught instanceof Error
-              ? caught.message
-              : "Could not read the card. Try again.";
-        setPendingError({ id, message });
-        Alert.alert("Tap to pay", message);
       } finally {
         setReaderAway(false);
         setTapBusy(false);
@@ -533,7 +667,9 @@ export default function ListingDetailScreen() {
                         })}
                       </Text>
                       {status === "paid" ? (
-                        <Text style={styles.payNote}>{t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })}</Text>
+                        <Text style={styles.payNote}>
+                          {t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })}
+                        </Text>
                       ) : (
                         <>
                           <Text style={styles.payTo}>
@@ -552,32 +688,87 @@ export default function ListingDetailScreen() {
                             onPay={(details) => void payWithCbcCard(order, details)}
                             onPinFocus={revealPin}
                           />
-                          <CbcTapPayPanel
-                            orderId={order.id}
-                            amountNaira={order.totalNaira}
-                            disabled={payBusy || tapBusy}
-                            onBusyChange={setTapBusy}
-                            onPinFocus={() => revealPin()}
-                            onRequestRead={requestCardRead}
-                            pendingRead={pendingRead}
-                            pendingError={pendingError}
-                            onPaid={() => {
-                              setOrderStatus((current) => ({ ...current, [order.id]: "paid" }));
-                              Alert.alert(
-                                t("listing.paySuccess"),
-                                t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })
-                              );
-                            }}
-                          />
+                          {isService ? (
+                            <CbcTapPayPanel
+                              orderId={order.id}
+                              amountNaira={order.totalNaira}
+                              disabled={payBusy || tapBusy}
+                              onBusyChange={setTapBusy}
+                              onPinFocus={() => revealPin()}
+                              onRequestRead={requestCardRead}
+                              pendingRead={pendingRead}
+                              pendingError={pendingError}
+                              onPaid={() => {
+                                markOrderPaid(order);
+                              }}
+                            />
+                          ) : null}
                         </>
                       )}
                     </View>
                   );
                 })}
-                <AppButton label={t("listing.done")} onPress={() => setSheet(false)} />
+                {isService &&
+                checkoutIntent === "tap" &&
+                orders.some((order) => orderStatus[order.id] === "paid") ? (
+                  <View style={[styles.bankCard, { gap: 10 }]}>
+                    <Text style={styles.sheetTitle}>{t("listing.paySuccess")}</Text>
+                    <Text style={styles.sheetLead}>{t("listing.successDetailsLead")}</Text>
+                    {formError ? <ErrorBanner ref={formErrorRef} message={formError} /> : null}
+                    <TextField
+                      label={t("listing.preferredTime")}
+                      value={preferredAt}
+                      onChangeText={(value) => {
+                        setPreferredAt(value);
+                        setDetailsSaved(false);
+                      }}
+                      placeholder={t("listing.preferredTimeHint")}
+                    />
+                    <TextField
+                      label={t("listing.notes")}
+                      value={notes}
+                      onChangeText={(value) => {
+                        setNotes(value);
+                        setDetailsSaved(false);
+                      }}
+                      multiline
+                      placeholder={t("listing.notesHint")}
+                    />
+                    <AppButton
+                      label={
+                        savingDetails
+                          ? t("listing.sending")
+                          : detailsSaved
+                            ? t("listing.detailsSaved")
+                            : t("listing.saveDetails")
+                      }
+                      onPress={() => void savePostPayDetails()}
+                      loading={savingDetails}
+                      disabled={savingDetails || detailsSaved}
+                    />
+                  </View>
+                ) : null}
+                <AppButton
+                  label={t("listing.done")}
+                  onPress={() => {
+                    void (async () => {
+                      if (
+                        isService &&
+                        checkoutIntent === "tap" &&
+                        orders.some((order) => orderStatus[order.id] === "paid") &&
+                        !detailsSaved
+                      ) {
+                        const ok = await savePostPayDetails();
+                        if (!ok) return;
+                      }
+                      setSheet(false);
+                    })();
+                  }}
+                />
               </ScrollView>
             ) : (
               <ScrollView
+                ref={checkoutScrollRef}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.sheetBody}
               >
@@ -587,50 +778,98 @@ export default function ListingDetailScreen() {
                     ? t("listing.paySellerBookIntro", { name: sellerName })
                     : t("listing.paySellerBuyIntro", { name: sellerName })}
                 </Text>
-                {formError ? <ErrorBanner message={formError} /> : null}
-                <TextField label={t("listing.fullName")} value={fullName} onChangeText={setFullName} />
+                {formError ? (
+                  <ErrorBanner
+                    ref={formErrorRef}
+                    title={formRequired.length ? t("form.almostThere") : undefined}
+                    message={formError}
+                    required={formRequired}
+                  />
+                ) : null}
+                <TextField
+                  label={t("listing.fullName")}
+                  value={fullName}
+                  onChangeText={(value) => {
+                    setFullName(value);
+                    clearFieldError("fullName");
+                  }}
+                  error={fieldErrors.fullName}
+                />
                 <TextField
                   label={t("listing.phone")}
                   value={phone}
-                  onChangeText={setPhone}
+                  onChangeText={(value) => {
+                    setPhone(value);
+                    clearFieldError("phone");
+                  }}
+                  error={fieldErrors.phone}
                   keyboardType="phone-pad"
                 />
                 <TextField
                   label={t("listing.email")}
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={(value) => {
+                    setEmail(value);
+                    clearFieldError("email");
+                  }}
+                  error={fieldErrors.email}
                   keyboardType="email-address"
                   autoCapitalize="none"
                 />
                 {isService ? (
-                  <TextField
-                    label={t("listing.preferredTime")}
-                    value={preferredAt}
-                    onChangeText={setPreferredAt}
-                    placeholder={t("listing.preferredTimeHint")}
-                  />
+                  <>
+                    <TextField
+                      label={t("listing.preferredTime")}
+                      value={preferredAt}
+                      onChangeText={setPreferredAt}
+                      placeholder={t("listing.preferredTimeHint")}
+                    />
+                    <TextField
+                      label={t("listing.notes")}
+                      value={notes}
+                      onChangeText={setNotes}
+                      multiline
+                      placeholder={t("listing.notesHint")}
+                    />
+                  </>
                 ) : (
                   <>
-                    <TextField label={t("listing.address")} value={address} onChangeText={setAddress} />
-                    <TextField label={t("listing.city")} value={city} onChangeText={setCity} />
-                    <TextField label={t("listing.state")} value={stateName} onChangeText={setStateName} />
+                    <TextField
+                      label={t("listing.address")}
+                      value={address}
+                      onChangeText={(value) => {
+                        setAddress(value);
+                        clearFieldError("address");
+                      }}
+                      error={fieldErrors.address}
+                    />
+                    <TextField
+                      label={t("listing.city")}
+                      value={city}
+                      onChangeText={(value) => {
+                        setCity(value);
+                        clearFieldError("city");
+                      }}
+                      error={fieldErrors.city}
+                    />
+                    <TextField
+                      label={t("listing.state")}
+                      value={stateName}
+                      onChangeText={(value) => {
+                        setStateName(value);
+                        clearFieldError("state");
+                      }}
+                      error={fieldErrors.state}
+                    />
+                    <TextField
+                      label={t("listing.notes")}
+                      value={notes}
+                      onChangeText={setNotes}
+                      multiline
+                      placeholder={t("listing.notesHint")}
+                    />
                   </>
                 )}
-                {isService && String(listing?.service_location || "") === "client_site" ? (
-                  <TextField
-                    label={t("listing.serviceAddress")}
-                    value={address}
-                    onChangeText={setAddress}
-                    placeholder={t("listing.serviceAddressHint")}
-                  />
-                ) : null}
-                <TextField
-                  label={t("listing.notes")}
-                  value={notes}
-                  onChangeText={setNotes}
-                  multiline
-                  placeholder={t("listing.notesHint")}
-                />
                 <AppButton
                   label={saving ? t("listing.sending") : `${cta} · ${formatNaira(total)}`}
                   onPress={() => void submit()}
@@ -798,28 +1037,37 @@ export default function ListingDetailScreen() {
                 <Text style={styles.total}>
                   {t("listing.total")}: {formatNaira(total)}
                 </Text>
-                <View style={styles.payRow}>
+                {isService ? (
+                  <View style={styles.payRow}>
+                    <AppButton
+                      style={styles.payHalf}
+                      label={
+                        unavailable ? t("listing.unavailable") : cta
+                      }
+                      onPress={() => openCheckout("book")}
+                      disabled={saving || readerAway || tapBusy}
+                    />
+                    <AppButton
+                      style={styles.payHalf}
+                      label={tapBusy || readerAway ? t("explore.cartPaying") : t("explore.cartTap")}
+                      onPress={() => openCheckout("tap")}
+                      loading={tapBusy || readerAway}
+                      disabled={unavailable || saving || readerAway || tapBusy}
+                    />
+                  </View>
+                ) : (
                   <AppButton
-                    style={styles.payHalf}
                     label={
-                      !isService &&
-                      (listing.is_sold_out || (listing.quantity_tracked && (listing.stock ?? 0) <= 0))
+                      listing.is_sold_out || (listing.quantity_tracked && (listing.stock ?? 0) <= 0)
                         ? t("listing.soldOut")
                         : unavailable
                           ? t("listing.unavailable")
                           : cta
                     }
-                    onPress={openCheckout}
-                    disabled={saving || readerAway}
+                    onPress={() => openCheckout("book")}
+                    disabled={saving || readerAway || tapBusy}
                   />
-                  <AppButton
-                    style={styles.payHalf}
-                    label="Tap to pay"
-                    onPress={() => void tapFromListing()}
-                    loading={saving || readerAway}
-                    disabled={unavailable || saving || readerAway}
-                  />
-                </View>
+                )}
               </FadeIn>
             ) : (
               <FadeIn delay={160}>

@@ -81,6 +81,7 @@ export type MarketplaceListing = {
   is_sold_out?: boolean;
   can_purchase?: boolean;
   seller_user_id?: string;
+  seller_name?: string;
   media?: ListingMediaItem[];
   contact?: {
     name?: string;
@@ -477,6 +478,32 @@ export async function checkoutListing(
       country: input.country || "Nigeria",
       notes: input.notes,
       preferredAt: input.preferredAt,
+    }),
+  });
+}
+
+export async function updateListingOrderBuyerDetails(
+  orderId: number,
+  input: {
+    fullName: string;
+    phone: string;
+    email: string;
+    preferredAt?: string;
+    notes?: string;
+  }
+) {
+  return marketplaceRequest<{
+    id: number;
+    status: string;
+    buyer: { fullName: string; phone: string; email: string; notes: string | null };
+  }>(`/marketplace/orders/${encodeURIComponent(String(orderId))}/buyer-details`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      fullName: input.fullName,
+      phone: input.phone,
+      email: input.email,
+      preferredAt: input.preferredAt,
+      notes: input.notes,
     }),
   });
 }

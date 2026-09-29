@@ -25,20 +25,26 @@ type Props = {
   children: ReactNode;
   enabled?: boolean;
   open: boolean;
+  muted?: boolean;
   deleteLabel: string;
+  muteLabel: string;
   onOpen: () => void;
   onClose: () => void;
   onDelete: () => void;
+  onToggleMute: () => void;
 };
 
 export default function SwipeableChatRow({
   children,
   enabled = true,
   open,
+  muted = false,
   deleteLabel,
+  muteLabel,
   onOpen,
   onClose,
   onDelete,
+  onToggleMute,
 }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -50,6 +56,7 @@ export default function SwipeableChatRow({
   const currentX = useRef(0);
   const rowHeight = useRef(0);
   const deleting = useRef(false);
+  const muteFired = useRef(false);
   const [collapsing, setCollapsing] = useState(false);
 
   useEffect(() => {
@@ -104,11 +111,22 @@ export default function SwipeableChatRow({
     else onClose();
   };
 
+  const fireMuteNow = () => {
+    if (muteFired.current || deleting.current) return;
+    muteFired.current = true;
+    onToggleMute();
+    snapTo(0);
+  };
+
   const onGestureEvent = (event: PanGestureHandlerGestureEvent) => {
     if (!enabled || deleting.current) return;
-    const next = Math.min(0, Math.max(-SCREEN, startX.current + event.nativeEvent.translationX));
+    const next = Math.min(REVEAL, Math.max(-SCREEN, startX.current + event.nativeEvent.translationX));
     currentX.current = next;
     translateX.setValue(next);
+    // Mute as soon as the right-slide crosses the reveal — no need to release.
+    if (!muteFired.current && next >= REVEAL * 0.55) {
+      fireMuteNow();
+    }
   };
 
   const onHandlerStateChange = (event: PanGestureHandlerStateChangeEvent) => {
@@ -116,13 +134,23 @@ export default function SwipeableChatRow({
     const { state, translationX, velocityX } = event.nativeEvent;
     if (state === State.BEGAN) {
       startX.current = currentX.current;
+      muteFired.current = false;
       return;
     }
     if (state !== State.END && state !== State.CANCELLED) return;
 
-    const next = Math.min(0, startX.current + translationX);
+    if (muteFired.current) {
+      snapTo(0);
+      return;
+    }
+
+    const next = Math.min(REVEAL, Math.max(-SCREEN, startX.current + translationX));
     if (next < -SCREEN * 0.45 || velocityX < -900) {
       animateDelete();
+      return;
+    }
+    if (next > REVEAL * 0.35 || velocityX > 500) {
+      fireMuteNow();
       return;
     }
     if (next < -REVEAL * 0.45) {
@@ -138,6 +166,18 @@ export default function SwipeableChatRow({
     extrapolate: "clamp",
   });
 
+  const muteOpacity = translateX.interpolate({
+    inputRange: [0, 8, REVEAL],
+    outputRange: [0, 1, 1],
+    extrapolate: "clamp",
+  });
+
+  const deleteOpacity = translateX.interpolate({
+    inputRange: [-REVEAL, -8, 0],
+    outputRange: [1, 1, 0],
+    extrapolate: "clamp",
+  });
+
   return (
     <Animated.View
       style={[styles.wrap, collapsing ? { height: heightAnim } : null]}
@@ -146,7 +186,22 @@ export default function SwipeableChatRow({
       }}
     >
       <Animated.View style={[styles.layer, { opacity: fade }]}>
-        <Animated.View style={[styles.deletePane, { transform: [{ translateX: deleteShift }] }]}>
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.mutePane, { opacity: muteOpacity }]}
+        >
+          <View style={styles.muteBtn}>
+            <Ionicons
+              name={muted ? "notifications-outline" : "notifications-off-outline"}
+              size={20}
+              color={colors.white}
+            />
+            <Text style={styles.actionText}>{muteLabel}</Text>
+          </View>
+        </Animated.View>
+        <Animated.View
+          style={[styles.deletePane, { opacity: deleteOpacity, transform: [{ translateX: deleteShift }] }]}
+        >
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={deleteLabel}
@@ -154,7 +209,7 @@ export default function SwipeableChatRow({
             style={styles.deleteBtn}
           >
             <Ionicons name="trash-outline" size={20} color={colors.white} />
-            <Text style={styles.deleteText}>{deleteLabel}</Text>
+            <Text style={styles.actionText}>{deleteLabel}</Text>
           </Pressable>
         </Animated.View>
 
@@ -165,7 +220,9 @@ export default function SwipeableChatRow({
           onGestureEvent={onGestureEvent}
           onHandlerStateChange={onHandlerStateChange}
         >
-          <Animated.View style={{ transform: [{ translateX }] }}>{children}</Animated.View>
+          <Animated.View style={[styles.foreground, { transform: [{ translateX }] }]}>
+            {children}
+          </Animated.View>
         </PanGestureHandler>
       </Animated.View>
     </Animated.View>
@@ -179,6 +236,24 @@ function makeStyles(colors: Palette) {
     },
     layer: {
       position: "relative",
+    },
+    foreground: {
+      backgroundColor: colors.background,
+    },
+    mutePane: {
+      ...StyleSheet.absoluteFill,
+      alignItems: "flex-start",
+      justifyContent: "center",
+      paddingLeft: 4,
+    },
+    muteBtn: {
+      width: REVEAL - 8,
+      minHeight: 64,
+      borderRadius: 16,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 4,
     },
     deletePane: {
       ...StyleSheet.absoluteFill,
@@ -195,7 +270,7 @@ function makeStyles(colors: Palette) {
       justifyContent: "center",
       gap: 4,
     },
-    deleteText: {
+    actionText: {
       color: colors.white,
       fontFamily: "Montserrat_600SemiBold",
       fontSize: 11,

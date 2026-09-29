@@ -16,6 +16,7 @@ import FadeIn from "../components/FadeIn";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import FriendRequestActions from "../components/notifications/FriendRequestActions";
+import CollaborationInviteActions from "../components/notifications/CollaborationInviteActions";
 import SwipeableNotification from "../components/notifications/SwipeableNotification";
 import {
   deleteAllNotifications,
@@ -44,6 +45,7 @@ import {
   notificationSection,
   notificationTitle,
   notificationWhen,
+  isCollaborationInvite,
   isIncomingFriendRequest,
   isJoscityNotice,
   uniqueNotifications,
@@ -496,6 +498,22 @@ export default function NotificationsScreen() {
                               userId={Number(item.from_user_id)}
                               name={actorName || "this member"}
                               requestId={Number(item.node_id || 0) || undefined}
+                              onResolved={(accepted) => {
+                                if (!item.is_read) void markNotificationRead(item.id);
+                                if (!accepted) onDeleteOne(item.id);
+                                else {
+                                  setItems((current) =>
+                                    current.map((row) =>
+                                      row.id === item.id ? { ...row, is_read: true } : row
+                                    )
+                                  );
+                                }
+                              }}
+                            />
+                          ) : null}
+                          {!selecting && isCollaborationInvite(item) ? (
+                            <CollaborationInviteActions
+                              postId={Number(item.node_id || 0)}
                               onResolved={(accepted) => {
                                 if (!item.is_read) void markNotificationRead(item.id);
                                 if (!accepted) onDeleteOne(item.id);

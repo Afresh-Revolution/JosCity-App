@@ -1,9 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Dimensions,
   findNodeHandle,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -22,6 +24,7 @@ import TextField from "../components/TextField";
 import { ErrorBanner, showError, showNotice } from "../components/AppNotice";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import { getWallet } from "../api/account";
+import CbcTapPayPanel from "../components/wallet/CbcTapPayPanel";
 import {
   checkoutListing,
   getListingCart,
@@ -29,13 +32,22 @@ import {
   removeListingCartItem,
   updateListingCartItem,
   type ListingCartItem,
+  type ListingCheckoutOrder,
 } from "../api/marketplace";
+import { NfcReadError, readCardTap, type NfcCardRead } from "../nfc/readCbcCard";
 import { useKeyboardOverlap } from "../hooks/useKeyboardOverlap";
 import { useI18n } from "../i18n/I18nProvider";
 import { getUser, type StoredUser } from "../storage/session";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { absoluteUrl, formatNaira } from "../utils/format";
+import {
+  fieldErrorMap,
+  missingFields,
+  requiredGuideMessage,
+  scrollToFormError,
+  type FieldCheck,
+} from "../utils/formValidation";
 
 function buyerName(user: StoredUser | null): string {
   return (
@@ -56,6 +68,15 @@ export default function CartScreen() {
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorRequired, setErrorRequired] = useState<string[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [tapSheet, setTapSheet] = useState(false);
+  const [tapOrders, setTapOrders] = useState<ListingCheckoutOrder[] | null>(null);
+  const [tapBusy, setTapBusy] = useState(false);
+  const [orderStatus, setOrderStatus] = useState<Record<number, "paid">>({});
+  const [pendingRead, setPendingRead] = useState<{ id: number; tag: NfcCardRead } | null>(null);
+  const [pendingError, setPendingError] = useState<{ id: number; message: string } | null>(null);
+  const readSerial = useRef(0);
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -64,7 +85,17 @@ export default function CartScreen() {
   const [stateName, setStateName] = useState("Plateau");
   const [notes, setNotes] = useState("");
   const scrollRef = useRef<ScrollView>(null);
+  const errorBannerRef = useRef<View>(null);
   const scrollOffset = useRef(0);
+
+  const clearFieldError = (key: string) => {
+    setFieldErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  };
   const keyboard = useKeyboardOverlap();
   const keyboardRef = useRef(keyboard);
   keyboardRef.current = keyboard;
@@ -99,6 +130,11 @@ export default function CartScreen() {
     setFullName((current) => current || buyerName(user));
     setPhone((current) => current || String(user?.user_phone || user?.phone || "").trim());
     setEmail((current) => current || String(user?.user_email || user?.email || "").trim());
+    setAddress(
+      (current) =>
+        current ||
+        String(user?.address || user?.user_address || user?.location || "").trim()
+    );
   }, []);
 
   useFocusEffect(
@@ -132,44 +168,72 @@ export default function CartScreen() {
     });
   };
 
+  const contactReady = () => {
+    const checks: FieldCheck[] = [
+      { key: "fullName", label: t("listing.fullName"), ok: !!fullName.trim() },
+      { key: "phone", label: t("listing.phone"), ok: !!phone.trim() },
+      { key: "email", label: t("listing.email"), ok: !!email.trim() },
+    ];
+    if (goodsOnly) {
+      checks.push(
+        { key: "address", label: t("listing.address"), ok: !!address.trim() },
+        { key: "city", label: t("listing.city"), ok: !!city.trim() },
+        { key: "state", label: t("listing.state"), ok: !!stateName.trim() }
+      );
+    }
+    const missing = missingFields(checks);
+    if (!missing.length) {
+      setError(null);
+      setErrorRequired([]);
+      setFieldErrors({});
+      return true;
+    }
+    setFieldErrors(fieldErrorMap(missing));
+    setErrorRequired(missing.map((item) => item.label));
+    setError(t("listing.checkoutMissingGuide") || requiredGuideMessage(missing.length));
+    scrollToFormError(scrollRef, errorBannerRef);
+    return false;
+  };
+
+  const checkoutPayload = () => ({
+    fullName: fullName.trim(),
+    phone: phone.trim(),
+    email: email.trim(),
+    address: address.trim(),
+    city: city.trim(),
+    state: stateName.trim(),
+    notes: notes.trim(),
+  });
+
   const pay = async () => {
-    if (paying || !items.length) return;
-    if (!fullName.trim() || !phone.trim() || !email.trim()) {
-      setError(t("listing.contactRequired"));
-      return;
-    }
-    if (goodsOnly && (!address.trim() || !city.trim() || !stateName.trim())) {
-      setError(t("listing.addressRequired"));
-      return;
-    }
+    if (paying || tapBusy || !items.length) return;
+    if (!contactReady()) return;
     setPaying(true);
     setError(null);
     const wallet = await getWallet();
     const balance = wallet.success && wallet.data ? Number(wallet.data.balance || 0) : 0;
     if (balance < total) {
       setPaying(false);
+      setErrorRequired([]);
       setError(t("listing.walletNeedFund"));
+      scrollToFormError(scrollRef, errorBannerRef);
       return;
     }
-    const checkout = await checkoutListing({
-      fullName: fullName.trim(),
-      phone: phone.trim(),
-      email: email.trim(),
-      address: address.trim(),
-      city: city.trim(),
-      state: stateName.trim(),
-      notes: notes.trim(),
-    });
+    const checkout = await checkoutListing(checkoutPayload());
     if (!checkout.success || !checkout.data?.orders?.length) {
       setPaying(false);
+      setErrorRequired([]);
       setError(checkout.message || t("listing.checkoutFailed"));
+      scrollToFormError(scrollRef, errorBannerRef);
       return;
     }
     for (const order of checkout.data.orders) {
       const paid = await payListingWallet(order.id);
       if (!paid.success) {
         setPaying(false);
+        setErrorRequired([]);
         setError(paid.message || t("listing.checkoutFailed"));
+        scrollToFormError(scrollRef, errorBannerRef);
         void load();
         return;
       }
@@ -178,6 +242,47 @@ export default function CartScreen() {
     setPaying(false);
     showNotice({ title: t("listing.paySuccess"), message: t("explore.cartPaid"), tone: "success" });
     router.back();
+  };
+
+  const tapPay = () => {
+    if (paying || tapBusy || !items.length || !contactReady()) return;
+    const id = readSerial.current + 1;
+    readSerial.current = id;
+    const scan = readCardTap(new AbortController().signal);
+    setPendingRead(null);
+    setPendingError(null);
+    setTapBusy(true);
+    const orderPromise = checkoutListing(checkoutPayload());
+    void (async () => {
+      try {
+        const tag = await scan;
+        const result = await orderPromise;
+        if (!result.success || !result.data?.orders?.length) {
+          Alert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"));
+          return;
+        }
+        setTapOrders(result.data.orders);
+        setPendingRead({ id, tag });
+        setTapSheet(true);
+      } catch (caught) {
+        const message =
+          caught instanceof NfcReadError && caught.code === "aborted"
+            ? "The card reader closed before a card was read. Try CBC NFC pay again and hold the card to the phone."
+            : caught instanceof Error
+              ? caught.message
+              : "Could not read the card. Try again.";
+        setPendingError({ id, message });
+        const result = await orderPromise.catch(() => null);
+        if (result?.success && result.data?.orders?.length) {
+          setTapOrders(result.data.orders);
+          setTapSheet(true);
+        } else {
+          Alert.alert(t("listing.payError"), message);
+        }
+      } finally {
+        setTapBusy(false);
+      }
+    })();
   };
 
   return (
@@ -213,7 +318,14 @@ export default function CartScreen() {
           }}
           scrollEventThrottle={16}
         >
-          {error ? <ErrorBanner message={error} /> : null}
+          {error ? (
+            <ErrorBanner
+              ref={errorBannerRef}
+              title={errorRequired.length ? t("form.almostThere") : undefined}
+              message={error}
+              required={errorRequired}
+            />
+          ) : null}
           {items.length === 0 ? (
             <Text style={styles.empty}>{t("explore.cartEmpty")}</Text>
           ) : (
@@ -243,14 +355,71 @@ export default function CartScreen() {
                 );
               })}
               <Text style={styles.note}>{t("explore.cartSellers")}</Text>
-              <TextField label={t("listing.fullName")} value={fullName} onChangeText={setFullName} onFocus={revealInput} />
-              <TextField label={t("listing.phone")} value={phone} onChangeText={setPhone} keyboardType="phone-pad" onFocus={revealInput} />
-              <TextField label={t("listing.email")} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" onFocus={revealInput} />
+              <TextField
+                label={t("listing.fullName")}
+                value={fullName}
+                onChangeText={(value) => {
+                  setFullName(value);
+                  clearFieldError("fullName");
+                }}
+                error={fieldErrors.fullName}
+                onFocus={revealInput}
+              />
+              <TextField
+                label={t("listing.phone")}
+                value={phone}
+                onChangeText={(value) => {
+                  setPhone(value);
+                  clearFieldError("phone");
+                }}
+                error={fieldErrors.phone}
+                keyboardType="phone-pad"
+                onFocus={revealInput}
+              />
+              <TextField
+                label={t("listing.email")}
+                value={email}
+                onChangeText={(value) => {
+                  setEmail(value);
+                  clearFieldError("email");
+                }}
+                error={fieldErrors.email}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                onFocus={revealInput}
+              />
               {goodsOnly ? (
                 <>
-                  <TextField label={t("listing.address")} value={address} onChangeText={setAddress} onFocus={revealInput} />
-                  <TextField label={t("listing.city")} value={city} onChangeText={setCity} onFocus={revealInput} />
-                  <TextField label={t("listing.state")} value={stateName} onChangeText={setStateName} onFocus={revealInput} />
+                  <TextField
+                    label={t("listing.address")}
+                    value={address}
+                    onChangeText={(value) => {
+                      setAddress(value);
+                      clearFieldError("address");
+                    }}
+                    error={fieldErrors.address}
+                    onFocus={revealInput}
+                  />
+                  <TextField
+                    label={t("listing.city")}
+                    value={city}
+                    onChangeText={(value) => {
+                      setCity(value);
+                      clearFieldError("city");
+                    }}
+                    error={fieldErrors.city}
+                    onFocus={revealInput}
+                  />
+                  <TextField
+                    label={t("listing.state")}
+                    value={stateName}
+                    onChangeText={(value) => {
+                      setStateName(value);
+                      clearFieldError("state");
+                    }}
+                    error={fieldErrors.state}
+                    onFocus={revealInput}
+                  />
                 </>
               ) : null}
               <TextField
@@ -263,10 +432,21 @@ export default function CartScreen() {
                 onFocus={revealInput}
               />
               <AppButton
-                label={paying ? t("explore.cartPaying") : t("explore.cartPay", { amount: formatNaira(total) })}
+                label={tapBusy ? t("explore.cartPaying") : t("explore.cartTap")}
+                onPress={tapPay}
+                loading={tapBusy}
+                disabled={paying || tapBusy}
+                style={styles.tap}
+              />
+              <AppButton
+                label={
+                  paying
+                    ? t("explore.cartPaying")
+                    : t("explore.cartPay", { amount: formatNaira(total) })
+                }
                 onPress={() => void pay()}
                 loading={paying}
-                disabled={paying}
+                disabled={paying || tapBusy}
                 style={styles.pay}
               />
             </>
@@ -274,6 +454,49 @@ export default function CartScreen() {
         </ScrollView>
         </KeyboardAvoidingView>
       )}
+      <Modal visible={tapSheet} animationType="slide" transparent onRequestClose={() => !tapBusy && setTapSheet(false)}>
+        <View style={styles.sheetWrap}>
+          <Pressable style={styles.sheetDim} onPress={() => !tapBusy && setTapSheet(false)} />
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>{t("explore.cartTap")}</Text>
+            <ScrollView contentContainerStyle={styles.sheetBody} keyboardShouldPersistTaps="handled">
+              {(tapOrders || []).map((order) => (
+                <View key={order.id} style={styles.orderCard}>
+                  {orderStatus[order.id] === "paid" ? (
+                    <Text style={styles.paid}>{t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })}</Text>
+                  ) : (
+                    <CbcTapPayPanel
+                      orderId={order.id}
+                      amountNaira={order.totalNaira}
+                      disabled={tapBusy}
+                      onBusyChange={setTapBusy}
+                      pendingRead={pendingRead}
+                      pendingError={pendingError}
+                      onPaid={() => {
+                        setOrderStatus((current) => {
+                          const next = { ...current, [order.id]: "paid" as const };
+                          const orders = tapOrders || [];
+                          if (orders.length && orders.every((row) => next[row.id] === "paid")) {
+                            setItems([]);
+                            setTapSheet(false);
+                            showNotice({
+                              title: t("listing.paySuccess"),
+                              message: t("explore.cartPaid"),
+                              tone: "success",
+                            });
+                            router.back();
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </FeedShell>
   );
 }
@@ -287,7 +510,15 @@ function makeStyles(colors: Palette) {
     title: { fontFamily: "Montserrat_700Bold", fontSize: 22, color: colors.text },
     content: { paddingHorizontal: 16, paddingBottom: TAB_BAR_SPACE, gap: 12 },
     empty: { marginTop: 32, textAlign: "center", fontFamily: "Montserrat_500Medium", fontSize: 15, color: colors.textMuted },
-    row: { flexDirection: "row", gap: 12, backgroundColor: colors.white, borderRadius: 16, padding: 12 },
+    row: {
+      flexDirection: "row",
+      gap: 12,
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      padding: 12,
+    },
     image: { width: 72, height: 72, borderRadius: 10, backgroundColor: colors.sheet },
     meta: { flex: 1, gap: 4 },
     name: { fontFamily: "Montserrat_700Bold", fontSize: 15, color: colors.text },
@@ -297,6 +528,27 @@ function makeStyles(colors: Palette) {
     qty: { fontFamily: "Montserrat_700Bold", fontSize: 14, color: colors.text, minWidth: 16, textAlign: "center" },
     remove: { marginLeft: 8, fontFamily: "Montserrat_600SemiBold", fontSize: 13, color: colors.badge },
     note: { fontFamily: "Montserrat_400Regular", fontSize: 13, lineHeight: 18, color: colors.textMuted },
+    tap: { marginTop: 4 },
     pay: { marginBottom: 20 },
+    sheetWrap: { flex: 1, justifyContent: "flex-end" },
+    sheetDim: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.45)" },
+    sheet: {
+      maxHeight: "88%",
+      backgroundColor: colors.background,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingTop: 16,
+      paddingHorizontal: 16,
+    },
+    sheetTitle: { fontFamily: "Montserrat_700Bold", fontSize: 18, color: colors.text, marginBottom: 8 },
+    sheetBody: { gap: 12, paddingBottom: 28 },
+    orderCard: {
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      padding: 12,
+    },
+    paid: { fontFamily: "Montserrat_600SemiBold", fontSize: 14, color: colors.primary },
   });
 }

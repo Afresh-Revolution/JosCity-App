@@ -21,6 +21,7 @@ import NewsArticleRow from "../components/explore/NewsArticleRow";
 import ForumThreadRow from "../components/explore/ForumThreadRow";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import PeopleRow from "../components/feed/PeopleRow";
+import BusinessListingsRow, { type ListingKindFilter } from "../components/explore/BusinessListingsRow";
 import {
   eventListKey,
   eventLocation,
@@ -40,8 +41,8 @@ import {
   getUnreadNotificationCount,
   type DirectoryUser,
 } from "../api/social";
+import { getPublicListings, type MarketplaceListing } from "../api/marketplace";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
-import { getAccountType, normalizeAccountType } from "../storage/session";
 import { useI18n } from "../i18n/I18nProvider";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
@@ -62,7 +63,6 @@ const categories: Array<{
   { id: "news", label: "News", icon: "newspaper-outline" },
   { id: "forums", label: "Forums", icon: "chatbubbles-outline" },
   { id: "businesses", label: "Businesses", icon: "storefront-outline" },
-  { id: "market", label: "Market", icon: "bag-handle-outline" },
   { id: "map", label: "Map", icon: "map-outline" },
 ];
 
@@ -95,31 +95,29 @@ export default function ExploreScreen() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [events, setEvents] = useState<ExploreEvent[]>(() => getCachedExploreEvents().slice(0, 6));
   const [forumThreads, setForumThreads] = useState<ForumThread[]>([]);
+  const [listings, setListings] = useState<MarketplaceListing[]>([]);
+  const [listingFilter, setListingFilter] = useState<ListingKindFilter>("all");
   const [loading, setLoading] = useState(true);
-  const [personalShopper, setPersonalShopper] = useState(false);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    const [accountType, tags, members, shops, articles, forums, count] =
-      await Promise.allSettled([
-        getAccountType(),
-        getTrendingHashtags(3),
-        getApprovedUsers({ limit: 12, accountType: "personal" }),
-        getApprovedUsers({ accountType: "business", allPages: true }),
-        getPublishedNews(6),
-        getForumOverview(4),
-        getUnreadNotificationCount(),
-      ]);
-    if (accountType.status === "fulfilled") {
-      setPersonalShopper(normalizeAccountType(accountType.value) === "personal");
-    }
+    const [tags, members, shops, articles, forums, count, market] = await Promise.allSettled([
+      getTrendingHashtags(3),
+      getApprovedUsers({ limit: 12, accountType: "personal" }),
+      getApprovedUsers({ accountType: "business", allPages: true }),
+      getPublishedNews(6),
+      getForumOverview(4),
+      getUnreadNotificationCount(),
+      getPublicListings(),
+    ]);
     if (tags.status === "fulfilled") setHashtags(tags.value);
     if (members.status === "fulfilled") setPeople(members.value);
     if (shops.status === "fulfilled") setBusinesses(shops.value);
     if (articles.status === "fulfilled") setNews(articles.value);
     if (forums.status === "fulfilled") setForumThreads(forums.value.threads || []);
     if (count.status === "fulfilled") setUnread(count.value);
+    if (market.status === "fulfilled") setListings(market.value);
   }, []);
 
   const loadEvents = useCallback(async () => {
@@ -232,9 +230,7 @@ export default function ExploreScreen() {
   const newsPreview = filteredNews.slice(0, 3);
   const businessPreview = filteredBusinesses.slice(0, 8);
 
-  const quickActions = personalShopper
-    ? categories
-    : categories.filter((item) => item.id !== "market");
+  const quickActions = categories;
 
   const openCategory = (id: CategoryId) => {
     const routes: Record<CategoryId, "/people" | "/reels" | "/events" | "/news" | "/forums" | "/businesses" | "/market" | "/map"> = {
@@ -433,6 +429,15 @@ export default function ExploreScreen() {
                 )}
               </View>
             </FadeIn>
+
+            <BusinessListingsRow
+              listings={listings}
+              title={t("explore.listingsTitle")}
+              subtitle={t("explore.listingsSubtitle")}
+              filter={listingFilter}
+              onFilter={setListingFilter}
+              onSeeAll={() => openCategory("market")}
+            />
 
             <PeopleRow
               people={filteredPeople}

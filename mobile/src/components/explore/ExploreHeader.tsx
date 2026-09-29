@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useMemo } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import HeaderProfileButton from "../feed/HeaderProfileButton";
 import FadeIn from "../FadeIn";
 import { useI18n } from "../../i18n/I18nProvider";
 import { useTheme } from "../../theme/ThemeProvider";
@@ -24,9 +25,12 @@ export default function ExploreHeader({
   return (
     <FadeIn duration={480} translateY={8}>
       <View style={styles.row}>
-        <View>
-          <Text style={styles.kicker}>{t("explore.kicker")}</Text>
-          <Text style={styles.title}>{t("explore.title")}</Text>
+        <View style={styles.lead}>
+          <HeaderProfileButton size={36} />
+          <View>
+            <Text style={styles.kicker}>{t("explore.kicker")}</Text>
+            <Text style={styles.title}>{t("explore.title")}</Text>
+          </View>
         </View>
         <View style={styles.actions}>
           <Pressable
@@ -72,12 +76,18 @@ function makeStyles(colors: {
       paddingHorizontal: 16,
       paddingBottom: 8,
     },
+    lead: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      flex: 1,
+      paddingRight: 8,
+    },
     kicker: {
       fontFamily: "Montserrat_500Medium",
       fontSize: 11,
       letterSpacing: 0.4,
       color: colors.textMuted,
-      marginBottom: 2,
     },
     title: {
       fontFamily: "Montserrat_700Bold",

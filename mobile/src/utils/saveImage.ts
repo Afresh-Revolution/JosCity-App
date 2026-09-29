@@ -1,5 +1,6 @@
 import { Alert, Platform } from "react-native";
 import { Directory, File, Paths } from "expo-file-system";
+import { absoluteUrl } from "./format";
 import { isExpoGo } from "./optionalNativeModules";
 
 function extensionFromUrl(url: string): string {
@@ -21,11 +22,31 @@ function downloadOnWeb(url: string): boolean {
   return true;
 }
 
+async function downloadToCache(url: string): Promise<string> {
+  const dir = new Directory(Paths.cache, "joscity-image-saves");
+  if (!dir.exists) {
+    dir.create();
+  }
+  const dest = new File(dir, `save-${Date.now()}${extensionFromUrl(url)}`);
+  const downloaded = await File.downloadFileAsync(url, dest, { idempotent: true });
+  return downloaded.uri;
+}
+
+async function downloadWithLegacy(url: string): Promise<string> {
+  const legacy = await import("expo-file-system/legacy");
+  const ext = extensionFromUrl(url);
+  const target = `${legacy.cacheDirectory}joscity-save-${Date.now()}${ext}`;
+  const result = await legacy.downloadAsync(url, target);
+  if (!result?.uri) throw new Error("Download failed");
+  return result.uri;
+}
+
 export async function saveRemoteImage(url: string): Promise<boolean> {
-  if (!url) return false;
+  const resolved = absoluteUrl(url) || String(url || "").trim();
+  if (!resolved) return false;
 
   if (Platform.OS === "web") {
-    return downloadOnWeb(url);
+    return downloadOnWeb(resolved);
   }
 
   if (isExpoGo()) {
@@ -47,17 +68,34 @@ export async function saveRemoteImage(url: string): Promise<boolean> {
     return false;
   }
 
-  const permission = await MediaLibrary.requestPermissionsAsync(true, ["photo"]);
-  if (permission.status !== "granted") {
+  let permission = await MediaLibrary.requestPermissionsAsync();
+  if (permission.status !== "granted" && permission.accessPrivileges !== "limited") {
+    permission = await MediaLibrary.requestPermissionsAsync(true);
+  }
+  if (permission.status !== "granted" && permission.accessPrivileges !== "limited") {
     Alert.alert("Permission needed", "Allow photo access to save this image.");
     return false;
   }
 
-  const downloaded = await File.downloadFileAsync(
-    url,
-    new Directory(Paths.cache),
-    { idempotent: true }
-  );
-  await MediaLibrary.saveToLibraryAsync(downloaded.uri);
+  let localUri: string;
+  try {
+    localUri = await downloadToCache(resolved);
+  } catch {
+    try {
+      localUri = await downloadWithLegacy(resolved);
+    } catch (error) {
+      Alert.alert(
+        "Could not save",
+        error instanceof Error ? error.message : "Please try again."
+      );
+      return false;
+    }
+  }
+
+  try {
+    await MediaLibrary.saveToLibraryAsync(localUri);
+  } catch {
+    await MediaLibrary.createAssetAsync(localUri);
+  }
   return true;
 }

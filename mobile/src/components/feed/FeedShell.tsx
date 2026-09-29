@@ -159,6 +159,7 @@ export default function FeedShell({
               unreadCount={agentFeed ? 0 : unreadCount}
               searchActive={searchActive}
               onSearch={onSearch}
+              profileEntry={mode === "personal"}
               onNotifications={() => router.push((agentFeed || mode === "agent" ? "/agents/notifications" : "/notifications") as never)}
             />
           )}

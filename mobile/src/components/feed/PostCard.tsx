@@ -20,6 +20,7 @@ import PostMediaGallery from "./PostMediaGallery";
 import PostOptionsSheet, { type PostOption } from "./PostOptionsSheet";
 import ReelCommentsSheet from "./ReelCommentsSheet";
 import SaveBookmark from "./SaveBookmark";
+import CollaboratorsSheet from "./CollaboratorsSheet";
 import {
   deletePost,
   pinPost,
@@ -29,6 +30,7 @@ import {
   unsavePost,
   updatePost,
   resharePost,
+  type FeedCollaborator,
   type FeedPost,
 } from "../../api/feed";
 import ReportSheet from "../ReportSheet";
@@ -37,6 +39,7 @@ import { removeFriend } from "../../state/friendGraph";
 import { resolveSaved, setSavedOverride } from "../../state/savedPosts";
 import { useTheme } from "../../theme/ThemeProvider";
 import type { Palette } from "../../theme/colors";
+import { createShareLink } from "../../api/share";
 import { handleFromName, postShareUrl } from "../../utils/format";
 import { isSystemUsername, publicUsername } from "../../utils/accountNames";
 import { openMemberProfile } from "../../utils/openProfile";
@@ -54,7 +57,8 @@ type Props = {
 };
 
 async function copyPostLink(postId: number): Promise<void> {
-  const url = postShareUrl(postId);
+  const created = await createShareLink("post", postId);
+  const url = created?.url || postShareUrl(postId);
   try {
     await Clipboard.setStringAsync(url);
     showNotice({ title: "Copied", message: "Post link copied.", tone: "success" });
@@ -107,8 +111,18 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
   const [commentCount, setCommentCount] = useState(Number(post.comments_count || 0));
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [blockedAuthor, setBlockedAuthor] = useState(false);
+  const [collabOpen, setCollabOpen] = useState(false);
 
   const name = post.author?.name || "JosCity member";
+  const collaborators = (post.collaborators || []).filter(
+    (c): c is FeedCollaborator => Boolean(Number(c.id || c.user_id))
+  );
+  const collabLabel =
+    collaborators.length === 1
+      ? ` and ${collaborators[0].name || "1 other"}`
+      : collaborators.length > 1
+        ? ` & ${collaborators.length} others`
+        : "";
   const chosenUsername = publicUsername(post.author?.username);
   const businessEmail = String(post.author?.email || "").trim();
   const authorIsBusiness =
@@ -380,14 +394,26 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
           >
             <AvatarCircle name={name} uri={post.author?.picture} size={42} />
             <View style={styles.meta}>
-              <View style={styles.nameRow}>
-                <Text style={styles.name} numberOfLines={1}>
-                  {name}
-                </Text>
-                {badgeColor ? (
-                  <Ionicons name="checkmark-circle" size={15} color={badgeColor} />
-                ) : null}
-              </View>
+              {collabLabel ? (
+                <Pressable onPress={() => setCollabOpen(true)} hitSlop={4} style={styles.nameRow}>
+                  <Text style={styles.name} numberOfLines={1}>
+                    {name}
+                    <Text style={styles.collabJoin}>{collabLabel}</Text>
+                  </Text>
+                  {badgeColor ? (
+                    <Ionicons name="checkmark-circle" size={15} color={badgeColor} />
+                  ) : null}
+                </Pressable>
+              ) : (
+                <View style={styles.nameRow}>
+                  <Text style={styles.name} numberOfLines={1}>
+                    {name}
+                  </Text>
+                  {badgeColor ? (
+                    <Ionicons name="checkmark-circle" size={15} color={badgeColor} />
+                  ) : null}
+                </View>
+              )}
               <Text style={styles.handle} numberOfLines={1}>
                 {handle ? `${handle}${time ? ` · ${time}` : ""}` : time}
               </Text>
@@ -561,6 +587,15 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
         options={options}
         onClose={() => setMenuOpen(false)}
       />
+      <CollaboratorsSheet
+        visible={collabOpen}
+        authorName={name}
+        authorId={authorId}
+        authorAccountType={post.author?.account_type}
+        authorPicture={post.author?.picture}
+        collaborators={collaborators}
+        onClose={() => setCollabOpen(false)}
+      />
       <ReportSheet
         visible={Boolean(reportTarget)}
         onClose={() => setReportTarget(null)}
@@ -646,6 +681,11 @@ function makePostStyles(colors: Palette) {
   name: {
     flexShrink: 1,
     fontFamily: "Montserrat_700Bold",
+    fontSize: 14,
+    color: colors.text,
+  },
+  collabJoin: {
+    fontFamily: "Montserrat_600SemiBold",
     fontSize: 14,
     color: colors.text,
   },

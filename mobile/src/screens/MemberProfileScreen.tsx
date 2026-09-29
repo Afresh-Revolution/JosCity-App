@@ -4,7 +4,6 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   View,
@@ -18,6 +17,7 @@ import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedImage from "../components/feed/FeedImage";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import FriendActionButton from "../components/feed/FriendActionButton";
+import FriendNicknameSheet from "../components/FriendNicknameSheet";
 import PostCard from "../components/feed/PostCard";
 import ReportSheet from "../components/ReportSheet";
 import { createDirectConversation } from "../api/chat";
@@ -87,6 +87,7 @@ export default function MemberProfileScreen() {
   const [agentProfile, setAgentProfile] = useState<AgentProfile | null>(null);
   const [agentReviews, setAgentReviews] = useState<AgentReview[]>([]);
   const [reportOpen, setReportOpen] = useState(false);
+  const [nicknameOpen, setNicknameOpen] = useState(false);
   const memberId = Number.isFinite(paramId) && paramId > 0 ? paramId : selfId;
 
   useEffect(() => {
@@ -265,9 +266,10 @@ export default function MemberProfileScreen() {
   const onShare = () => {
     const name = profile?.name || "JosCity member";
     const handle = profile?.handle || "";
-    void Share.share({
-      message: `${name} ${handle} on JosCity\nhttps://joscity.com/people/${profile?.user_id || memberId}`,
-    });
+    const id = Number(profile?.user_id || memberId);
+    void import("../utils/share").then(({ shareEntity }) =>
+      shareEntity("profile", id, `${name} ${handle} on JosCity`.trim(), `https://joscity.com/people/${id}`)
+    );
   };
 
   const onMessage = async () => {
@@ -485,6 +487,11 @@ export default function MemberProfileScreen() {
                       size={18}
                     />
                   </View>
+                  {profile.nickname && profile.real_name ? (
+                    <Text style={styles.handle}>
+                      {t("friends.nicknameReal", { name: profile.real_name })}
+                    </Text>
+                  ) : null}
                   <Text style={styles.handle}>{profile.handle}</Text>
                   {profile.bio || agentProfile?.agent_bio ? (
                     <Text selectable style={styles.bio}>{agentProfile?.agent_bio || profile.bio}</Text>
@@ -613,38 +620,84 @@ export default function MemberProfileScreen() {
                         <Ionicons name="share-outline" size={16} color={colors.text} />
                         <Text style={styles.actionSecondaryText}>{t("member.share")}</Text>
                       </Pressable>
-                      <Pressable
-                        onPress={onBlock}
-                        disabled={blockBusy}
-                        style={[styles.actionSecondary, styles.actionGrow]}
-                        accessibilityRole="button"
-                        accessibilityLabel={blocked ? t("member.unblock") : t("member.block")}
-                      >
-                        {blockBusy ? (
-                          <JosCityLoader color={colors.primary} size="small" />
-                        ) : (
-                          <>
-                            <Ionicons name={blocked ? "checkmark-circle-outline" : "ban-outline"} size={16} color={colors.error} />
-                            <Text style={[styles.actionSecondaryText, { color: colors.error }]}>
-                              {blocked ? t("member.unblock") : t("member.block")}
-                            </Text>
-                          </>
-                        )}
-                      </Pressable>
+                      {profile.are_friends && !owner ? (
+                        <Pressable
+                          onPress={() => setNicknameOpen(true)}
+                          style={[styles.actionSecondary, styles.actionGrow]}
+                          accessibilityRole="button"
+                          accessibilityLabel={t("friends.rename")}
+                        >
+                          <Ionicons name="pencil-outline" size={16} color={colors.text} />
+                          <Text style={styles.actionSecondaryText}>{t("friends.rename")}</Text>
+                        </Pressable>
+                      ) : (
+                        <Pressable
+                          onPress={onBlock}
+                          disabled={blockBusy}
+                          style={[styles.actionSecondary, styles.actionGrow]}
+                          accessibilityRole="button"
+                          accessibilityLabel={blocked ? t("member.unblock") : t("member.block")}
+                        >
+                          {blockBusy ? (
+                            <JosCityLoader color={colors.primary} size="small" />
+                          ) : (
+                            <>
+                              <Ionicons name={blocked ? "checkmark-circle-outline" : "ban-outline"} size={16} color={colors.error} />
+                              <Text style={[styles.actionSecondaryText, { color: colors.error }]}>
+                                {blocked ? t("member.unblock") : t("member.block")}
+                              </Text>
+                            </>
+                          )}
+                        </Pressable>
+                      )}
                     </View>
-                    <View style={styles.actions}>
-                      <Pressable
-                        onPress={() => setReportOpen(true)}
-                        style={[styles.actionSecondary, styles.actionGrow]}
-                        accessibilityRole="button"
-                        accessibilityLabel={t("member.report")}
-                      >
-                        <Ionicons name="flag-outline" size={16} color={colors.error} />
-                        <Text style={[styles.actionSecondaryText, { color: colors.error }]}>
-                          {t("member.report")}
-                        </Text>
-                      </Pressable>
-                    </View>
+                    {profile.are_friends && !owner ? (
+                      <View style={styles.actions}>
+                        <Pressable
+                          onPress={onBlock}
+                          disabled={blockBusy}
+                          style={[styles.actionSecondary, styles.actionGrow]}
+                          accessibilityRole="button"
+                          accessibilityLabel={blocked ? t("member.unblock") : t("member.block")}
+                        >
+                          {blockBusy ? (
+                            <JosCityLoader color={colors.primary} size="small" />
+                          ) : (
+                            <>
+                              <Ionicons name={blocked ? "checkmark-circle-outline" : "ban-outline"} size={16} color={colors.error} />
+                              <Text style={[styles.actionSecondaryText, { color: colors.error }]}>
+                                {blocked ? t("member.unblock") : t("member.block")}
+                              </Text>
+                            </>
+                          )}
+                        </Pressable>
+                        <Pressable
+                          onPress={() => setReportOpen(true)}
+                          style={[styles.actionSecondary, styles.actionGrow]}
+                          accessibilityRole="button"
+                          accessibilityLabel={t("member.report")}
+                        >
+                          <Ionicons name="flag-outline" size={16} color={colors.error} />
+                          <Text style={[styles.actionSecondaryText, { color: colors.error }]}>
+                            {t("member.report")}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <View style={styles.actions}>
+                        <Pressable
+                          onPress={() => setReportOpen(true)}
+                          style={[styles.actionSecondary, styles.actionGrow]}
+                          accessibilityRole="button"
+                          accessibilityLabel={t("member.report")}
+                        >
+                          <Ionicons name="flag-outline" size={16} color={colors.error} />
+                          <Text style={[styles.actionSecondaryText, { color: colors.error }]}>
+                            {t("member.report")}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    )}
                   </>
                 )}
               </FadeIn>
@@ -825,6 +878,30 @@ export default function MemberProfileScreen() {
         contentId={profile?.user_id || memberId}
         reportedUserId={Number(profile?.user_id || memberId) || null}
       />
+      {profile?.are_friends && !owner ? (
+        <FriendNicknameSheet
+          visible={nicknameOpen}
+          onClose={() => setNicknameOpen(false)}
+          userId={Number(profile.user_id)}
+          realName={String(profile.real_name || profile.name || "")}
+          nickname={profile.nickname || null}
+          onSaved={({ nickname, name }) => {
+            setData((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    profile: {
+                      ...prev.profile,
+                      nickname,
+                      name,
+                      real_name: prev.profile.real_name || prev.profile.name,
+                    },
+                  }
+                : prev
+            );
+          }}
+        />
+      ) : null}
     </FeedShell>
   );
 }

@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { NativeSyntheticEvent, Pressable, StyleSheet, Text, TextInputFocusEventData, View } from "react-native";
+import { ErrorBanner } from "../AppNotice";
 import TextField from "../TextField";
 import type { Palette } from "../../theme/colors";
 import { useTheme } from "../../theme/ThemeProvider";
 import { formatCbcAmount, type CbcQuote } from "../../utils/cbcQuote";
 import { formatNaira } from "../../utils/format";
+import { fieldErrorMap, missingFields, type FieldCheck } from "../../utils/formValidation";
 
 type CardDetails = {
   cardNumber: string;
@@ -32,27 +34,50 @@ export default function CbcCardPayForm({ amountNaira, quote, busy, error, onPay,
   const [cvc, setCvc] = useState("");
   const [cardPin, setCardPin] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
+  const [requiredLabels, setRequiredLabels] = useState<string[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const cbcCopy = formatCbcAmount(amountNaira, quote);
+
+  const clearFieldError = (key: string) => {
+    setFieldErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  };
 
   const submit = () => {
     const number = digits(cardNumber);
     const code = digits(cvc);
     const pin = digits(cardPin);
-    if (number.length < 8 || number.length > 19) {
-      setLocalError("Enter a valid CBC card number.");
-      return;
-    }
-    if (!code) {
-      setLocalError("Enter your CVC.");
-      return;
-    }
-    if (pin.length < 4) {
-      setLocalError("Enter your Card PIN.");
+    const checks: FieldCheck[] = [
+      {
+        key: "cardNumber",
+        label: "CBC card number",
+        ok: number.length >= 8 && number.length <= 19,
+      },
+      { key: "cvc", label: "CVC", ok: code.length > 0 },
+      { key: "cardPin", label: "Card PIN", ok: pin.length >= 4 },
+    ];
+    const missing = missingFields(checks);
+    if (missing.length) {
+      setFieldErrors(fieldErrorMap(missing));
+      setRequiredLabels(missing.map((item) => item.label));
+      setLocalError(
+        missing.length === 1
+          ? `Add your ${missing[0].label.toLowerCase()}, then try again.`
+          : "Fill in these card details, then try again."
+      );
       return;
     }
     setLocalError(null);
+    setRequiredLabels([]);
+    setFieldErrors({});
     onPay({ cardNumber: number, cvc: code, cardPin: pin });
   };
+
+  const bannerMessage = localError || error;
 
   return (
     <View style={styles.wrap}>
@@ -61,10 +86,21 @@ export default function CbcCardPayForm({ amountNaira, quote, busy, error, onPay,
         Charge {formatNaira(amountNaira)}
         {cbcCopy ? ` ≈ ${cbcCopy}` : ""} from your CBrilliance card. JosCity never stores the card number, CVC, or PIN.
       </Text>
+      {bannerMessage ? (
+        <ErrorBanner
+          title={requiredLabels.length ? "Almost there" : undefined}
+          message={bannerMessage}
+          required={requiredLabels}
+        />
+      ) : null}
       <TextField
         label="CBC card number"
         value={cardNumber}
-        onChangeText={setCardNumber}
+        onChangeText={(value) => {
+          setCardNumber(value);
+          clearFieldError("cardNumber");
+        }}
+        error={fieldErrors.cardNumber}
         keyboardType="number-pad"
         autoCapitalize="none"
         editable={!busy}
@@ -74,7 +110,11 @@ export default function CbcCardPayForm({ amountNaira, quote, busy, error, onPay,
           <TextField
             label="CVC"
             value={cvc}
-            onChangeText={setCvc}
+            onChangeText={(value) => {
+              setCvc(value);
+              clearFieldError("cvc");
+            }}
+            error={fieldErrors.cvc}
             keyboardType="number-pad"
             editable={!busy}
             secureTextEntry
@@ -84,7 +124,11 @@ export default function CbcCardPayForm({ amountNaira, quote, busy, error, onPay,
           <TextField
             label="Card PIN"
             value={cardPin}
-            onChangeText={setCardPin}
+            onChangeText={(value) => {
+              setCardPin(value);
+              clearFieldError("cardPin");
+            }}
+            error={fieldErrors.cardPin}
             onFocus={onPinFocus}
             keyboardType="number-pad"
             editable={!busy}
@@ -92,7 +136,6 @@ export default function CbcCardPayForm({ amountNaira, quote, busy, error, onPay,
           />
         </View>
       </View>
-      {localError || error ? <Text style={styles.error}>{localError || error}</Text> : null}
       <Pressable
         onPress={submit}
         disabled={busy}
@@ -137,12 +180,6 @@ function makeStyles(colors: Palette) {
     half: {
       flex: 1,
     },
-    error: {
-      marginBottom: 10,
-      fontFamily: "Montserrat_500Medium",
-      fontSize: 13,
-      color: colors.error,
-    },
     submit: {
       minHeight: 48,
       borderRadius: 12,
@@ -155,7 +192,7 @@ function makeStyles(colors: Palette) {
     },
     submitText: {
       fontFamily: "Montserrat_700Bold",
-      fontSize: 14,
+      fontSize: 15,
       color: colors.white,
     },
   });

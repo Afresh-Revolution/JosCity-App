@@ -11,7 +11,7 @@ import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
 import { useTheme } from "../theme/ThemeProvider";
 import type { AppearancePreference } from "../theme/colors";
 
-const APPEARANCES: AppearancePreference[] = ["light", "dark", "system"];
+const APPEARANCES: AppearancePreference[] = ["system", "light", "dark"];
 
 function Chip({
   label,
@@ -38,7 +38,7 @@ function Chip({
 
 export default function PreferencesScreen() {
   const allowed = useRequirePersonalAccount();
-  const { colors, appearance, setAppearance } = useTheme();
+  const { colors, appearance, setAppearance, scheme } = useTheme();
   const { t, language, languages, setLanguage } = useI18n();
   const styles = useMemo(() => makeSettingsStyles(colors), [colors]);
   const [loading, setLoading] = useState(true);
@@ -47,10 +47,8 @@ export default function PreferencesScreen() {
 
   const load = useCallback(async () => {
     const result = await getPreferences();
-    if (result.data) {
-      setPrefs(result.data);
-    }
-  }, [setAppearance]);
+    if (result.data) setPrefs(result.data);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -60,31 +58,31 @@ export default function PreferencesScreen() {
   );
 
   const save = async (patch: Partial<Pick<PreferenceInfo, "language" | "area" | "appearance">>) => {
-    if (!prefs) return;
     const previous = prefs;
-    setPrefs({ ...prefs, ...patch });
+    if (prefs) setPrefs({ ...prefs, ...patch });
     setError(null);
+
     if (patch.appearance === "light" || patch.appearance === "dark" || patch.appearance === "system") {
       setAppearance(patch.appearance);
+      // ThemeProvider persists appearance locally + to the API.
+      if (!patch.language && !patch.area) return;
     }
     if (patch.language) setLanguage(patch.language);
+
     const payload =
       patch.language === DEVICE_LANGUAGE
         ? {
             ...patch,
             language: resolveLanguage(
               DEVICE_LANGUAGE,
-              (languages.length ? languages : prefs.languages || []).map((item) => item.id)
+              (languages.length ? languages : prefs?.languages || []).map((item) => item.id)
             ),
           }
         : patch;
+
     const result = await updatePreferences(payload);
     if (!result.success || !result.data) {
-      if (patch.appearance) {
-        setPrefs({ ...previous, ...patch });
-        return;
-      }
-      setPrefs(previous);
+      if (previous) setPrefs(previous);
       setError(result.message || t("preferences.saveError"));
       return;
     }
@@ -95,7 +93,7 @@ export default function PreferencesScreen() {
 
   const languageOptions = languages.length ? languages : prefs?.languages || [];
   const selectedLanguage = language || prefs?.language;
-  const selectedAppearance = appearance || prefs?.appearance || "light";
+  const selectedAppearance = appearance;
 
   return (
     <SettingsPage kicker={t("preferences.kicker")} title={t("preferences.title")} loading={loading}>
@@ -151,7 +149,11 @@ export default function PreferencesScreen() {
             />
           ))}
         </View>
-        <Text style={styles.rowMeta}>{t("preferences.hint")}</Text>
+        <Text style={styles.rowMeta}>
+          {selectedAppearance === "system"
+            ? t("preferences.systemHint", { mode: scheme === "dark" ? t("preferences.dark") : t("preferences.light") })
+            : t("preferences.hint")}
+        </Text>
       </FadeIn>
     </SettingsPage>
   );

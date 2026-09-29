@@ -19,10 +19,16 @@ module.exports = ({ config }) => ({
       ...((config.android && config.android.config) || {}),
       googleMaps: { apiKey: mapsKey },
     },
+    intentFilters: [
+      ...((config.android && config.android.intentFilters) || []),
+    ],
     permissions: [...new Set([
       ...((config.android && config.android.permissions) || []),
       'android.permission.ACCESS_COARSE_LOCATION',
       'android.permission.ACCESS_FINE_LOCATION',
+      'android.permission.POST_NOTIFICATIONS',
+      'android.permission.NFC',
+      'android.permission.VIBRATE',
     ])],
   },
   plugins: [

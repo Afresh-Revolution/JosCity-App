@@ -9,7 +9,15 @@ import ChatCountBadge from "../ChatCountBadge";
 import { useI18n } from "../../i18n/I18nProvider";
 import { useTheme } from "../../theme/ThemeProvider";
 
-export type FeedTab = "home" | "explore" | "create" | "messages" | "profile" | "overview" | "manage";
+export type FeedTab =
+  | "home"
+  | "explore"
+  | "create"
+  | "messages"
+  | "market"
+  | "profile"
+  | "overview"
+  | "manage";
 
 type Props = {
   active: FeedTab;
@@ -74,14 +82,14 @@ export default function FeedTabBar({ active, messageUnread = 0 }: Props) {
           }}
         />
         <TabButton
-          label={t("nav.profile")}
-          icon={active === "profile" ? "person" : "person-outline"}
-          active={active === "profile"}
+          label={t("nav.market")}
+          icon={active === "market" ? "bag-handle" : "bag-handle-outline"}
+          active={active === "market"}
           colors={colors}
           styles={styles}
           onPress={() => {
             Keyboard.dismiss();
-            router.replace("/profile");
+            router.replace("/market");
           }}
         />
       </View>

@@ -6,7 +6,6 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   View,
@@ -208,9 +207,15 @@ export default function BusinessProfileScreen() {
   const onShare = () => {
     const name = profile?.name || "JosCity business";
     const handle = businessSubtitle(profile);
-    void Share.share({
-      message: `${name}${handle ? ` ${handle}` : ""} on JosCity\nhttps://joscity.com/business/${profile?.user_id || ""}`,
-    });
+    const id = Number(profile?.user_id || 0);
+    void import("../utils/share").then(({ shareEntity }) =>
+      shareEntity(
+        "business",
+        id,
+        `${name}${handle ? ` ${handle}` : ""} on JosCity`.trim(),
+        id ? `https://joscity.com/business/${id}` : undefined
+      )
+    );
   };
 
   const onFollow = async () => {
@@ -397,7 +402,12 @@ export default function BusinessProfileScreen() {
           <FadeIn delay={40}>
             <View style={styles.hero}>
               {profile?.cover ? (
-                <FeedImage uri={absoluteUrl(profile.cover) || profile.cover} style={styles.cover} />
+                <FeedImage
+                  uri={absoluteUrl(profile.cover) || profile.cover}
+                  style={styles.cover}
+                  fit="cover"
+                  naturalAspect={false}
+                />
               ) : (
                 <View style={[styles.cover, styles.coverFallback]} />
               )}
@@ -1066,8 +1076,10 @@ function makeStyles(colors: Palette) {
     },
     cover: {
       width: "100%",
-      height: 168,
+      // Matches profile cover upload (1920×1080) so the full banner stays visible.
+      aspectRatio: 16 / 9,
       borderRadius: 18,
+      overflow: "hidden",
       backgroundColor: colors.sheet,
     },
     coverFallback: {
@@ -1080,6 +1092,7 @@ function makeStyles(colors: Palette) {
       borderWidth: 3,
       borderColor: colors.background,
       borderRadius: 40,
+      zIndex: 2,
     },
     identity: {
       paddingHorizontal: 20,

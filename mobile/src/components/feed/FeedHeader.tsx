@@ -1,6 +1,7 @@
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useMemo } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import HeaderProfileButton from "./HeaderProfileButton";
 import FadeIn from "../FadeIn";
 import { useI18n } from "../../i18n/I18nProvider";
 import { useTheme } from "../../theme/ThemeProvider";
@@ -11,6 +12,8 @@ type Props = {
   onSearch?: () => void;
   showSearch?: boolean;
   onNotifications?: () => void;
+  /** When true (personal accounts), logo is replaced by the profile avatar. */
+  profileEntry?: boolean;
 };
 
 const logo = require("../../../assets/logo.png");
@@ -21,6 +24,7 @@ export default function FeedHeader({
   onSearch,
   showSearch = true,
   onNotifications,
+  profileEntry = false,
 }: Props) {
   const { colors } = useTheme();
   const { t } = useI18n();
@@ -31,23 +35,29 @@ export default function FeedHeader({
     <FadeIn duration={500} translateY={8}>
       <View style={styles.row}>
         <View style={styles.brand}>
-          <Image source={logo} style={styles.logo} />
+          {profileEntry ? (
+            <HeaderProfileButton size={32} />
+          ) : (
+            <Image source={logo} style={styles.logo} />
+          )}
           <Text style={styles.title}>JOSCITY</Text>
         </View>
         <View style={styles.actions}>
-          {showSearch && <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t("common.search")}
-            hitSlop={8}
-            onPress={onSearch}
-            style={styles.iconBtn}
-          >
-            <Ionicons
-              name={searchActive ? "search" : "search-outline"}
-              size={22}
-              color={colors.text}
-            />
-          </Pressable>}
+          {showSearch ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("common.search")}
+              hitSlop={8}
+              onPress={onSearch}
+              style={styles.iconBtn}
+            >
+              <Ionicons
+                name={searchActive ? "search" : "search-outline"}
+                size={22}
+                color={colors.text}
+              />
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t("common.notifications")}

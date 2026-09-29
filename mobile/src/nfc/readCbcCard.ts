@@ -1,4 +1,4 @@
-import { Platform } from "react-native";
+import { NativeModules, Platform } from "react-native";
 import { extractCardPayload, normalizeUid, type NfcByteRecord } from "../utils/cbcNfc";
 
 export type NfcCardRead = {
@@ -16,6 +16,19 @@ export class NfcReadError extends Error {
     this.name = "NfcReadError";
     this.code = code;
   }
+}
+
+const MISSING_NATIVE =
+  "CBC NFC pay needs a JosCity build that includes NFC. Open the app with your development build (not Expo Go), or rebuild after installing NFC support.";
+
+/** True when the native NfcManager module is linked in this binary. */
+export function isNfcNativeAvailable(): boolean {
+  if (Platform.OS === "web") return false;
+  return Boolean(NativeModules.NfcManager);
+}
+
+function missingNativeError(): NfcReadError {
+  return new NfcReadError("unsupported", MISSING_NATIVE);
 }
 
 type NfcTag = {
@@ -131,19 +144,36 @@ async function androidCanReadNfc(nfc: NfcModule): Promise<"yes" | "no" | "off" |
 }
 
 async function loadReader(): Promise<NfcModule> {
-  const nfc = (await import("react-native-nfc-manager")) as unknown as NfcModule;
+  // Never import react-native-nfc-manager unless the native module exists.
+  // Importing without it constructs NativeEventEmitter(null) and crashes.
+  if (!isNfcNativeAvailable()) throw missingNativeError();
+
+  let nfc: NfcModule;
+  try {
+    nfc = (await import("react-native-nfc-manager")) as unknown as NfcModule;
+  } catch (error) {
+    const message = errorText(error);
+    if (
+      /native module that doesn't exist|Invariant Violation|NfcManager/i.test(message) ||
+      !isNfcNativeAvailable()
+    ) {
+      throw missingNativeError();
+    }
+    throw error;
+  }
+
   if (Platform.OS === "android") {
     const status = await androidCanReadNfc(nfc);
-    if (status === "no") throw new NfcReadError("unsupported", "Tap to pay needs a phone with NFC.");
+    if (status === "no") throw new NfcReadError("unsupported", "CBC NFC pay needs a phone with NFC.");
     if (status === "off") {
       throw new NfcReadError("disabled", "Turn NFC on in your phone settings, then tap your card again.");
     }
     if (status === "not_ready") {
-      throw new NfcReadError("read_error", "The card reader is not ready yet. Tap to pay again.");
+      throw new NfcReadError("read_error", "The card reader is not ready yet. Try CBC NFC pay again.");
     }
   } else {
     const supported = await nfc.default.isSupported();
-    if (!supported) throw new NfcReadError("unsupported", "Tap to pay needs a phone with NFC.");
+    if (!supported) throw new NfcReadError("unsupported", "CBC NFC pay needs a phone with NFC.");
   }
   await startReader(nfc);
   return nfc;
@@ -157,7 +187,7 @@ async function startReader(nfc: NfcModule): Promise<void> {
     } catch (error) {
       const message = errorText(error);
       if (/no nfc support/i.test(message)) {
-        throw new NfcReadError("unsupported", "Tap to pay needs a phone with NFC.");
+        throw new NfcReadError("unsupported", "CBC NFC pay needs a phone with NFC.");
       }
       if (/current activity/i.test(message) && attempt < 5) {
         await delay(200);
@@ -171,6 +201,11 @@ async function startReader(nfc: NfcModule): Promise<void> {
 /** Load the reader before the button press so the scan can start on the tap. */
 export function prepareCardReader(): void {
   if (Platform.OS === "web" || prepared) return;
+  if (!isNfcNativeAvailable()) {
+    prepareError = missingNativeError();
+    prepared = Promise.resolve(null);
+    return;
+  }
   prepareError = null;
   prepared = loadReader()
     .then((nfc) => {
@@ -187,11 +222,13 @@ export function prepareCardReader(): void {
           ? error
           : new NfcReadError(
               /current activity/i.test(message) ? "read_error" : "unsupported",
-              /no such native method|NfcManager/i.test(message)
-                ? "This Android install cannot read NFC cards. Update the JosCity app, then try the tap again."
+              /native module that doesn't exist|Invariant Violation|no such native method|NfcManager/i.test(
+                message
+              )
+                ? MISSING_NATIVE
                 : /current activity/i.test(message)
-                  ? "The card reader is not ready yet. Tap to pay again."
-                  : "Tap to pay needs a phone with NFC."
+                  ? "The card reader is not ready yet. Try CBC NFC pay again."
+                  : "CBC NFC pay needs a phone with NFC."
             );
       return null;
     });
@@ -204,8 +241,8 @@ export function prepareCardReader(): void {
  */
 export async function readCardTap(signal: AbortSignal): Promise<NfcCardRead> {
   if (signal.aborted) throw new NfcReadError("aborted", "Cancelled.");
-  if (Platform.OS === "web") {
-    throw new NfcReadError("unsupported", "Tap to pay needs a phone with NFC.");
+  if (Platform.OS === "web" || !isNfcNativeAvailable()) {
+    throw missingNativeError();
   }
 
   prepareCardReader();
@@ -215,7 +252,7 @@ export async function readCardTap(signal: AbortSignal): Promise<NfcCardRead> {
     nfc = pending ? await pending : null;
     if (!nfc) {
       const failure =
-        prepareError ?? new NfcReadError("unsupported", "Tap to pay needs a phone with NFC.");
+        prepareError ?? new NfcReadError("unsupported", "CBC NFC pay needs a phone with NFC.");
       prepareError = null;
       throw failure;
     }

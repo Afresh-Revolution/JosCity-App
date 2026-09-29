@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { forwardRef, useEffect, useMemo, useState } from "react";
 import { BackHandler, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -31,18 +31,42 @@ export function showError(title: string, message?: string) {
   showNotice({ title, message, tone: "error" });
 }
 
-export function ErrorBanner({ message }: { message: string }) {
+type ErrorBannerProps = {
+  message?: string | null;
+  /** Short headline, e.g. "Almost there" */
+  title?: string | null;
+  /** Named required fields to list under the message */
+  required?: string[];
+};
+
+export const ErrorBanner = forwardRef<View, ErrorBannerProps>(function ErrorBanner(
+  { message, title, required },
+  ref
+) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeBannerStyles(colors), [colors]);
-  const copy = friendlyError(message);
-  if (!copy) return null;
+  const copy = message ? friendlyError(message) : "";
+  const items = (required || []).map((item) => String(item || "").trim()).filter(Boolean);
+  if (!copy && !title && !items.length) return null;
   return (
-    <View style={styles.banner}>
-      <Ionicons name="alert-circle" size={18} color={colors.error} />
-      <Text style={styles.text}>{copy}</Text>
+    <View ref={ref} style={styles.banner} accessibilityRole="alert">
+      <Ionicons name="alert-circle" size={18} color={colors.error} style={styles.icon} />
+      <View style={styles.body}>
+        {title ? <Text style={styles.title}>{title}</Text> : null}
+        {copy ? <Text style={styles.text}>{copy}</Text> : null}
+        {items.length ? (
+          <View style={styles.list}>
+            {items.map((item) => (
+              <Text key={item} style={styles.item}>
+                • {item}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+      </View>
     </View>
   );
-}
+});
 
 export function NoticeHost() {
   const { colors } = useTheme();
@@ -132,9 +156,31 @@ function makeBannerStyles(colors: Palette) {
       alignItems: "flex-start",
       gap: 10,
     },
-    text: {
+    icon: {
+      marginTop: 1,
+    },
+    body: {
       flex: 1,
+      gap: 4,
+    },
+    title: {
+      fontFamily: "Montserrat_700Bold",
+      fontSize: 14,
+      lineHeight: 20,
+      color: colors.error,
+    },
+    text: {
       fontFamily: "Montserrat_500Medium",
+      fontSize: 13,
+      lineHeight: 19,
+      color: colors.error,
+    },
+    list: {
+      marginTop: 4,
+      gap: 2,
+    },
+    item: {
+      fontFamily: "Montserrat_600SemiBold",
       fontSize: 13,
       lineHeight: 19,
       color: colors.error,

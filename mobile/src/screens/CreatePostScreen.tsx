@@ -21,6 +21,13 @@ import { showError } from "../components/AppNotice";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedShell from "../components/feed/FeedShell";
 import { createPost, type PostMediaFile } from "../api/feed";
+import { type DirectoryUser } from "../api/social";
+import MentionSuggestList from "../components/feed/MentionSuggestList";
+import CollaboratorPickerSheet, {
+  MAX_COLLABORATORS,
+} from "../components/feed/CollaboratorPickerSheet";
+import { personName } from "../components/feed/PeopleRow";
+import { insertMentionAtCursor, mentionHandle, useMentionSuggest } from "../utils/mentions";
 import { requestHomeRefresh } from "../state/homeRefresh";
 import {
   clearPendingPost,
@@ -73,6 +80,9 @@ export default function CreatePostScreen() {
   const [text, setText] = useState("");
   const [media, setMedia] = useState<PostMediaFile[]>([]);
   const [posting, setPosting] = useState(false);
+  const [collaborators, setCollaborators] = useState<DirectoryUser[]>([]);
+  const [collabOpen, setCollabOpen] = useState(false);
+  const { mentions, clearMentions } = useMentionSuggest(text);
   const openedAttach = useRef(false);
   const removeMedia = useCallback((index: number) => {
     setMedia((current) => current.filter((_, itemIndex) => itemIndex !== index));
@@ -160,6 +170,7 @@ export default function CreatePostScreen() {
     const uploadId = startPendingPost(() => handle.abort());
     const { promise, abort } = createPost(text, media, {
       onProgress: (progress) => setPendingPostProgress(uploadId, progress),
+      collaboratorIds: collaborators.map((person) => Number(person.user_id)).filter(Boolean),
     });
     handle.abort = abort;
     router.replace("/home");
@@ -256,6 +267,18 @@ export default function CreatePostScreen() {
             />
           </View>
 
+          {mentions.length ? (
+            <View style={{ paddingHorizontal: 16 }}>
+              <MentionSuggestList
+                people={mentions}
+                onSelect={(person) => {
+                  setText((current) => insertMentionAtCursor(current, mentionHandle(person)));
+                  clearMentions();
+                }}
+              />
+            </View>
+          ) : null}
+
           <View style={styles.toolbar}>
             <Text style={styles.toolbarTitle}>{t("create.addToPost")}</Text>
             <View style={styles.toolbarRow}>
@@ -277,8 +300,47 @@ export default function CreatePostScreen() {
                 <Ionicons name="videocam-outline" size={22} color={colors.primary} />
                 <Text style={styles.actionLabel}>{t("create.video")}</Text>
               </Pressable>
+              <Pressable
+                onPress={() => setCollabOpen(true)}
+                style={styles.actionBtn}
+                accessibilityRole="button"
+                accessibilityLabel={t("collab.inviteTitle")}
+              >
+                <Ionicons name="people-outline" size={22} color={colors.primary} />
+                <Text style={styles.actionLabel}>
+                  {collaborators.length
+                    ? t("collab.count", { count: collaborators.length })
+                    : t("collab.inviteShort")}
+                </Text>
+              </Pressable>
             </View>
           </View>
+
+          {collaborators.length ? (
+            <View style={styles.collabList}>
+              {collaborators.map((person) => (
+                <View key={person.user_id} style={styles.collabChip}>
+                  <AvatarCircle name={personName(person)} uri={person.user_picture} size={22} />
+                  <Text style={styles.collabChipText} numberOfLines={1}>
+                    {personName(person)}
+                  </Text>
+                  <Pressable
+                    onPress={() =>
+                      setCollaborators((current) =>
+                        current.filter((row) => row.user_id !== person.user_id)
+                      )
+                    }
+                    hitSlop={6}
+                  >
+                    <Ionicons name="close" size={14} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+              ))}
+              <Text style={styles.collabHint}>
+                {t("collab.pendingHint", { max: MAX_COLLABORATORS })}
+              </Text>
+            </View>
+          ) : null}
 
           {media.length > 0 ? (
             <ScrollView
@@ -300,6 +362,13 @@ export default function CreatePostScreen() {
           ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
+      <CollaboratorPickerSheet
+        visible={collabOpen}
+        selected={collaborators}
+        excludeUserIds={user?.user_id ? [Number(user.user_id)] : []}
+        onClose={() => setCollabOpen(false)}
+        onChange={setCollaborators}
+      />
     </FeedShell>
   );
 }
@@ -507,15 +576,16 @@ function makeStyles(colors: Palette) {
     toolbarRow: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 10,
+      gap: 8,
     },
     actionBtn: {
       flex: 1,
-      flexDirection: "row",
+      flexDirection: "column",
       alignItems: "center",
       justifyContent: "center",
-      gap: 8,
-      minHeight: 48,
+      gap: 4,
+      minHeight: 56,
+      paddingHorizontal: 4,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: 14,
@@ -523,8 +593,38 @@ function makeStyles(colors: Palette) {
     },
     actionLabel: {
       fontFamily: "Montserrat_600SemiBold",
-      fontSize: 14,
+      fontSize: 11,
       color: colors.text,
+      textAlign: "center",
+    },
+    collabList: {
+      paddingHorizontal: 16,
+      paddingBottom: 8,
+      gap: 8,
+    },
+    collabChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      alignSelf: "flex-start",
+      maxWidth: "100%",
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 999,
+      backgroundColor: colors.sheet,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    collabChipText: {
+      flexShrink: 1,
+      fontFamily: "Montserrat_600SemiBold",
+      fontSize: 13,
+      color: colors.text,
+    },
+    collabHint: {
+      fontFamily: "Montserrat_400Regular",
+      fontSize: 12,
+      color: colors.textMuted,
     },
   });
 }

@@ -16,17 +16,21 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import FadeIn from "../components/FadeIn";
 import { ErrorBanner } from "../components/AppNotice";
 import AvatarCircle from "../components/feed/AvatarCircle";
+import HeaderProfileButton from "../components/feed/HeaderProfileButton";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import PresenceAvatar from "../components/messages/PresenceAvatar";
 import SwipeableChatRow from "../components/messages/SwipeableChatRow";
+import TypingDots from "../components/messages/TypingDots";
 import {
   createDirectConversation,
+  getActiveTyping,
   getBusinessMessageRequests,
   getChatContacts,
   getChatFollowing,
   getChatPresence,
   getUserConversations,
   leaveConversation,
+  toggleConversationMute,
   respondBusinessMessageRequest,
   type ChatConversation,
   type ChatFriendContact,
@@ -91,6 +95,7 @@ export default function MessagesScreen() {
   const [onlineIds, setOnlineIds] = useState<Set<number>>(new Set());
   const [openId, setOpenId] = useState<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [typingByChat, setTypingByChat] = useState<Record<number, string>>({});
   const peerIdsRef = useRef<number[]>([]);
 
   const load = useCallback(async () => {
@@ -303,12 +308,25 @@ export default function MessagesScreen() {
     useCallback(() => {
       if (!allowed) return;
       void load().catch(() => undefined);
-      const stop = startForegroundInterval(() => {
+      const refreshTyping = () => {
+        void getActiveTyping().then((rows) => {
+          const next: Record<number, string> = {};
+          for (const row of rows) {
+            if (!next[row.conversationId]) next[row.conversationId] = row.username;
+          }
+          setTypingByChat(next);
+        });
+      };
+      refreshTyping();
+      const stopPresence = startForegroundInterval(() => {
         const ids = peerIdsRef.current;
-        if (!ids.length) return;
-        void getChatPresence(ids).then(setOnlineIds);
+        if (ids.length) void getChatPresence(ids).then(setOnlineIds);
       }, 20000);
-      return () => stop();
+      const stopTyping = startForegroundInterval(refreshTyping, 2500);
+      return () => {
+        stopPresence();
+        stopTyping();
+      };
     }, [allowed, load])
   );
 
@@ -364,6 +382,33 @@ export default function MessagesScreen() {
     router.push({
       pathname: "/messages/[id]",
       params: { id: String(conversationId), name, avatar: avatar || "" },
+    });
+  };
+
+  const muteChat = (conversationId: number) => {
+    setChats((current) =>
+      current.map((chat) =>
+        chat.conversationId === conversationId
+          ? { ...chat, notificationsMuted: !chat.notificationsMuted }
+          : chat
+      )
+    );
+    void toggleConversationMute(conversationId).then((muted) => {
+      if (muted == null) {
+        setChats((current) =>
+          current.map((chat) =>
+            chat.conversationId === conversationId
+              ? { ...chat, notificationsMuted: !chat.notificationsMuted }
+              : chat
+          )
+        );
+        return;
+      }
+      setChats((current) =>
+        current.map((chat) =>
+          chat.conversationId === conversationId ? { ...chat, notificationsMuted: muted } : chat
+        )
+      );
     });
   };
 
@@ -464,8 +509,11 @@ export default function MessagesScreen() {
         <FadeIn duration={480} translateY={8}>
           <Pressable onPress={Keyboard.dismiss} accessible={false}>
             <View style={styles.header}>
-              <Text style={styles.kicker}>{t("messages.kicker")}</Text>
-              <Text style={styles.title}>{t("messages.title")}</Text>
+              <HeaderProfileButton size={36} />
+              <View style={styles.headerCopy}>
+                <Text style={styles.kicker}>{t("messages.kicker")}</Text>
+                <Text style={styles.title}>{t("messages.title")}</Text>
+              </View>
             </View>
           </Pressable>
         </FadeIn>
@@ -594,6 +642,7 @@ export default function MessagesScreen() {
             const name = chat.otherUsername || chat.conversationName;
             const unread = Math.max(chat.unreadCount, 0);
             const peerId = chat.otherUserId || 0;
+            const typingName = typingByChat[chat.conversationId];
             const online = peerIsOnline({
               peerId,
               onlineIds,
@@ -605,12 +654,15 @@ export default function MessagesScreen() {
                 <SwipeableChatRow
                   enabled={!openingId}
                   open={openId === chat.conversationId}
+                  muted={Boolean(chat.notificationsMuted)}
                   deleteLabel={t("messages.delete")}
+                  muteLabel={chat.notificationsMuted ? t("feed.unmute") : t("messages.mute")}
                   onOpen={() => setOpenId(chat.conversationId)}
                   onClose={() =>
                     setOpenId((current) => (current === chat.conversationId ? null : current))
                   }
                   onDelete={() => void deleteChat(chat.conversationId)}
+                  onToggleMute={() => muteChat(chat.conversationId)}
                 >
                   <Pressable
                     onPress={() => {
@@ -629,6 +681,9 @@ export default function MessagesScreen() {
                           <Text style={styles.name} numberOfLines={1}>
                             {name}
                           </Text>
+                          {chat.notificationsMuted ? (
+                            <Ionicons name="notifications-off" size={14} color={colors.textMuted} />
+                          ) : null}
                           {peerId > 0 ? (
                             <Text style={online ? styles.online : styles.offline}>
                               {online ? t("messages.online") : t("messages.offline")}
@@ -638,18 +693,27 @@ export default function MessagesScreen() {
                         <Text style={styles.time}>{timeAgo(chat.lastMessageAt)}</Text>
                       </View>
                       <View style={styles.bottomLine}>
-                        <Text
-                          style={[
-                            styles.preview,
-                            chat.lastMessageContent === t("messages.deleted") && styles.previewDeleted,
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {parseStatusReply(chat.lastMessageContent)?.reply ||
-                            chat.lastMessageContent ||
-                            t("messages.empty")}
-                        </Text>
-                        {unread > 0 ? (
+                        {typingName ? (
+                          <View style={styles.typingPreview}>
+                            <TypingDots compact />
+                            <Text style={styles.typingPreviewText} numberOfLines={1}>
+                              {t("messages.typing")}
+                            </Text>
+                          </View>
+                        ) : (
+                          <Text
+                            style={[
+                              styles.preview,
+                              chat.lastMessageContent === t("messages.deleted") && styles.previewDeleted,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {parseStatusReply(chat.lastMessageContent)?.reply ||
+                              chat.lastMessageContent ||
+                              t("messages.empty")}
+                          </Text>
+                        )}
+                        {unread > 0 && !typingName ? (
                           <View style={styles.badge}>
                             <Text style={styles.badgeText}>{unread > 99 ? "99+" : String(unread)}</Text>
                           </View>
@@ -800,6 +864,12 @@ function makeStyles(colors: Palette) {
   header: {
     paddingHorizontal: 16,
     paddingBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  headerCopy: {
+    flex: 1,
   },
   kicker: {
     fontFamily: "Montserrat_500Medium",
@@ -858,6 +928,7 @@ function makeStyles(colors: Palette) {
     paddingHorizontal: 16,
     paddingVertical: 12,
     gap: 12,
+    backgroundColor: colors.background,
   },
   copy: {
     flex: 1,
@@ -909,6 +980,18 @@ function makeStyles(colors: Palette) {
     fontFamily: "Montserrat_400Regular",
     fontSize: 13,
     color: colors.textMuted,
+  },
+  typingPreview: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  typingPreviewText: {
+    flexShrink: 1,
+    fontFamily: "Montserrat_600SemiBold",
+    fontSize: 13,
+    color: colors.primary,
   },
   previewDeleted: {
     fontFamily: "Montserrat_500Medium",

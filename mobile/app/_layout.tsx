@@ -18,9 +18,10 @@ import {
 } from "@expo-google-fonts/montserrat";
 import { PlayfairDisplay_700Bold } from "@expo-google-fonts/playfair-display";
 import { hydrateStoryCache } from "../src/storage/storyMediaCache";
-import { bootstrapPushNotifications, configurePushNotifications, unregisterPushTokenOnLogout } from "../src/push/pushNotifications";
+import { bootstrapPushNotifications, configurePushNotifications, MESSAGE_REPLY_ACTION, unregisterPushTokenOnLogout } from "../src/push/pushNotifications";
 import { openRatingPrompt } from "../src/state/ratingPrompt";
 import { resolvePushRoute, pushRateOrderId, type PushPayload } from "../src/push/pushRoute";
+import { sendChatMessage } from "../src/api/chat";
 import {
   getNetworkOnline,
   pingApi,
@@ -202,16 +203,25 @@ function NotificationTapRouter() {
 
     const handleResponse = (response: NotificationResponse | null) => {
       if (!active || !response) return;
-      const key = response.notification.request.identifier;
+      const key = `${response.notification.request.identifier}:${response.actionIdentifier}:${response.userText || ""}`;
       if (seen.current === key) return;
       void getNotificationsModule().then((notifications) => {
         if (!active || !notifications) return;
-        // The startup lookup and live listener can deliver the same tap together.
         if (seen.current === key) return;
+        const data = response.notification.request.content.data as PushPayload | undefined;
+        const replyText = String(response.userText || "").trim();
+        if (response.actionIdentifier === MESSAGE_REPLY_ACTION && replyText) {
+          seen.current = key;
+          const conversationId = Number(data?.conversationId || data?.entityId || 0);
+          if (conversationId > 0) {
+            void sendChatMessage(conversationId, replyText).catch(() => undefined);
+          }
+          void notifications.clearLastNotificationResponseAsync().catch(() => undefined);
+          return;
+        }
         if (response.actionIdentifier !== notifications.DEFAULT_ACTION_IDENTIFIER) return;
         seen.current = key;
-        openPayload(response.notification.request.content.data as PushPayload | undefined);
-        // Expo retains this response across reloads until it is explicitly consumed.
+        openPayload(data);
         void notifications.clearLastNotificationResponseAsync().catch(() => undefined);
       }).catch(() => undefined);
     };

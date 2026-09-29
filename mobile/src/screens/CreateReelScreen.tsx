@@ -21,15 +21,19 @@ import PreviewVideo from "../components/media/PreviewVideo";
 import { showError } from "../components/AppNotice";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedShell from "../components/feed/FeedShell";
-import { createReel } from "../api/reels";
-import { getApprovedUsers, searchUsers, type DirectoryUser } from "../api/social";
+import CollaboratorPickerSheet, {
+  MAX_COLLABORATORS,
+} from "../components/feed/CollaboratorPickerSheet";
+import MentionSuggestList from "../components/feed/MentionSuggestList";
 import { personName } from "../components/feed/PeopleRow";
+import { createReel } from "../api/reels";
+import { type DirectoryUser } from "../api/social";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
 import { useI18n } from "../i18n/I18nProvider";
 import { getUser, type StoredUser } from "../storage/session";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
-import { handleFromName } from "../utils/format";
+import { insertMentionAtCursor, mentionHandle, useMentionSuggest } from "../utils/mentions";
 
 type PickedMedia = {
   uri: string;
@@ -43,12 +47,6 @@ function isVideoType(mime?: string | null, name?: string | null, uri?: string) {
   return hay.includes("video") || /\.(mp4|mov|m4v|webm)(\?|$)/i.test(hay);
 }
 
-function mentionHandle(user: DirectoryUser): string {
-  const raw = String(user.user_name || "").replace(/^@/, "").trim();
-  if (raw) return raw;
-  return handleFromName(personName(user)).replace(/^@/, "");
-}
-
 export default function CreateReelScreen() {
   const { colors } = useTheme();
   const { t } = useI18n();
@@ -60,30 +58,13 @@ export default function CreateReelScreen() {
   const [media, setMedia] = useState<PickedMedia | null>(null);
   const [posting, setPosting] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [mentions, setMentions] = useState<DirectoryUser[]>([]);
+  const [collaborators, setCollaborators] = useState<DirectoryUser[]>([]);
+  const [collabOpen, setCollabOpen] = useState(false);
+  const { mentions, clearMentions } = useMentionSuggest(caption);
 
   useEffect(() => {
     void getUser().then(setUser);
   }, []);
-
-  const mentionQuery = useMemo(() => {
-    const match = caption.match(/@([A-Za-z0-9_]*)$/);
-    return match ? match[1] : null;
-  }, [caption]);
-
-  useEffect(() => {
-    if (mentionQuery == null) {
-      setMentions([]);
-      return;
-    }
-    const handle = setTimeout(() => {
-      void (mentionQuery
-        ? searchUsers(mentionQuery)
-        : getApprovedUsers({ limit: 8, accountType: "all" })
-      ).then(setMentions);
-    }, 180);
-    return () => clearTimeout(handle);
-  }, [mentionQuery]);
 
   const pickFromGallery = useCallback(async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -151,9 +132,8 @@ export default function CreateReelScreen() {
   }, [t]);
 
   const insertMention = (person: DirectoryUser) => {
-    const handle = mentionHandle(person);
-    setCaption((current) => current.replace(/@([A-Za-z0-9_]*)$/, `@${handle} `));
-    setMentions([]);
+    setCaption((current) => insertMentionAtCursor(current, mentionHandle(person)));
+    clearMentions();
   };
 
   const name =
@@ -185,7 +165,12 @@ export default function CreateReelScreen() {
     }
     setPosting(true);
     setProgress(0.04);
-    const result = await createReel(caption, media, setProgress);
+    const result = await createReel(
+      caption,
+      media,
+      setProgress,
+      collaborators.map((person) => Number(person.user_id)).filter(Boolean)
+    );
     setPosting(false);
     setProgress(0);
     if (!result.success) {
@@ -279,25 +264,7 @@ export default function CreateReelScreen() {
           />
 
           {mentions.length ? (
-            <View style={styles.mentionBox}>
-              {mentions.slice(0, 6).map((person) => (
-                <Pressable
-                  key={person.user_id}
-                  onPress={() => insertMention(person)}
-                  style={styles.mentionRow}
-                >
-                  <AvatarCircle
-                    name={personName(person)}
-                    uri={person.user_picture}
-                    size={32}
-                  />
-                  <View style={styles.mentionCopy}>
-                    <Text style={styles.mentionName}>{personName(person)}</Text>
-                    <Text style={styles.mentionHandle}>@{mentionHandle(person)}</Text>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
+            <MentionSuggestList people={mentions} onSelect={insertMention} />
           ) : null}
 
           <Text style={styles.toolbarTitle}>{t("create.addToPost")}</Text>
@@ -323,7 +290,43 @@ export default function CreateReelScreen() {
               styles={styles}
               disabled={posting}
             />
+            <SourceButton
+              icon="people-outline"
+              label={
+                collaborators.length
+                  ? t("collab.count", { count: collaborators.length })
+                  : t("collab.inviteShort")
+              }
+              onPress={() => setCollabOpen(true)}
+              styles={styles}
+              disabled={posting}
+            />
           </View>
+
+          {collaborators.length ? (
+            <View style={styles.collabList}>
+              {collaborators.map((person) => (
+                <View key={person.user_id} style={styles.collabChip}>
+                  <Text style={styles.collabChipText} numberOfLines={1}>
+                    {personName(person)}
+                  </Text>
+                  <Pressable
+                    onPress={() =>
+                      setCollaborators((current) =>
+                        current.filter((row) => row.user_id !== person.user_id)
+                      )
+                    }
+                    hitSlop={6}
+                  >
+                    <Ionicons name="close" size={14} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+              ))}
+              <Text style={styles.collabHint}>
+                {t("collab.pendingHint", { max: MAX_COLLABORATORS })}
+              </Text>
+            </View>
+          ) : null}
         </ScrollView>
         {posting ? (
           <View style={styles.progressPanel}>
@@ -339,6 +342,13 @@ export default function CreateReelScreen() {
           </View>
         ) : null}
       </KeyboardAvoidingView>
+      <CollaboratorPickerSheet
+        visible={collabOpen}
+        selected={collaborators}
+        excludeUserIds={user?.user_id ? [Number(user.user_id)] : []}
+        onClose={() => setCollabOpen(false)}
+        onChange={setCollaborators}
+      />
     </FeedShell>
   );
 }
@@ -505,21 +515,53 @@ function makeStyles(colors: Palette) {
     },
     toolbarRow: {
       flexDirection: "row",
-      gap: 10,
+      flexWrap: "wrap",
+      gap: 8,
     },
     actionBtn: {
-      flex: 1,
+      flexGrow: 1,
+      flexBasis: "22%",
+      minWidth: 72,
       alignItems: "center",
       justifyContent: "center",
       gap: 6,
-      paddingVertical: 14,
+      paddingVertical: 12,
       borderRadius: 14,
       backgroundColor: colors.cream,
     },
     actionLabel: {
       fontFamily: "Montserrat_600SemiBold",
-      fontSize: 12,
+      fontSize: 11,
       color: colors.text,
+      textAlign: "center",
+    },
+    collabList: {
+      marginTop: 10,
+      gap: 8,
+    },
+    collabChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      alignSelf: "flex-start",
+      maxWidth: "100%",
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 999,
+      backgroundColor: colors.card,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    collabChipText: {
+      flexShrink: 1,
+      fontFamily: "Montserrat_600SemiBold",
+      fontSize: 13,
+      color: colors.text,
+    },
+    collabHint: {
+      fontFamily: "Montserrat_400Regular",
+      fontSize: 12,
+      color: colors.textMuted,
     },
     progressPanel: {
       marginHorizontal: 16,

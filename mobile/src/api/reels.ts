@@ -59,13 +59,17 @@ export async function getReels(limit = 40): Promise<ReelItem[]> {
 export async function createReel(
   caption: string,
   media: ReelMediaFile,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  collaboratorIds?: number[]
 ): Promise<{ success: boolean; message?: string }> {
   const form = new FormData();
   const text = caption.trim();
   if (text) {
     form.append("text", text);
     form.append("caption", text);
+  }
+  if (collaboratorIds?.length) {
+    form.append("collaborator_ids", JSON.stringify(collaboratorIds));
   }
   const ext = (media.uri.split(".").pop() || (media.kind === "video" ? "mp4" : "jpg"))
     .split("?")[0]

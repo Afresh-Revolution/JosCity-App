@@ -14,6 +14,8 @@ export type DirectoryUser = {
   account_type?: string;
   user_name?: string | null;
   display_name?: string | null;
+  real_name?: string | null;
+  nickname?: string | null;
   business_name?: string | null;
   business_type?: string | null;
   business_location?: string | null;
@@ -114,6 +116,38 @@ export async function searchUsers(query: string): Promise<DirectoryUser[]> {
     return Array.isArray(data.data) ? data.data : [];
   } catch {
     return [];
+  }
+}
+
+export async function lookupUserByUsername(
+  username: string
+): Promise<{
+  user_id: number;
+  account_type?: string;
+  display_name?: string;
+  user_picture?: string | null;
+} | null> {
+  const handle = String(username || "").replace(/^@/, "").trim();
+  if (!handle) return null;
+  try {
+    const response = await apiFetch(`/users/by-username/${encodeURIComponent(handle)}`, {
+      method: "GET",
+      auth: true,
+      timeoutMs: 12000,
+      skipUnauthorized: true,
+    });
+    const data = await readJson<{
+      data?: {
+        user_id: number;
+        account_type?: string;
+        display_name?: string;
+        user_picture?: string | null;
+      };
+    }>(response);
+    if (!response.ok || !data.data?.user_id) return null;
+    return data.data;
+  } catch {
+    return null;
   }
 }
 
@@ -287,6 +321,8 @@ export type FriendRow = {
   user_picture?: string | null;
   profile_image_url?: string | null;
   display_name?: string | null;
+  real_name?: string | null;
+  nickname?: string | null;
   business_name?: string | null;
   account_type?: string | null;
   user_name?: string | null;
@@ -296,6 +332,8 @@ export type FriendRow = {
 };
 
 export function friendDisplayName(row: FriendRow): string {
+  const nickname = row.nickname?.trim();
+  if (nickname) return nickname;
   const type = String(row.account_type || "").trim().toLowerCase();
   const business = row.business_name?.trim();
   if (type === "business" && business) return business;
@@ -303,11 +341,73 @@ export function friendDisplayName(row: FriendRow): string {
   if (combined) return combined;
   return (
     row.display_name?.trim() ||
+    row.real_name?.trim() ||
     business ||
     row.user_name?.trim() ||
     row.username?.trim() ||
     `User ${row.user_id}`
   );
+}
+
+export function friendRealName(row: FriendRow): string {
+  const type = String(row.account_type || "").trim().toLowerCase();
+  const business = row.business_name?.trim();
+  if (type === "business" && business) return business;
+  const combined = [row.user_firstname, row.user_lastname].filter(Boolean).join(" ").trim();
+  if (combined) return combined;
+  return (
+    row.real_name?.trim() ||
+    row.display_name?.trim() ||
+    business ||
+    row.user_name?.trim() ||
+    row.username?.trim() ||
+    `User ${row.user_id}`
+  );
+}
+
+export async function setFriendNickname(
+  userId: number,
+  nickname: string
+): Promise<{ success: boolean; nickname?: string; message?: string }> {
+  try {
+    const response = await apiFetch(`/friends/${userId}/nickname`, {
+      method: "PUT",
+      auth: true,
+      timeoutMs: 15000,
+      body: JSON.stringify({ nickname }),
+    });
+    const data = await readJson<{
+      success?: boolean;
+      data?: { nickname?: string };
+      error?: string;
+      message?: string;
+    }>(response);
+    if (!response.ok || !data.success) {
+      return { success: false, message: data.error || data.message || "Could not save nickname" };
+    }
+    return { success: true, nickname: String(data.data?.nickname || nickname).trim() };
+  } catch {
+    return { success: false, message: "Could not save nickname" };
+  }
+}
+
+export async function clearFriendNickname(
+  userId: number
+): Promise<{ success: boolean; message?: string }> {
+  try {
+    const response = await apiFetch(`/friends/${userId}/nickname`, {
+      method: "DELETE",
+      auth: true,
+      timeoutMs: 15000,
+    });
+    const data = await readJson<{ success?: boolean; error?: string; message?: string }>(response);
+    if (!response.ok || !data.success) {
+      return { success: false, message: data.error || data.message || "Could not remove nickname" };
+    }
+    return { success: true };
+  } catch {
+    return { success: false, message: "Could not remove nickname" };
+  }
 }
 
 export async function getMyFriends(): Promise<FriendRow[]> {
@@ -391,6 +491,8 @@ export async function getFriendsForUser(userId: number): Promise<DirectoryUser[]
         user_lastname: row.user_lastname,
         user_picture: row.user_picture || row.profile_image_url || null,
         display_name: row.display_name || null,
+        real_name: row.real_name || null,
+        nickname: row.nickname || null,
         business_name: row.business_name || null,
         account_type: row.account_type || undefined,
         user_name: row.user_name || row.username || null,
@@ -448,6 +550,8 @@ export async function getFriendGraph(): Promise<FriendGraph> {
 export type PersonalPageProfile = {
   user_id: number;
   name: string;
+  real_name?: string | null;
+  nickname?: string | null;
   handle: string;
   picture: string | null;
   bio: string | null;

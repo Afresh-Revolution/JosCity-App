@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -28,6 +28,12 @@ import { useRequireBusinessAccount } from "../hooks/useAccountSession";
 import { useI18n } from "../i18n/I18nProvider";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
+import {
+  fieldErrorMap,
+  missingFields,
+  scrollToFormError,
+  type FieldCheck,
+} from "../utils/formValidation";
 
 const MAX_PHOTOS = 6;
 
@@ -54,8 +60,21 @@ export default function BusinessNewListingScreen() {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState<"draft" | "published" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorRequired, setErrorRequired] = useState<string[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const scrollRef = useRef<ScrollView>(null);
+  const errorBannerRef = useRef<View>(null);
 
   const busy = uploading || Boolean(saving);
+
+  const clearFieldError = (key: string) => {
+    setFieldErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  };
 
   const goBack = () => {
     if (router.canGoBack()) {
@@ -99,6 +118,8 @@ export default function BusinessNewListingScreen() {
 
     setUploading(true);
     setError(null);
+    setErrorRequired([]);
+    clearFieldError("photos");
     const next: ListingMediaItem[] = [];
     for (const asset of picked.assets.slice(0, room)) {
       const result = await uploadListingMedia({
@@ -122,34 +143,65 @@ export default function BusinessNewListingScreen() {
 
   const isService = kind === "service";
 
-  const validate = (status: "draft" | "published"): string | null => {
-    const name = title.trim();
-    if (!name) return t("listing.nameRequired");
-    if (status === "draft") return null;
-    const priceValue = Number(price.replace(/,/g, ""));
-    if (!Number.isFinite(priceValue) || priceValue < 0) return t("listing.priceRequired");
-    if (!isService) {
-      const stockValue = Number(stock);
-      if (!Number.isFinite(stockValue) || stockValue < 1) return t("listing.stockRequired");
+  const validate = (
+    status: "draft" | "published"
+  ): { message: string; required: string[]; fields: Record<string, string> } | null => {
+    const checks: FieldCheck[] = [
+      { key: "title", label: t("listing.name"), ok: !!title.trim() },
+    ];
+    if (status === "published") {
+      const priceValue = Number(price.replace(/,/g, ""));
+      checks.push({
+        key: "price",
+        label: isService ? t("listing.priceService") : t("listing.price"),
+        ok: Number.isFinite(priceValue) && priceValue >= 0 && price.trim() !== "",
+      });
+      if (!isService) {
+        const stockValue = Number(stock);
+        checks.push({
+          key: "stock",
+          label: t("listing.stock"),
+          ok: Number.isFinite(stockValue) && stockValue >= 1,
+        });
+      }
+      checks.push(
+        { key: "category", label: t("listing.category"), ok: !!category },
+        {
+          key: "description",
+          label: t("listing.description"),
+          ok: !!description.trim(),
+        }
+      );
+      if (!isService) {
+        checks.push({
+          key: "photos",
+          label: t("listing.addPhotos"),
+          ok: media.some((item) => item.type !== "video" && item.url),
+        });
+      }
     }
-    if (!category) return t("listing.categoryRequired");
-    if (!description.trim()) {
-      return isService ? t("listing.descriptionRequiredService") : t("listing.descriptionRequired");
-    }
-    if (!isService && !media.some((item) => item.type !== "video" && item.url)) {
-      return t("listing.photoRequired");
-    }
-    return null;
+    const missing = missingFields(checks);
+    if (!missing.length) return null;
+    return {
+      message: t("form.fillRequiredMany"),
+      required: missing.map((item) => item.label),
+      fields: fieldErrorMap(missing),
+    };
   };
 
   const save = async (status: "draft" | "published") => {
     if (busy) return;
-    const message = validate(status);
-    if (message) {
-      setError(message);
+    const invalid = validate(status);
+    if (invalid) {
+      setError(invalid.message);
+      setErrorRequired(invalid.required);
+      setFieldErrors(invalid.fields);
+      scrollToFormError(scrollRef, errorBannerRef);
       return;
     }
     setError(null);
+    setErrorRequired([]);
+    setFieldErrors({});
     setSaving(status);
     const priceValue = Number(price.replace(/,/g, ""));
     const stockValue = Number(stock);
@@ -172,7 +224,9 @@ export default function BusinessNewListingScreen() {
     });
     setSaving(null);
     if (!result.success) {
+      setErrorRequired([]);
       setError(result.message || t("listing.saveFailed"));
+      scrollToFormError(scrollRef, errorBannerRef);
       return;
     }
     router.replace("/business/catalog");
@@ -193,6 +247,7 @@ export default function BusinessNewListingScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
@@ -203,6 +258,15 @@ export default function BusinessNewListingScreen() {
             <Text style={styles.kicker}>{t("listing.kicker")}</Text>
             <Text style={styles.title}>{t("listing.title")}</Text>
           </FadeIn>
+
+          {error ? (
+            <ErrorBanner
+              ref={errorBannerRef}
+              title={errorRequired.length ? t("form.almostThere") : undefined}
+              message={error}
+              required={errorRequired}
+            />
+          ) : null}
 
           <FadeIn delay={80}>
             {media.length > 0 ? (
@@ -277,7 +341,11 @@ export default function BusinessNewListingScreen() {
             <TextField
               label={t("listing.name")}
               value={title}
-              onChangeText={setTitle}
+              onChangeText={(value) => {
+                setTitle(value);
+                clearFieldError("title");
+              }}
+              error={fieldErrors.title}
               placeholder={
                 isService ? t("listing.namePlaceholderService") : t("listing.namePlaceholder")
               }
@@ -288,7 +356,11 @@ export default function BusinessNewListingScreen() {
                 <TextField
                   label={isService ? t("listing.priceService") : t("listing.price")}
                   value={price}
-                  onChangeText={setPrice}
+                  onChangeText={(value) => {
+                    setPrice(value);
+                    clearFieldError("price");
+                  }}
+                  error={fieldErrors.price}
                   placeholder="38000"
                   keyboardType="numeric"
                 />
@@ -308,7 +380,11 @@ export default function BusinessNewListingScreen() {
                   <TextField
                     label={t("listing.stock")}
                     value={stock}
-                    onChangeText={setStock}
+                    onChangeText={(value) => {
+                      setStock(value);
+                      clearFieldError("stock");
+                    }}
+                    error={fieldErrors.stock}
                     placeholder="24"
                     keyboardType="number-pad"
                   />
@@ -356,16 +432,27 @@ export default function BusinessNewListingScreen() {
               />
             )}
             <Text style={styles.fieldLabel}>{t("listing.category")}</Text>
-            <Pressable onPress={() => setPicker("category")} style={styles.select}>
+            <Pressable
+              onPress={() => {
+                clearFieldError("category");
+                setPicker("category");
+              }}
+              style={[styles.select, fieldErrors.category ? styles.selectError : null]}
+            >
               <Text style={[styles.selectValue, !category && styles.selectPlaceholder]}>
                 {category || t("listing.categoryPlaceholder")}
               </Text>
               <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
             </Pressable>
+            {fieldErrors.category ? <Text style={styles.fieldHint}>{fieldErrors.category}</Text> : null}
             <TextField
               label={t("listing.description")}
               value={description}
-              onChangeText={setDescription}
+              onChangeText={(value) => {
+                setDescription(value);
+                clearFieldError("description");
+              }}
+              error={fieldErrors.description}
               placeholder={
                 isService
                   ? t("listing.descriptionPlaceholderService")
@@ -374,7 +461,6 @@ export default function BusinessNewListingScreen() {
               multiline
               style={{ minHeight: 110 }}
             />
-            {error ? <ErrorBanner message={error} /> : null}
             <Pressable
               onPress={() => void save("published")}
               disabled={busy}
@@ -589,6 +675,17 @@ function makeStyles(colors: Palette) {
       alignItems: "center",
       justifyContent: "space-between",
       marginBottom: 16,
+    },
+    selectError: {
+      borderColor: colors.error,
+      marginBottom: 6,
+    },
+    fieldHint: {
+      fontFamily: "Montserrat_400Regular",
+      fontSize: 12,
+      color: colors.error,
+      marginBottom: 16,
+      marginTop: -4,
     },
     selectValue: {
       fontFamily: "Montserrat_400Regular",

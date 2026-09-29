@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "joscity",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -17,10 +17,12 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.joscity.app",
       "buildNumber": "3",
+      "userInterfaceStyle": "automatic",
       "backgroundColor": "#0C3D26",
       "entitlements": {
         "com.apple.developer.nfc.readersession.formats": ["TAG"]
       },
+      "associatedDomains": ["applinks:joscity.com", "applinks:www.joscity.com"],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NFCReaderUsageDescription": "JosCity uses NFC only while you tap your CBrilliance card to pay for a marketplace order. The card tag is sent to JosCity to verify the payment. JosCity does not store your card number or PIN on this device.",
@@ -78,6 +80,7 @@
     "android": {
       "package": "com.joscity.app",
       "versionCode": 1,
+      "userInterfaceStyle": "automatic",
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -86,6 +89,39 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "backgroundColor": "#0C3D26",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "joscity.com",
+              "pathPrefix": "/s"
+            },
+            {
+              "scheme": "https",
+              "host": "www.joscity.com",
+              "pathPrefix": "/s"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        },
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "joscity",
+              "host": "*",
+              "pathPrefix": "/"
+            },
+            {
+              "scheme": "joscity"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.USE_BIOMETRIC",
@@ -154,6 +190,7 @@
       "expo-localization",
       "expo-sharing",
       "expo-status-bar",
+      "expo-system-ui",
       "expo-web-browser",
       [
         "expo-video",

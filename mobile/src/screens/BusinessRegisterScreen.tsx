@@ -18,6 +18,7 @@ import FadeIn from "../components/FadeIn";
 import { ErrorBanner } from "../components/AppNotice";
 import TextField from "../components/TextField";
 import { friendlyError } from "../utils/errors";
+import { scrollToFormError } from "../utils/formValidation";
 import { fetchBusinessCategories, registerBusiness } from "../api/auth";
 import {
   BUSINESS_CATEGORIES,
@@ -58,6 +59,13 @@ export default function BusinessRegisterScreen() {
   const [typeOpen, setTypeOpen] = useState(false);
   const [categories, setCategories] = useState<BusinessCategory[]>(BUSINESS_CATEGORIES);
   const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const errorBannerRef = useRef<View>(null);
+
+  const showFormError = (message: string) => {
+    setError(message);
+    scrollToFormError(scrollRef, errorBannerRef);
+  };
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const draftReady = useRef(false);
@@ -165,7 +173,7 @@ export default function BusinessRegisterScreen() {
   const onContinue = async () => {
     const message = validateStep();
     if (message) {
-      setError(message);
+      showFormError(message);
       return;
     }
     setError(null);
@@ -189,14 +197,14 @@ export default function BusinessRegisterScreen() {
         referral_code: referralCode || undefined,
       });
       if (!result.success) {
-        setError(friendlyError(result.message || "Registration failed."));
+        showFormError(friendlyError(result.message || "Registration failed."));
         return;
       }
       skipDraftSave.current = true;
       await clearSignupDraft();
       setDone(true);
     } catch {
-      setError(friendlyError("offline"));
+      showFormError(friendlyError("offline"));
     } finally {
       setLoading(false);
     }
@@ -238,6 +246,7 @@ export default function BusinessRegisterScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={[
             styles.content,
             { paddingBottom: Math.max(insets.bottom, 20) },
@@ -291,6 +300,9 @@ export default function BusinessRegisterScreen() {
               <FadeIn replayKey={step} delay={120}>
                 <Text style={styles.title}>{titles[step - 1]}</Text>
                 <Text style={styles.subtitle}>{subtitles[step - 1]}</Text>
+                {error ? (
+                  <ErrorBanner ref={errorBannerRef} title="Almost there" message={error} />
+                ) : null}
               </FadeIn>
 
               <FadeIn replayKey={step} delay={200} style={styles.form}>
@@ -447,8 +459,6 @@ export default function BusinessRegisterScreen() {
                     </Pressable>
                   </>
                 ) : null}
-
-                {error ? <ErrorBanner message={error} /> : null}
               </FadeIn>
 
               <View style={styles.spacer} />

@@ -15,7 +15,7 @@ import {
   getCbcTapConfig,
   startListingCbcTap,
 } from "../../api/marketplace";
-import { nfcHoldHint, type NfcCardRead } from "../../nfc/readCbcCard";
+import { nfcHoldHint, isNfcNativeAvailable, type NfcCardRead } from "../../nfc/readCbcCard";
 import type { Palette } from "../../theme/colors";
 import { useTheme } from "../../theme/ThemeProvider";
 import { formatTapCountdown } from "../../utils/cbcNfc";
@@ -41,6 +41,7 @@ const RETRY_IN_PLACE = new Set(["PIN_INVALID", "PAY_UNCERTAIN", "FINALIZE_FAILED
 let configRequest: Promise<boolean> | null = null;
 
 function fetchTapEnabled(): Promise<boolean> {
+  if (!isNfcNativeAvailable()) return Promise.resolve(false);
   if (!configRequest) {
     configRequest = getCbcTapConfig()
       .then((res) => Boolean(res.success && res.data?.enabled))
@@ -238,13 +239,13 @@ export default function CbcTapPayPanel({
     <View style={styles.wrap}>
       <View style={styles.titleRow}>
         <Ionicons name="radio-outline" size={18} color={colors.text} />
-        <Text style={styles.title}>Tap to pay</Text>
+        <Text style={styles.title}>CBC NFC pay</Text>
       </View>
 
-      {enabled === null ? <Text style={styles.lead}>Checking tap to pay…</Text> : null}
+      {enabled === null ? <Text style={styles.lead}>Checking CBC NFC pay…</Text> : null}
 
       {enabled === false ? (
-        <Text style={styles.lead}>Tap to pay is not available right now. Use your card details or wallet instead.</Text>
+        <Text style={styles.lead}>CBC NFC pay is not available right now. Use your card details or wallet instead.</Text>
       ) : null}
 
       {enabled && phase === "idle" ? (
@@ -259,9 +260,9 @@ export default function CbcTapPayPanel({
             disabled={disabled}
             style={[styles.submit, disabled && styles.submitBusy]}
             accessibilityRole="button"
-            accessibilityLabel="Tap card to pay"
+            accessibilityLabel="CBC NFC pay"
           >
-            <Text style={styles.submitText}>Tap card to pay</Text>
+            <Text style={styles.submitText}>CBC NFC pay</Text>
           </Pressable>
         </>
       ) : null}

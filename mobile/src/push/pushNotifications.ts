@@ -139,7 +139,36 @@ export async function configurePushNotifications(): Promise<void> {
       };
     },
   });
+  await ensureMessageReplyCategory(Notifications);
 }
+
+const MESSAGE_REPLY_CATEGORY = "message_reply";
+const MESSAGE_REPLY_ACTION = "REPLY";
+
+async function ensureMessageReplyCategory(
+  Notifications: NotificationsModule
+): Promise<void> {
+  try {
+    await Notifications.setNotificationCategoryAsync(MESSAGE_REPLY_CATEGORY, [
+      {
+        identifier: MESSAGE_REPLY_ACTION,
+        buttonTitle: "Reply",
+        textInput: {
+          submitButtonTitle: "Send",
+          placeholder: "Type a message",
+        },
+        options: {
+          // Android needs the app process to receive the reply text reliably.
+          opensAppToForeground: Platform.OS === "android",
+        },
+      },
+    ]);
+  } catch {
+    // Categories are best-effort on older builds.
+  }
+}
+
+export { MESSAGE_REPLY_ACTION, MESSAGE_REPLY_CATEGORY };
 
 async function ensureAndroidChannels(): Promise<void> {
   if (Platform.OS !== "android") return;

@@ -19,10 +19,12 @@ import {
   replyToComment,
   type PostComment,
 } from "../../api/comments";
+import MentionSuggestList from "./MentionSuggestList";
 import { getUser, type StoredUser } from "../../storage/session";
 import type { Palette } from "../../theme/colors";
 import { useTheme } from "../../theme/ThemeProvider";
 import { handleFromName } from "../../utils/format";
+import { insertMentionAtCursor, mentionHandle, useMentionSuggest } from "../../utils/mentions";
 
 type Props = {
   postId: number;
@@ -54,6 +56,7 @@ export default function InlinePostComments({
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<{ id: number; name: string } | null>(null);
   const [sending, setSending] = useState(false);
+  const { mentions, clearMentions } = useMentionSuggest(draft);
 
   const loadGen = useRef(0);
   const loadComments = useCallback(async (silent = false) => {
@@ -164,49 +167,60 @@ export default function InlinePostComments({
 
       <View
         style={[
-          styles.composer,
+          styles.composerWrap,
           fill && styles.composerPinned,
           fill && { paddingBottom: Math.max(bottomInset, 8) },
         ]}
       >
-        <AvatarCircle name={displayName} uri={picture} size={32} />
-        <View style={styles.field}>
-          <TextInput
-            ref={inputRef}
-            value={draft}
-            onChangeText={setDraft}
-            placeholder={replyTo ? `Reply to ${replyTo.name}` : "Write a comment"}
-            placeholderTextColor={colors.textMuted}
-            style={styles.input}
-            returnKeyType="send"
-            blurOnSubmit={false}
-            onSubmitEditing={() => void send()}
-            onFocus={() => onComposerActiveRef.current?.(true)}
-            onBlur={() => onComposerActiveRef.current?.(false)}
+        {mentions.length ? (
+          <MentionSuggestList
+            people={mentions}
+            onSelect={(person) => {
+              setDraft((current) => insertMentionAtCursor(current, mentionHandle(person)));
+              clearMentions();
+            }}
           />
-          {replyTo ? (
-            <Pressable onPress={() => setReplyTo(null)} hitSlop={6}>
-              <Text style={styles.muted}>Cancel</Text>
-            </Pressable>
-          ) : null}
-        </View>
-        <Pressable
-          onPress={() => void send()}
-          disabled={sending || !draft.trim()}
-          style={styles.sendBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Send comment"
-        >
-          {sending ? (
-            <JosCityLoader color={colors.primary} size="small" />
-          ) : (
-            <Ionicons
-              name="send"
-              size={20}
-              color={draft.trim() ? colors.primary : colors.textMuted}
+        ) : null}
+        <View style={styles.composer}>
+          <AvatarCircle name={displayName} uri={picture} size={32} />
+          <View style={styles.field}>
+            <TextInput
+              ref={inputRef}
+              value={draft}
+              onChangeText={setDraft}
+              placeholder={replyTo ? `Reply to ${replyTo.name}` : "Write a comment… @ to mention"}
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+              returnKeyType="send"
+              blurOnSubmit={false}
+              onSubmitEditing={() => void send()}
+              onFocus={() => onComposerActiveRef.current?.(true)}
+              onBlur={() => onComposerActiveRef.current?.(false)}
             />
-          )}
-        </Pressable>
+            {replyTo ? (
+              <Pressable onPress={() => setReplyTo(null)} hitSlop={6}>
+                <Text style={styles.muted}>Cancel</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          <Pressable
+            onPress={() => void send()}
+            disabled={sending || !draft.trim()}
+            style={styles.sendBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Send comment"
+          >
+            {sending ? (
+              <JosCityLoader color={colors.primary} size="small" />
+            ) : (
+              <Ionicons
+                name="send"
+                size={20}
+                color={draft.trim() ? colors.primary : colors.textMuted}
+              />
+            )}
+          </Pressable>
+        </View>
       </View>
     </>
   );
@@ -287,11 +301,14 @@ function makeStyles(colors: Palette) {
     marginBottom: 0,
     textAlign: "center",
   },
+  composerWrap: {
+    marginTop: 4,
+    gap: 6,
+  },
   composer: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginTop: 4,
   },
   composerPinned: {
     marginTop: 0,

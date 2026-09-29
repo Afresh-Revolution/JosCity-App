@@ -15,6 +15,18 @@ export type FeedAuthor = {
   email?: string | null;
 };
 
+export type FeedCollaborator = {
+  id?: number;
+  user_id?: number;
+  name?: string;
+  picture?: string | null;
+  username?: string | null;
+  account_type?: string;
+  verified?: boolean;
+  badge_color?: string | null;
+  status?: string;
+};
+
 export type FeedMedia = {
   url: string;
   type?: string;
@@ -35,6 +47,10 @@ export type FeedPost = {
   original_post?: (FeedPost & { unavailable?: boolean }) | null;
   user_shared?: boolean;
   author?: FeedAuthor;
+  collaborators?: FeedCollaborator[];
+  pending_collaborators?: FeedCollaborator[];
+  collaborators_count?: number;
+  is_collaboration?: boolean;
   reactions_count?: number;
   comments_count?: number;
   shares_count?: number;
@@ -304,7 +320,10 @@ export type PostMediaFile = {
 export function createPost(
   text: string,
   media: PostMediaFile[] = [],
-  options: { onProgress?: (progress: number) => void } = {}
+  options: {
+    onProgress?: (progress: number) => void;
+    collaboratorIds?: number[];
+  } = {}
 ): { promise: Promise<FeedActionResult>; abort: () => void } {
   const caption = text.trim();
   if (!caption && media.length === 0) {
@@ -316,6 +335,9 @@ export function createPost(
 
   const form = new FormData();
   form.append("text", caption);
+  if (options.collaboratorIds?.length) {
+    form.append("collaborator_ids", JSON.stringify(options.collaboratorIds));
+  }
   for (const item of media) {
     const ext = (item.uri.split(".").pop() || (item.kind === "video" ? "mp4" : "jpg"))
       .split("?")[0]
@@ -567,3 +589,47 @@ export async function getSavedPostsCount(): Promise<number> {
     return 0;
   }
 }
+
+export async function acceptCollaboration(postId: number): Promise<boolean> {
+  if (!postId) return false;
+  try {
+    const response = await apiFetch(`/feed/posts/${postId}/collaborators/accept`, {
+      method: "POST",
+      auth: true,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function declineCollaboration(postId: number): Promise<boolean> {
+  if (!postId) return false;
+  try {
+    const response = await apiFetch(`/feed/posts/${postId}/collaborators/decline`, {
+      method: "POST",
+      auth: true,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function inviteCollaborators(
+  postId: number,
+  userIds: number[]
+): Promise<boolean> {
+  if (!postId || !userIds.length) return false;
+  try {
+    const response = await apiFetch(`/feed/posts/${postId}/collaborators`, {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify({ user_ids: userIds }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+

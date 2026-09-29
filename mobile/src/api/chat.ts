@@ -14,6 +14,7 @@ export type ChatConversation = {
   lastMessageAt?: string;
   lastMessageSenderId?: number;
   unreadCount: number;
+  notificationsMuted?: boolean;
 };
 
 export type MessageReceipt = "sending" | "sent" | "received" | "read";
@@ -142,6 +143,7 @@ function normalizeConversation(value: unknown): ChatConversation | null {
     ),
     lastMessageSenderId: pickNumber(record.last_message_sender_id, record.lastMessageSenderId),
     unreadCount: pickNumber(record.unread_count, record.unreadCount) || 0,
+    notificationsMuted: record.notifications_muted === true || record.notificationsMuted === true,
   };
 }
 
@@ -411,6 +413,88 @@ export async function markConversationRead(conversationId: number): Promise<bool
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+export async function setConversationTyping(conversationId: number): Promise<void> {
+  try {
+    await apiFetch(`/chat/conversations/${conversationId}/typing`, {
+      method: "POST",
+      auth: true,
+    });
+  } catch {
+    // Typing is best-effort.
+  }
+}
+
+export async function clearConversationTyping(conversationId: number): Promise<void> {
+  try {
+    await apiFetch(`/chat/conversations/${conversationId}/typing`, {
+      method: "DELETE",
+      auth: true,
+    });
+  } catch {
+    // Typing is best-effort.
+  }
+}
+
+export async function getConversationTyping(
+  conversationId: number
+): Promise<{ userId: number; username: string }[]> {
+  try {
+    const response = await apiFetch(`/chat/conversations/${conversationId}/typing`, {
+      auth: true,
+    });
+    const data = await readJson<{
+      success?: boolean;
+      typingUsers?: Array<{ user_id?: number; userId?: number; username?: string }>;
+    }>(response);
+    if (!data?.success || !Array.isArray(data.typingUsers)) return [];
+    return data.typingUsers
+      .map((row) => ({
+        userId: Number(row.user_id || row.userId || 0),
+        username: String(row.username || "Someone"),
+      }))
+      .filter((row) => row.userId > 0);
+  } catch {
+    return [];
+  }
+}
+
+export async function getActiveTyping(): Promise<
+  { conversationId: number; userId: number; username: string }[]
+> {
+  try {
+    const response = await apiFetch("/chat/typing", { auth: true });
+    const data = await readJson<{
+      success?: boolean;
+      typing?: Array<{ conversationId?: number; userId?: number; username?: string }>;
+    }>(response);
+    if (!data?.success || !Array.isArray(data.typing)) return [];
+    return data.typing
+      .map((row) => ({
+        conversationId: Number(row.conversationId || 0),
+        userId: Number(row.userId || 0),
+        username: String(row.username || "Someone"),
+      }))
+      .filter((row) => row.conversationId > 0 && row.userId > 0);
+  } catch {
+    return [];
+  }
+}
+
+export async function toggleConversationMute(
+  conversationId: number
+): Promise<boolean | null> {
+  try {
+    const response = await apiFetch(`/chat/conversations/${conversationId}/mute`, {
+      method: "POST",
+    });
+    const data = await readJson<{ success?: boolean; notificationsMuted?: boolean }>(response);
+    if (!data?.success) return null;
+    return Boolean(data.notificationsMuted);
+  } catch {
+    return null;
   }
 }
 

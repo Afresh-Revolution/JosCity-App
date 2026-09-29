@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import {
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,9 +10,11 @@ import {
 import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import FadeIn from "../components/FadeIn";
 import DirectorySearch from "../components/explore/DirectorySearch";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
+import ListingThumb from "../components/marketplace/ListingThumb";
+import MarketFilters from "../components/marketplace/MarketFilters";
+import MarketCategorySheet from "../components/marketplace/MarketCategorySheet";
 import { addListingToCart, getListingCart, getPublicListings, type MarketplaceListing } from "../api/marketplace";
 import { showError, showNotice } from "../components/AppNotice";
 import { LISTING_CATEGORIES } from "../constants/listingCategories";
@@ -34,12 +35,14 @@ export default function MarketplaceScreen() {
   const { t } = useI18n();
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   const [category, setCategory] = useState(ALL);
+  const [kind, setKind] = useState<"all" | "service" | "goods">("all");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [personal, setPersonal] = useState(false);
   const [cartCount, setCartCount] = useState(0);
   const [addingId, setAddingId] = useState<string | null>(null);
+  const [categoryOpen, setCategoryOpen] = useState(false);
 
   const load = useCallback(async () => {
     const type = await getAccountType();
@@ -60,9 +63,10 @@ export default function MarketplaceScreen() {
     }, [allowed, load])
   );
 
-  const chips = [ALL, ...LISTING_CATEGORIES];
   const q = query.trim().toLowerCase();
   const visible = listings.filter((item) => {
+    if (kind === "service" && item.listing_kind !== "service") return false;
+    if (kind === "goods" && item.listing_kind === "service") return false;
     if (category !== ALL && item.category !== category) return false;
     if (!q) return true;
     return `${item.title} ${item.description || ""} ${item.category || ""}`
@@ -100,11 +104,11 @@ export default function MarketplaceScreen() {
 
   return (
     <FeedShell
-      tab="explore"
+      tab="market"
       header={
         <View style={styles.topBar}>
           <Pressable
-            onPress={() => (router.canGoBack() ? router.back() : router.replace("/explore"))}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace("/home"))}
             hitSlop={8}
             style={styles.backBtn}
             accessibilityRole="button"
@@ -116,6 +120,20 @@ export default function MarketplaceScreen() {
             <Text style={styles.kicker}>{t("explore.marketKicker")}</Text>
             <Text style={styles.title}>{t("explore.marketTitle")}</Text>
           </View>
+          <Pressable
+            onPress={() => setCategoryOpen(true)}
+            hitSlop={8}
+            style={styles.filterBtn}
+            accessibilityRole="button"
+            accessibilityLabel={t("listing.category")}
+          >
+            <Ionicons
+              name={category === ALL ? "options-outline" : "funnel"}
+              size={22}
+              color={colors.text}
+            />
+            {category !== ALL ? <View style={styles.filterDot} /> : null}
+          </Pressable>
           <Pressable
             onPress={() => router.push("/cart")}
             hitSlop={8}
@@ -158,94 +176,154 @@ export default function MarketplaceScreen() {
             placeholder={t("explore.marketSearch")}
           />
           <Text style={styles.intro}>{t("explore.marketIntro")}</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chips}
-          >
-            {chips.map((item) => {
-              const active = item === category;
-              const label = item === ALL ? t("explore.marketAll") : item;
-              return (
-                <Pressable
-                  key={item}
-                  onPress={() => setCategory(item)}
-                  style={[styles.chip, active && styles.chipActive]}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+          <MarketFilters
+            kind={kind}
+            onKindChange={setKind}
+            showCategories={false}
+          />
+          {category !== ALL ? (
+            <Pressable
+              onPress={() => setCategoryOpen(true)}
+              style={styles.activeCategory}
+              accessibilityRole="button"
+            >
+              <Ionicons name="pricetag-outline" size={14} color={colors.primary} />
+              <Text style={styles.activeCategoryText} numberOfLines={1}>
+                {category}
+              </Text>
+              <Pressable
+                onPress={() => setCategory(ALL)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={t("explore.marketAll")}
+              >
+                <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+              </Pressable>
+            </Pressable>
+          ) : null}
           {visible.length === 0 ? (
             <Text style={styles.empty}>
               {q ? t("explore.searchEmpty") : t("explore.marketEmpty")}
             </Text>
           ) : (
-            visible.map((item, index) => {
-              const service = item.listing_kind === "service";
-              const soldOut = !service && Boolean(item.is_sold_out || (item.quantity_tracked && (item.stock ?? 0) <= 0));
-              const image = absoluteUrl(item.image_url);
-              return (
-                <FadeIn key={item.id} delay={Math.min(index * 20, 120)}>
-                  <View style={styles.card}>
-                    {image ? (
-                      <Image source={{ uri: image }} style={styles.image} />
-                    ) : (
-                      <View style={styles.imageFallback}>
-                        <Text style={styles.imageFallbackText}>{t("explore.marketNoImage")}</Text>
-                      </View>
-                    )}
-                    <Text style={styles.cardTitle}>{item.title}</Text>
-                    {item.description ? (
-                      <Text style={styles.cardBody} numberOfLines={3}>
-                        {item.description}
-                      </Text>
-                    ) : null}
-                    <Text style={styles.meta}>
-                      {service
-                        ? item.service_area || item.category || "Jos"
-                        : item.quantity_tracked
-                          ? t("explore.marketInStock", { count: item.stock || 0 })
-                          : item.category || "Jos"}
-                    </Text>
-                    <Text style={styles.price}>{formatNaira(item.price)}</Text>
-                    <View style={styles.actions}>
-                      <Pressable
-                        onPress={() => openListing(item.id)}
-                        style={styles.secondary}
-                        accessibilityRole="button"
-                      >
-                        <Ionicons name="chevron-down" size={16} color={colors.text} />
-                        <Text style={styles.secondaryText}>{t("explore.marketView")}</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => (service ? openListing(item.id) : addToCart(item))}
-                        style={[styles.primary, soldOut && styles.primaryDisabled]}
-                        disabled={soldOut || addingId === item.id}
-                        accessibilityRole="button"
-                      >
-                        <Text style={styles.primaryText}>
-                          {soldOut
-                            ? t("explore.marketSoldOut")
-                            : service
-                              ? t("explore.marketBook")
-                              : addingId === item.id
-                                ? t("explore.cartAdding")
-                                : t("explore.marketBuy")}
-                        </Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                </FadeIn>
-              );
-            })
+            <View style={styles.grid}>
+              <View style={styles.column}>
+                {visible.filter((_, index) => index % 2 === 0).map((item) => (
+                  <ListingCard
+                    key={item.id}
+                    item={item}
+                    styles={styles}
+                    colors={colors}
+                    t={t}
+                    addingId={addingId}
+                    onOpen={openListing}
+                    onAdd={addToCart}
+                  />
+                ))}
+              </View>
+              <View style={styles.column}>
+                {visible.filter((_, index) => index % 2 === 1).map((item) => (
+                  <ListingCard
+                    key={item.id}
+                    item={item}
+                    styles={styles}
+                    colors={colors}
+                    t={t}
+                    addingId={addingId}
+                    onOpen={openListing}
+                    onAdd={addToCart}
+                  />
+                ))}
+              </View>
+            </View>
           )}
         </ScrollView>
       )}
+      <MarketCategorySheet
+        visible={categoryOpen}
+        category={category}
+        categories={LISTING_CATEGORIES}
+        onClose={() => setCategoryOpen(false)}
+        onSelect={setCategory}
+      />
     </FeedShell>
+  );
+}
+
+type MarketStyles = ReturnType<typeof makeStyles>;
+
+function ListingCard({
+  item,
+  styles,
+  colors,
+  t,
+  addingId,
+  onOpen,
+  onAdd,
+}: {
+  item: MarketplaceListing;
+  styles: MarketStyles;
+  colors: Palette;
+  t: (key: string, vars?: Record<string, string | number>) => string;
+  addingId: string | null;
+  onOpen: (id: string) => void;
+  onAdd: (item: MarketplaceListing) => void;
+}) {
+  const service = item.listing_kind === "service";
+  const soldOut =
+    !service && Boolean(item.is_sold_out || (item.quantity_tracked && (item.stock ?? 0) <= 0));
+  const image = absoluteUrl(item.image_url);
+  return (
+    <Pressable
+      style={styles.card}
+      onPress={() => onOpen(item.id)}
+      accessibilityRole="button"
+    >
+      <View style={styles.media}>
+        <ListingThumb
+          uri={image}
+          backgroundColor={colors.sheet}
+          style={styles.thumb}
+          fallback={
+            <View style={styles.imageFallback}>
+              <Ionicons
+                name={service ? "briefcase-outline" : "cube-outline"}
+                size={28}
+                color={colors.textMuted}
+              />
+            </View>
+          }
+        />
+        <View style={styles.pricePill}>
+          <Text style={styles.price}>{formatNaira(item.price)}</Text>
+        </View>
+      </View>
+      <Text style={styles.kindLabel}>
+        {service ? t("explore.filterServices") : t("explore.filterProducts")}
+      </Text>
+      <Text style={styles.cardTitle} numberOfLines={2}>
+        {item.title}
+      </Text>
+      <Text style={styles.meta} numberOfLines={1}>
+        {item.seller_name || item.contact?.name || item.category || "Jos"}
+      </Text>
+      <Pressable
+        onPress={() => (service ? onOpen(item.id) : onAdd(item))}
+        style={[styles.primary, soldOut && styles.primaryDisabled]}
+        disabled={soldOut || addingId === item.id}
+        accessibilityRole="button"
+      >
+        <Text style={styles.primaryText}>
+          {soldOut
+            ? t("explore.marketSoldOut")
+            : service
+              ? t("explore.marketBook")
+              : addingId === item.id
+                ? t("explore.cartAdding")
+                : t("explore.marketBuy")}
+        </Text>
+      </Pressable>
+    </Pressable>
   );
 }
 
@@ -278,6 +356,23 @@ function makeStyles(colors: Palette) {
       height: 40,
       alignItems: "center",
       justifyContent: "center",
+    },
+    filterBtn: {
+      width: 40,
+      height: 40,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    filterDot: {
+      position: "absolute",
+      top: 8,
+      right: 8,
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.primary,
+      borderWidth: 1.5,
+      borderColor: colors.background,
     },
     cartBadge: {
       position: "absolute",
@@ -317,26 +412,31 @@ function makeStyles(colors: Palette) {
       lineHeight: 18,
       color: colors.textMuted,
     },
-    chips: {
-      gap: 8,
-      paddingVertical: 2,
-    },
-    chip: {
-      paddingHorizontal: 14,
-      paddingVertical: 8,
+    activeCategory: {
+      alignSelf: "flex-start",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      maxWidth: "100%",
+      paddingHorizontal: 10,
+      paddingVertical: 7,
       borderRadius: 999,
-      backgroundColor: colors.sheet,
+      backgroundColor: colors.navActive,
     },
-    chipActive: {
-      backgroundColor: colors.primary,
-    },
-    chipText: {
+    activeCategoryText: {
+      flexShrink: 1,
       fontFamily: "Montserrat_600SemiBold",
-      fontSize: 13,
-      color: colors.text,
+      fontSize: 12,
+      color: colors.primary,
     },
-    chipTextActive: {
-      color: colors.white,
+    grid: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: 12,
+    },
+    column: {
+      flex: 1,
+      gap: 12,
     },
     empty: {
       marginTop: 24,
@@ -346,79 +446,69 @@ function makeStyles(colors: Palette) {
       color: colors.textMuted,
     },
     card: {
-      backgroundColor: colors.white,
-      borderRadius: 18,
-      padding: 14,
-      gap: 8,
-    },
-    image: {
       width: "100%",
-      height: 150,
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      padding: 8,
+      gap: 6,
+      overflow: "hidden",
+    },
+    media: {
+      position: "relative",
+      width: "100%",
+    },
+    thumb: {
       borderRadius: 12,
-      backgroundColor: colors.sheet,
     },
     imageFallback: {
       width: "100%",
-      height: 150,
-      borderRadius: 12,
+      height: "100%",
+      minHeight: 120,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: colors.sheet,
     },
-    imageFallbackText: {
-      fontFamily: "Montserrat_500Medium",
-      fontSize: 13,
-      color: colors.textMuted,
-    },
-    cardTitle: {
-      fontFamily: "Montserrat_700Bold",
-      fontSize: 18,
-      color: colors.text,
-    },
-    cardBody: {
-      fontFamily: "Montserrat_400Regular",
-      fontSize: 14,
-      lineHeight: 20,
-      color: colors.textMuted,
-    },
-    meta: {
-      fontFamily: "Montserrat_500Medium",
-      fontSize: 13,
-      color: colors.textMuted,
+    pricePill: {
+      position: "absolute",
+      top: 8,
+      left: 8,
+      backgroundColor: "rgba(12, 61, 38, 0.92)",
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
     },
     price: {
       fontFamily: "Montserrat_700Bold",
-      fontSize: 20,
-      color: colors.text,
+      fontSize: 11,
+      color: "#FFFFFF",
     },
-    actions: {
-      flexDirection: "row",
-      gap: 10,
-      marginTop: 4,
-    },
-    secondary: {
-      flex: 1,
-      minHeight: 42,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 6,
-    },
-    secondaryText: {
+    kindLabel: {
       fontFamily: "Montserrat_600SemiBold",
+      fontSize: 11,
+      color: colors.primary,
+      paddingHorizontal: 4,
+    },
+    cardTitle: {
+      fontFamily: "Montserrat_700Bold",
       fontSize: 14,
+      lineHeight: 18,
       color: colors.text,
+      paddingHorizontal: 4,
+    },
+    meta: {
+      fontFamily: "Montserrat_500Medium",
+      fontSize: 12,
+      color: colors.textMuted,
+      paddingHorizontal: 4,
     },
     primary: {
-      flex: 1,
-      minHeight: 42,
+      minHeight: 36,
       borderRadius: 12,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
+      marginTop: 2,
     },
     primaryDisabled: {
       backgroundColor: colors.textMuted,

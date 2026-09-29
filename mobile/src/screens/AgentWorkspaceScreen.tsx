@@ -29,6 +29,8 @@ import AgentRatingSheet from "../components/agents/AgentRatingSheet";
 import AgentVendorPaySheet from "../components/agents/AgentVendorPaySheet";
 import { openMemberProfile } from "../utils/openProfile";
 import { formatMoneyInput, parseMoneyInput } from "../utils/format";
+import { ErrorBanner } from "../components/AppNotice";
+import { scrollToFormError } from "../utils/formValidation";
 
 const TAB_LABELS: Record<string, string> = {
   directory: "Directory",
@@ -52,6 +54,9 @@ function EditForm({ editor, busy, error, close, save }: { editor: Editor; busy: 
   );
   const [images, setImages] = useState<UploadImage[]>([]);
   const [validation, setValidation] = useState("");
+  const [requiredLabels, setRequiredLabels] = useState<string[]>([]);
+  const scrollRef = useRef<ScrollView>(null);
+  const errorRef = useRef<View>(null);
 
   const pick = async () => {
     try {
@@ -96,6 +101,7 @@ function EditForm({ editor, busy, error, close, save }: { editor: Editor; busy: 
           </Pressable>
         </View>
         <ScrollView
+          ref={scrollRef}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[styles.body, { paddingBottom: Math.max(insets.bottom, 16) + 24 }]}
         >
@@ -106,6 +112,15 @@ function EditForm({ editor, busy, error, close, save }: { editor: Editor; busy: 
                 ? "Tell agents where to pick up and drop off. Map pins can be added after the request is created."
                 : "Describe what you need. Delivery details help the agent; map pins can be added later."}
             </Text>
+          ) : null}
+
+          {validation || error ? (
+            <ErrorBanner
+              ref={errorRef}
+              title={requiredLabels.length ? "Almost there" : undefined}
+              message={validation || error}
+              required={requiredLabels}
+            />
           ) : null}
 
           {fields.map((f) => {
@@ -200,19 +215,19 @@ function EditForm({ editor, busy, error, close, save }: { editor: Editor; busy: 
             </View>
           ) : null}
 
-          {validation || error ? (
-            <Text accessibilityRole="alert" style={styles.alert}>
-              {validation || error}
-            </Text>
-          ) : null}
-
           <Pressable
             accessibilityRole="button"
             disabled={busy}
             onPress={() => {
-              const missing = fields.find((f) => f.required && !values[f.key]?.trim());
-              if (missing) {
-                setValidation(`${missing.label} is required`);
+              const missing = fields.filter((f) => f.required && !values[f.key]?.trim());
+              if (missing.length) {
+                setRequiredLabels(missing.map((f) => f.label));
+                setValidation(
+                  missing.length === 1
+                    ? `Add your ${missing[0].label.toLowerCase()}, then try again.`
+                    : "Fill in these required fields, then try again."
+                );
+                scrollToFormError(scrollRef, errorRef);
                 return;
               }
               const invalidMoney = fields.find((f) => {
@@ -221,7 +236,9 @@ function EditForm({ editor, busy, error, close, save }: { editor: Editor; busy: 
                 return amount == null || Number.isNaN(amount);
               });
               if (invalidMoney) {
+                setRequiredLabels([]);
                 setValidation(`Enter a valid ${invalidMoney.label.toLowerCase()}, for example 1,234,500`);
+                scrollToFormError(scrollRef, errorRef);
                 return;
               }
               const payload = { ...values };
@@ -230,6 +247,7 @@ function EditForm({ editor, busy, error, close, save }: { editor: Editor; busy: 
                 const amount = parseMoneyInput(values[f.key]);
                 payload[f.key] = amount == null || Number.isNaN(amount) ? "" : String(amount);
               }
+              setRequiredLabels([]);
               setValidation("");
               save(payload, images);
             }}

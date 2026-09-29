@@ -27,6 +27,8 @@ type Props = {
 };
 
 export function personName(person: DirectoryUser): string {
+  const nick = person.nickname?.trim();
+  if (nick) return nick;
   const isBiz = String(person.account_type || "").toLowerCase() === "business";
   if (isBiz && person.business_name?.trim()) return person.business_name.trim();
   return (

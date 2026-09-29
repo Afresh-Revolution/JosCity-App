@@ -74,13 +74,15 @@ function ImageStrip({
   const [boxW, setBoxW] = useState(() => snap(Math.max(0, screenW - 32)));
   if (!uris.length) return null;
 
-  const useGrid = uris.length >= 4;
+  const count = uris.length;
+  const useGrid = count > 1;
   const shown = useGrid ? uris.slice(0, 4) : uris;
-  const remaining = useGrid ? Math.max(0, uris.length - 4) : 0;
+  const remaining = useGrid ? Math.max(0, count - 4) : 0;
   const viewerUri = viewerIndex !== null ? uris[viewerIndex] : null;
   const leftW = boxW > 0 ? snap((boxW - GRID_GAP) / 2) : 0;
   const rightW = boxW > 0 ? boxW - GRID_GAP - leftW : 0;
-  const cellH = compact ? Math.min(leftW, 140) : leftW;
+  const cellH = compact ? Math.min(Math.max(leftW, 1), 140) : Math.max(leftW, 1);
+  const tallH = cellH * 2 + GRID_GAP;
 
   const save = async () => {
     if (!viewerUri || saving) return;
@@ -126,6 +128,49 @@ function ImageStrip({
     </View>
   );
 
+  const grid = () => {
+    if (boxW <= 0) return <View style={{ height: compact ? 220 : 280 }} />;
+
+    // 2 photos: side by side
+    if (shown.length === 2) {
+      return (
+        <View style={{ width: boxW, flexDirection: "row", gap: GRID_GAP }} collapsable={false}>
+          {tile(shown[0], 0, leftW, cellH)}
+          {tile(shown[1], 1, rightW, cellH)}
+        </View>
+      );
+    }
+
+    // 3 photos: tall left + two stacked right
+    if (shown.length === 3) {
+      return (
+        <View style={{ width: boxW, flexDirection: "row", gap: GRID_GAP }} collapsable={false}>
+          {tile(shown[0], 0, leftW, tallH)}
+          <View style={{ width: rightW, gap: GRID_GAP }} collapsable={false}>
+            {tile(shown[1], 1, rightW, cellH)}
+            {tile(shown[2], 2, rightW, cellH)}
+          </View>
+        </View>
+      );
+    }
+
+    // 4+ photos: 2×2 with overflow badge
+    return (
+      <View style={{ width: boxW, gap: GRID_GAP }} collapsable={false}>
+        <View style={{ flexDirection: "row", gap: GRID_GAP }} collapsable={false}>
+          {tile(shown[0], 0, leftW, cellH)}
+          {shown[1] ? tile(shown[1], 1, rightW, cellH) : <View style={{ width: rightW, height: cellH }} />}
+        </View>
+        <View style={{ flexDirection: "row", gap: GRID_GAP }} collapsable={false}>
+          {shown[2] ? tile(shown[2], 2, leftW, cellH) : <View style={{ width: leftW, height: cellH }} />}
+          {shown[3]
+            ? tile(shown[3], 3, rightW, cellH, remaining || undefined)
+            : <View style={{ width: rightW, height: cellH }} />}
+        </View>
+      </View>
+    );
+  };
+
   return (
     <View
       collapsable={false}
@@ -135,22 +180,7 @@ function ImageStrip({
       }}
     >
       {useGrid ? (
-        boxW > 0 ? (
-          <View style={{ width: boxW, gap: GRID_GAP }} collapsable={false}>
-            <View style={{ flexDirection: "row", gap: GRID_GAP }} collapsable={false}>
-              {tile(shown[0], 0, leftW, cellH)}
-              {shown[1] ? tile(shown[1], 1, rightW, cellH) : <View style={{ width: rightW, height: cellH }} />}
-            </View>
-            <View style={{ flexDirection: "row", gap: GRID_GAP }} collapsable={false}>
-              {shown[2] ? tile(shown[2], 2, leftW, cellH) : <View style={{ width: leftW, height: cellH }} />}
-              {shown[3]
-                ? tile(shown[3], 3, rightW, cellH, remaining || undefined)
-                : <View style={{ width: rightW, height: cellH }} />}
-            </View>
-          </View>
-        ) : (
-          <View style={{ height: compact ? 220 : 280 }} />
-        )
+        grid()
       ) : (
         <View style={styles.stack}>
           {shown.map((uri, index) => (
@@ -160,7 +190,7 @@ function ImageStrip({
                 fit="contain"
                 naturalAspect
                 style={styles.photo}
-                onPress={uris.length > 1 ? () => setViewerIndex(index) : undefined}
+                onPress={undefined}
                 onError={() => onImageError(uri)}
                 accessibilityLabel={`Photo ${index + 1} of ${uris.length}`}
               />

@@ -15,7 +15,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { ErrorBanner } from "./AppNotice";
 import { friendlyError } from "../utils/errors";
 import { isStoreReviewEmail } from "../utils/storeReviewAccounts";
-import { checkActivationRequired, loginBusiness, loginPersonal } from "../api/auth";
+import { checkActivationRequired, loginAgent, loginBusiness, loginPersonal } from "../api/auth";
 import { useI18n } from "../i18n/I18nProvider";
 import {
   loginMatchesAccount,
@@ -95,7 +95,10 @@ export default function BusinessAccountSheet({
       return;
     }
     const timer = setTimeout(async () => {
-      const result = await checkActivationRequired(normalized, mode === "business" ? "business" : "personal");
+      const result = await checkActivationRequired(
+        normalized,
+        mode === "business" ? "business" : mode === "agent" ? "agent" : "personal"
+      );
       setActivationRequired(Boolean(result.activation_required));
     }, 350);
     return () => clearTimeout(timer);
@@ -107,14 +110,21 @@ export default function BusinessAccountSheet({
       setError(t(mode === "business" ? "profile.businessLoginMissing" : mode === "agent" ? "profile.agentLoginMissing" : "profile.personalLoginMissing"));
       return false;
     }
-    const result = mode === "business"
-      ? await loginBusiness({ email: params.email, password: params.password, activationCode })
-      : await loginPersonal({
-          email: params.email,
-          password: params.password,
-          activationCode,
-          twoFactorCode,
-        });
+    const result =
+      mode === "business"
+        ? await loginBusiness({ email: params.email, password: params.password, activationCode })
+        : mode === "agent"
+          ? await loginAgent({
+              email: params.email,
+              password: params.password,
+              activationCode,
+            })
+          : await loginPersonal({
+              email: params.email,
+              password: params.password,
+              activationCode,
+              twoFactorCode,
+            });
     if (result.two_factor_required && !result.token) {
       setTwoFactorRequired(true);
       setError(friendlyError(result.message || t("profile.personalTwoFactorHint")));
@@ -260,8 +270,17 @@ export default function BusinessAccountSheet({
             </View>
             <Pressable
               onPress={() => {
+                const path =
+                  mode === "personal"
+                    ? "/register/personal"
+                    : mode === "agent"
+                      ? "/register/agent"
+                      : "/register/business";
                 onClose();
-                router.push(mode === "personal" ? "/register/personal" : mode === "agent" ? "/register/agent" : "/register/business");
+                // Wait for the modal to dismiss before navigating (Android + iOS).
+                setTimeout(() => {
+                  router.push(path as never);
+                }, 320);
               }}
               style={styles.create}
               accessibilityRole="button"

@@ -10,6 +10,9 @@ export type PushPayload = {
   rateOrderId?: string | number;
   notificationType?: string;
   alarm?: boolean;
+  messageText?: string;
+  messagePreview?: string;
+  conversationId?: string | number;
 };
 
 export type PushHref =

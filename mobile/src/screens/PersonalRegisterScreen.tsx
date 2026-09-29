@@ -22,6 +22,7 @@ import { DEFAULT_AGENT_SERVICES, HELP_ME_BUY, HELP_ME_DELIVER, toggleAgentServic
 import { clearSignupDraft, loadSignupDraft, saveSignupDraft } from "../storage/signupDraft";
 import TextField from "../components/TextField";
 import { friendlyError } from "../utils/errors";
+import { scrollToFormError } from "../utils/formValidation";
 import { registerPersonal } from "../api/auth";
 import { usernameError } from "../utils/accountNames";
 import { LEGAL, openExternalUrl } from "../constants/legal";
@@ -66,6 +67,13 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
   const [agreed, setAgreed] = useState(false);
   const [genderOpen, setGenderOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const errorBannerRef = useRef<View>(null);
+
+  const showFormError = (message: string) => {
+    setError(message);
+    scrollToFormError(scrollRef, errorBannerRef);
+  };
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const draftReady = useRef(false);
@@ -173,11 +181,11 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
   const onContinue = async () => {
     const message = validateStep();
     if (message) {
-      setError(message);
+      showFormError(message);
       return;
     }
     if (agent && step === 1 && services.length === 0) {
-      setError("Choose Help me buy, Help me deliver, or both.");
+      showFormError("Choose Help me buy, Help me deliver, or both so we know how you can help customers.");
       return;
     }
     setError(null);
@@ -202,7 +210,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
         user_name: username.trim() || undefined,
       });
       if (!result.success) {
-        setError(friendlyError(result.message || "Registration failed."));
+        showFormError(friendlyError(result.message || "Registration failed."));
         return;
       }
       if (agent) {
@@ -233,7 +241,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
       await clearSignupDraft();
       setDone(true);
     } catch {
-      setError(friendlyError("offline"));
+      showFormError(friendlyError("offline"));
     } finally {
       setLoading(false);
     }
@@ -262,6 +270,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={[
             styles.content,
             { paddingBottom: Math.max(insets.bottom, 20) },
@@ -327,6 +336,9 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
                       ? "Tell us who you are — this appears on your membership ID. Gender and address are optional."
                       : "Add a referral code if someone invited you. NIN is optional, then agree to the terms."}
                 </Text>
+                {error ? (
+                  <ErrorBanner ref={errorBannerRef} title="Almost there" message={error} />
+                ) : null}
               </FadeIn>
 
               {agent && step === 1 ? <View>
@@ -493,8 +505,6 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
                     </Pressable>
                   </>
                 ) : null}
-
-                {error ? <ErrorBanner message={error} /> : null}
               </FadeIn>
 
               <View style={styles.spacer} />
