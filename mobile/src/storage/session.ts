@@ -201,7 +201,7 @@ export async function hasPersonalSession(): Promise<boolean> {
   if (!token) return false;
   const storedType = await getAccountType();
   const user = await getUser();
-  return isPersonalAccountType(user?.account_type || storedType);
+  return isPersonalAccountType(storedType || user?.account_type);
 }
 
 export async function getActiveSession(): Promise<StoredSession | null> {

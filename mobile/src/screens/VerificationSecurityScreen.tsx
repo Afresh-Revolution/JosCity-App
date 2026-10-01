@@ -1,5 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useState } from "react";
-import { Alert, Switch, Text, View } from "react-native";
+import { Switch, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import AppButton from "../components/AppButton";
 import FadeIn from "../components/FadeIn";
@@ -15,6 +16,7 @@ import {
   getUser,
   isBusinessAccountType,
   mergeStoredUser,
+  setAuthToken,
   setUser,
   type StoredUser,
 } from "../storage/session";
@@ -116,11 +118,15 @@ export default function VerificationSecurityScreen() {
       setError(result.message || "Could not update password.");
       return;
     }
+    const nextToken = result.data && typeof result.data === "object" && "token" in result.data
+      ? String((result.data as { token?: string }).token || "")
+      : "";
+    if (nextToken) await setAuthToken(nextToken);
     await updateBiometricPassword(next).catch(() => undefined);
     setCurrent("");
     setNext("");
     setConfirm("");
-    Alert.alert("Password updated");
+    AppAlert.alert("Password updated");
   };
 
   const onToggle2fa = async (enabled: boolean) => {

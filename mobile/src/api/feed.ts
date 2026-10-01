@@ -11,6 +11,10 @@ export type FeedAuthor = {
   cac_verified?: boolean;
   badge_color?: string | null;
   account_type?: string;
+  signup_intent?: string | null;
+  agent_type?: string | null;
+  nin_verified?: boolean | null;
+  nin_number?: string | null;
   username?: string | null;
   email?: string | null;
 };
@@ -22,6 +26,8 @@ export type FeedCollaborator = {
   picture?: string | null;
   username?: string | null;
   account_type?: string;
+  signup_intent?: string | null;
+  agent_type?: string | null;
   verified?: boolean;
   badge_color?: string | null;
   status?: string;
@@ -49,6 +55,7 @@ export type FeedPost = {
   author?: FeedAuthor;
   collaborators?: FeedCollaborator[];
   pending_collaborators?: FeedCollaborator[];
+  viewer_invite_status?: "pending" | "accepted" | null;
   collaborators_count?: number;
   is_collaboration?: boolean;
   reactions_count?: number;
@@ -608,6 +615,19 @@ export async function declineCollaboration(postId: number): Promise<boolean> {
   try {
     const response = await apiFetch(`/feed/posts/${postId}/collaborators/decline`, {
       method: "POST",
+      auth: true,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function leaveCollaboration(postId: number): Promise<boolean> {
+  if (!postId) return false;
+  try {
+    const response = await apiFetch(`/feed/posts/${postId}/collaborators`, {
+      method: "DELETE",
       auth: true,
     });
     return response.ok;

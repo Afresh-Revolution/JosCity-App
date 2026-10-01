@@ -66,7 +66,11 @@ export function resolvePushRoute(data?: PushPayload | null): PushHref {
   const screen = SCREEN_ALIASES[String(data.screen || "").trim().toLowerCase()]
     || String(data.screen || "").trim().toLowerCase();
 
-  if (data.url) {
+  // Explicit conversation identity takes precedence over legacy URLs/entity IDs.
+  const conversationId = asId(data.conversationId);
+  if (conversationId) return { pathname: "/messages/[id]", params: { id: conversationId } };
+
+  if (data.url && !ALLOWED_SCREENS.has(screen)) {
     const url = safePath(String(data.url));
     if (url) return url;
   }

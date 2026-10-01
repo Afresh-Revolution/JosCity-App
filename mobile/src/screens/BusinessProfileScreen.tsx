@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   Image,
   Linking,
   Pressable,
@@ -17,6 +17,7 @@ import BusinessAccountSheet from "../components/BusinessAccountSheet";
 import FadeIn from "../components/FadeIn";
 import SignOutSheet from "../components/SignOutSheet";
 import BusinessVerifiedBadge from "../components/BusinessVerifiedBadge";
+import ListingPrice from "../components/marketplace/ListingPrice";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedImage from "../components/feed/FeedImage";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
@@ -32,7 +33,7 @@ import {
   toggleBusinessFollow,
   type BusinessPage,
 } from "../api/marketplace";
-import { getUserProfile } from "../api/auth";
+import { getUserProfile, logout } from "../api/auth";
 import type { FeedPost } from "../api/feed";
 import { useI18n } from "../i18n/I18nProvider";
 import { registerPushTokenAfterLogin, unregisterPushTokenOnLogout } from "../push/pushNotifications";
@@ -193,6 +194,7 @@ export default function BusinessProfileScreen() {
     if (signingOut) return;
     setSigningOut(true);
     await unregisterPushTokenOnLogout();
+    await logout();
     await clearSession();
     setSignOutOpen(false);
     router.replace("/welcome");
@@ -223,7 +225,7 @@ export default function BusinessProfileScreen() {
     if (!userId || followBusy) return;
     const wasFollowing = Boolean(profile?.following);
     if (wasFollowing) {
-      Alert.alert(t("business.unfollowTitle"), t("business.unfollowBody", { name: profile?.name || "" }), [
+      AppAlert.alert(t("business.unfollowTitle"), t("business.unfollowBody", { name: profile?.name || "" }), [
         { text: t("common.cancel"), style: "cancel" },
         {
           text: t("business.unfollow"),
@@ -241,7 +243,7 @@ export default function BusinessProfileScreen() {
     const next = await toggleBusinessFollow(userId);
     setFollowBusy(false);
     if (next == null) {
-      Alert.alert(t("business.followFailed"));
+      AppAlert.alert(t("business.followFailed"));
       return;
     }
     setData((current) => {
@@ -614,6 +616,12 @@ export default function BusinessProfileScreen() {
                   key={post.post_id}
                   post={post as FeedPost}
                   viewerId={viewerId}
+                  onCollaborationLeft={(postId) => {
+                    setData((current) => current && Number(current.profile.user_id) === viewerId
+                      ? { ...current, posts: current.posts.filter((item) => Number(item.post_id) !== postId) }
+                      : current);
+                    void load();
+                  }}
                   onDeleted={(deletedId) =>
                     setData((current) =>
                       current
@@ -693,10 +701,15 @@ export default function BusinessProfileScreen() {
                     )}
                     <View style={styles.catalogCopy}>
                       <Text style={styles.catalogTitle}>{item.title}</Text>
-                      <Text style={styles.catalogPrice}>
-                        {formatNaira(item.price)}
-                        {item.unit ? ` · ${item.unit}` : ""}
-                      </Text>
+                      <ListingPrice
+                        price={item.price}
+                        salePrice={item.sale_price}
+                        discountPercent={item.discount_percent}
+                        offerText={item.offer_text}
+                        unit={item.unit}
+                        colors={colors}
+                        size="sm"
+                      />
                     </View>
                     <View style={styles.catalogAction}>
                       <Text style={styles.catalogActionText}>
@@ -940,7 +953,7 @@ function stampBusinessPosts(page: BusinessPage): BusinessPage {
         ...post.author,
         account_type: post.author?.account_type || "business",
         username: publicUsername(post.author?.username) || null,
-        email: String(post.author?.email || email || "").trim() || null,
+        email: String(post.author?.email || (Number(post.author?.id || post.user_id) === Number(page.profile.user_id) ? email : "") || "").trim() || null,
       },
     })),
   };

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Pressable,
   RefreshControl,
@@ -24,6 +24,7 @@ import { getAccountType, homeRouteForAccount, normalizeAccountType } from "../st
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { absoluteUrl, formatNaira } from "../utils/format";
+import { listingMatchesQuery } from "../utils/listingSearch";
 
 const ALL = "All";
 
@@ -37,21 +38,29 @@ export default function MarketplaceScreen() {
   const [category, setCategory] = useState(ALL);
   const [kind, setKind] = useState<"all" | "service" | "goods">("all");
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [personal, setPersonal] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [home, setHome] = useState<"/home" | "/business">("/home");
   const [cartCount, setCartCount] = useState(0);
   const [addingId, setAddingId] = useState<string | null>(null);
   const [categoryOpen, setCategoryOpen] = useState(false);
 
-  const load = useCallback(async () => {
-    const type = await getAccountType();
-    if (normalizeAccountType(type) !== "personal") {
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query.trim()), 280);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const load = useCallback(async (search = "") => {
+    const type = normalizeAccountType(await getAccountType());
+    if (type === "agent") {
       router.replace(homeRouteForAccount(type));
       return;
     }
-    setPersonal(true);
-    const [rows, cart] = await Promise.all([getPublicListings(), getListingCart()]);
+    setHome(type === "business" ? "/business" : "/home");
+    setReady(true);
+    const [rows, cart] = await Promise.all([getPublicListings(search), getListingCart()]);
     setListings(rows);
     setCartCount(cart.reduce((sum, item) => sum + item.quantity, 0));
   }, [router]);
@@ -59,8 +68,8 @@ export default function MarketplaceScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!allowed) return;
-      void load().finally(() => setLoading(false));
-    }, [allowed, load])
+      void load(debouncedQuery).finally(() => setLoading(false));
+    }, [allowed, load, debouncedQuery])
   );
 
   const q = query.trim().toLowerCase();
@@ -68,10 +77,11 @@ export default function MarketplaceScreen() {
     if (kind === "service" && item.listing_kind !== "service") return false;
     if (kind === "goods" && item.listing_kind === "service") return false;
     if (category !== ALL && item.category !== category) return false;
+    // While typing, filter locally. Once the API search catches up, keep its
+    // results (so seller location / address matches are not dropped).
     if (!q) return true;
-    return `${item.title} ${item.description || ""} ${item.category || ""}`
-      .toLowerCase()
-      .includes(q);
+    if (debouncedQuery && q === debouncedQuery.toLowerCase()) return true;
+    return listingMatchesQuery(item, q);
   });
 
   const openListing = (id: string) => {
@@ -94,7 +104,7 @@ export default function MarketplaceScreen() {
     });
   };
 
-  if (!allowed || !personal) {
+  if (!allowed || !ready) {
     return (
       <View style={styles.centered}>
         <JosCityLoader color={colors.primary} size="large" />
@@ -108,7 +118,7 @@ export default function MarketplaceScreen() {
       header={
         <View style={styles.topBar}>
           <Pressable
-            onPress={() => (router.canGoBack() ? router.back() : router.replace("/home"))}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace(home))}
             hitSlop={8}
             style={styles.backBtn}
             accessibilityRole="button"
@@ -164,7 +174,7 @@ export default function MarketplaceScreen() {
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
-                void load().finally(() => setRefreshing(false));
+                void load(debouncedQuery).finally(() => setRefreshing(false));
               }}
               tintColor={colors.primary}
             />
@@ -308,7 +318,7 @@ function ListingCard({
         {item.seller_name || item.contact?.name || item.category || "Jos"}
       </Text>
       <Pressable
-        onPress={() => (service ? onOpen(item.id) : onAdd(item))}
+        onPress={() => onAdd(item)}
         style={[styles.primary, soldOut && styles.primaryDisabled]}
         disabled={soldOut || addingId === item.id}
         accessibilityRole="button"
@@ -316,11 +326,9 @@ function ListingCard({
         <Text style={styles.primaryText}>
           {soldOut
             ? t("explore.marketSoldOut")
-            : service
-              ? t("explore.marketBook")
-              : addingId === item.id
-                ? t("explore.cartAdding")
-                : t("explore.marketBuy")}
+            : addingId === item.id
+              ? t("explore.cartAdding")
+              : t("explore.marketBuy")}
         </Text>
       </Pressable>
     </Pressable>

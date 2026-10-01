@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Dimensions,
   FlatList,
   Image,
@@ -505,7 +505,7 @@ function ReelPage({
                   destructive: true,
                   onPress: () => {
                     setMenuOpen(false);
-                    Alert.alert(t("reels.delete"), t("reels.deleteConfirm"), [
+                    AppAlert.alert(t("reels.delete"), t("reels.deleteConfirm"), [
                       { text: t("common.cancel"), style: "cancel" },
                       {
                         text: t("reels.delete"),
@@ -513,7 +513,7 @@ function ReelPage({
                         onPress: () => {
                           void deletePost(reel.post_id).then((ok) => {
                             if (ok) onDeleted(reel.post_id);
-                            else Alert.alert(t("reels.deleteFailed"));
+                            else AppAlert.alert(t("reels.deleteFailed"));
                           });
                         },
                       },
@@ -569,7 +569,7 @@ function ReelPage({
                   void updatePost(reel.post_id, next).then((ok) => {
                     if (!ok) {
                       onChange(reel);
-                      Alert.alert(t("reels.editFailed"));
+                      AppAlert.alert(t("reels.editFailed"));
                     }
                   });
                 }}

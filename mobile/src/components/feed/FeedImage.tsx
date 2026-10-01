@@ -1,6 +1,6 @@
+import { AppAlert } from "../AppDialog";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Alert,
   Image,
   Modal,
   Pressable,
@@ -43,6 +43,7 @@ export default function FeedImage({
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savedImage, setSavedImage] = useState(false);
   const [aspectRatio, setAspectRatio] = useState(
     () => (uri && aspectCache.get(uri)) || DEFAULT_ASPECT
   );
@@ -79,12 +80,11 @@ export default function FeedImage({
       const ok = await saveRemoteImage(uri);
       setSaving(false);
       if (ok) {
-        setMenu(false);
-        Alert.alert("Saved", "Image saved to your photos.");
+        setSavedImage(true);
       }
     } catch {
       setSaving(false);
-      Alert.alert("Could not save", "Please try again.");
+      AppAlert.alert("Could not save", "Please try again.");
     }
   };
 
@@ -156,8 +156,9 @@ export default function FeedImage({
             visible={menu}
             embedded
             saving={saving}
+            saved={savedImage}
             onSave={() => void save()}
-            onClose={() => setMenu(false)}
+            onClose={() => { setMenu(false); setSavedImage(false); }}
           />
         </View>
       </Modal>
@@ -166,8 +167,9 @@ export default function FeedImage({
         <ImageSaveSheet
           visible={menu}
           saving={saving}
+            saved={savedImage}
           onSave={() => void save()}
-          onClose={() => setMenu(false)}
+          onClose={() => { setMenu(false); setSavedImage(false); }}
         />
       )}
     </>

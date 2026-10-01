@@ -9,7 +9,7 @@ import ChatCountBadge from "../ChatCountBadge";
 import { useI18n } from "../../i18n/I18nProvider";
 import { useTheme } from "../../theme/ThemeProvider";
 
-export type BusinessTab = "overview" | "feed" | "manage" | "messages" | "business";
+export type BusinessTab = "overview" | "feed" | "manage" | "messages" | "business" | "market";
 
 type Props = {
   active: BusinessTab;
@@ -60,12 +60,12 @@ export default function BusinessTabBar({ active, messageUnread = 0 }: Props) {
           onPress={() => router.replace("/messages")}
         />
         <TabButton
-          label={t("nav.business")}
-          icon={active === "business" ? "briefcase" : "briefcase-outline"}
-          active={active === "business"}
+          label={t("nav.market")}
+          icon={active === "market" ? "bag" : "bag-outline"}
+          active={active === "market"}
           colors={colors}
           styles={styles}
-          onPress={() => router.replace("/business/profile")}
+          onPress={() => router.replace("/market")}
         />
       </View>
     </FadeIn>

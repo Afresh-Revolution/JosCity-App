@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -430,7 +430,7 @@ export default function WalletScreen() {
   const continueFunding = () => {
     const amount = parseAmount();
     if (!Number.isFinite(amount) || amount < minFund) {
-      Alert.alert(t("wallet.amountTitle"), t("wallet.amountBody"));
+      AppAlert.alert(t("wallet.amountTitle"), t("wallet.amountBody"));
       return;
     }
     setPaystackFailed(false);
@@ -444,7 +444,7 @@ export default function WalletScreen() {
     if (!started.success || !started.data?.authorization_url) {
       setSubmitting(false);
       setPaystackFailed(true);
-      Alert.alert(t("wallet.fundError"), started.message || t("wallet.paystackFailed"));
+      AppAlert.alert(t("wallet.fundError"), started.message || t("wallet.paystackFailed"));
       return;
     }
     await openCheckout(started.data.authorization_url);
@@ -452,11 +452,11 @@ export default function WalletScreen() {
     setSubmitting(false);
     if (!verified.success) {
       setPaystackFailed(true);
-      Alert.alert(t("wallet.fundError"), verified.message || t("wallet.paystackFailed"));
+      AppAlert.alert(t("wallet.fundError"), verified.message || t("wallet.paystackFailed"));
       return;
     }
     closeSheet();
-    Alert.alert(
+    AppAlert.alert(
       t("wallet.fundSuccess"),
       t("wallet.fundSuccessBody", { amount: formatNaira(amount) })
     );
@@ -469,18 +469,18 @@ export default function WalletScreen() {
     const started = await startSafehavenFunding(amount);
     if (!started.success || !started.data?.authorization_url) {
       setSubmitting(false);
-      Alert.alert(t("wallet.fundError"), started.message || t("wallet.tryAgain"));
+      AppAlert.alert(t("wallet.fundError"), started.message || t("wallet.tryAgain"));
       return;
     }
     await openCheckout(started.data.authorization_url);
     const verified = await verifySafehavenFunding(started.data.reference);
     setSubmitting(false);
     if (!verified.success) {
-      Alert.alert(t("wallet.fundError"), verified.message || t("wallet.tryAgain"));
+      AppAlert.alert(t("wallet.fundError"), verified.message || t("wallet.tryAgain"));
       return;
     }
     closeSheet();
-    Alert.alert(
+    AppAlert.alert(
       t("wallet.fundSuccess"),
       t("wallet.fundSuccessBody", { amount: formatNaira(amount) })
     );
@@ -502,7 +502,7 @@ export default function WalletScreen() {
   const submitManual = async () => {
     const amount = parseAmount();
     if (!proofUri) {
-      Alert.alert(t("wallet.fundError"), t("wallet.proofNeeded"));
+      AppAlert.alert(t("wallet.fundError"), t("wallet.proofNeeded"));
       return;
     }
     setSubmitting(true);
@@ -512,11 +512,11 @@ export default function WalletScreen() {
     });
     setSubmitting(false);
     if (!result.success) {
-      Alert.alert(t("wallet.fundError"), result.message || t("wallet.tryAgain"));
+      AppAlert.alert(t("wallet.fundError"), result.message || t("wallet.tryAgain"));
       return;
     }
     closeSheet();
-    Alert.alert(t("wallet.submitted"), t("wallet.submittedBody"));
+    AppAlert.alert(t("wallet.submitted"), t("wallet.submittedBody"));
     await load();
   };
 
@@ -527,26 +527,26 @@ export default function WalletScreen() {
   const submitBankWithdraw = async (method: "paystack" | "manual") => {
     const amount = parseAmount();
     if (!Number.isFinite(amount) || amount <= 0) {
-      Alert.alert(t("wallet.amountTitle"), t("wallet.amountBody"));
+      AppAlert.alert(t("wallet.amountTitle"), t("wallet.amountBody"));
       return;
     }
     if (amount < minWithdraw) {
-      Alert.alert(t("wallet.amountTitle"), t("wallet.withdrawMin", { amount: formatNaira(minWithdraw) }));
+      AppAlert.alert(t("wallet.amountTitle"), t("wallet.withdrawMin", { amount: formatNaira(minWithdraw) }));
       return;
     }
     if (amount > available) {
-      Alert.alert(t("wallet.insufficientTitle"), t("wallet.insufficientBody"));
+      AppAlert.alert(t("wallet.insufficientTitle"), t("wallet.insufficientBody"));
       return;
     }
     setSubmitting(true);
     const result = await withdrawWallet(amount, method);
     setSubmitting(false);
     if (!result.success) {
-      Alert.alert(t("wallet.withdrawError"), result.message || t("wallet.tryAgain"));
+      AppAlert.alert(t("wallet.withdrawError"), result.message || t("wallet.tryAgain"));
       return;
     }
     closeSheet();
-    Alert.alert(
+    AppAlert.alert(
       method === "paystack" ? t("wallet.withdrawSent") : t("wallet.submitted"),
       method === "paystack" ? t("wallet.withdrawSentBody") : t("wallet.submittedBody")
     );
@@ -558,7 +558,7 @@ export default function WalletScreen() {
     const holder = accountName.trim();
     const number = accountNumber.replace(/\s+/g, "");
     if (!name || !holder || number.length < 8) {
-      Alert.alert(t("wallet.payoutNeeded"), t("wallet.payoutNeededBody"));
+      AppAlert.alert(t("wallet.payoutNeeded"), t("wallet.payoutNeededBody"));
       return;
     }
     setSubmitting(true);
@@ -569,7 +569,7 @@ export default function WalletScreen() {
     });
     setSubmitting(false);
     if (!result.success || !result.data) {
-      Alert.alert(t("wallet.payoutError"), result.message || t("wallet.tryAgain"));
+      AppAlert.alert(t("wallet.payoutError"), result.message || t("wallet.tryAgain"));
       return;
     }
     setWallet((current) =>
@@ -585,28 +585,28 @@ export default function WalletScreen() {
 
   const submitShare = async () => {
     if (!recipient) {
-      Alert.alert(t("wallet.share"), recipientError || t("wallet.memberNotFound"));
+      AppAlert.alert(t("wallet.share"), recipientError || t("wallet.memberNotFound"));
       return;
     }
     const amount = parseAmount();
     if (!Number.isFinite(amount) || amount <= 0) {
-      Alert.alert(t("wallet.amountTitle"), t("wallet.amountBody"));
+      AppAlert.alert(t("wallet.amountTitle"), t("wallet.amountBody"));
       return;
     }
     if (amount > available) {
-      Alert.alert(t("wallet.insufficientTitle"), t("wallet.insufficientBody"));
+      AppAlert.alert(t("wallet.insufficientTitle"), t("wallet.insufficientBody"));
       return;
     }
     setSubmitting(true);
     const result = await shareWallet(recipient.member_id, amount);
     setSubmitting(false);
     if (!result.success) {
-      Alert.alert(t("wallet.shareError"), result.message || t("wallet.tryAgain"));
+      AppAlert.alert(t("wallet.shareError"), result.message || t("wallet.tryAgain"));
       return;
     }
     const sent = formatNaira(amount);
     closeSheet();
-    Alert.alert(
+    AppAlert.alert(
       t("wallet.shareSuccess"),
       t("wallet.shareSuccessBody", { amount: sent, name: recipient.name })
     );
@@ -654,11 +654,11 @@ export default function WalletScreen() {
 
   const copyMemberId = async () => {
     if (!memberId) {
-      Alert.alert("Digital membership ID", "Your member ID is not available yet.");
+      AppAlert.alert("Digital membership ID", "Your member ID is not available yet.");
       return;
     }
     await Clipboard.setStringAsync(memberId);
-    Alert.alert("Digital membership ID", memberId, [
+    AppAlert.alert("Digital membership ID", memberId, [
       { text: "Close", style: "cancel" },
       { text: "Copy ID", onPress: () => void Clipboard.setStringAsync(memberId) },
     ]);
@@ -736,7 +736,7 @@ export default function WalletScreen() {
             <Pressable
               onPress={() => {
                 if (!rewardsLive || agentWallet) {
-                  Alert.alert("CBC Coin", rewardsSoon);
+                  AppAlert.alert("CBC Coin", rewardsSoon);
                   return;
                 }
                 router.push("/profile/rewards");

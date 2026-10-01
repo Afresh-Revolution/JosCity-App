@@ -10,6 +10,7 @@ import {
 import type { Ref } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AvatarCircle from "./AvatarCircle";
+import BusinessVerifiedBadge from "../BusinessVerifiedBadge";
 import { personName } from "./PeopleRow";
 import type { FeedPost } from "../../api/feed";
 import { searchUsers, type DirectoryUser } from "../../api/social";
@@ -24,6 +25,13 @@ export type FeedSearchResult = {
   avatar?: string | null;
   postId?: number;
   accountType?: string;
+  signupIntent?: string | null;
+  agentType?: string | null;
+  ninVerified?: boolean;
+  ninNumber?: string | null;
+  badgeColor?: string | null;
+  hasCac?: boolean;
+  verified?: boolean;
 };
 
 type Props = {
@@ -64,7 +72,16 @@ export function searchFeed(
 
   const authors = new Map<
     string,
-    { avatar?: string | null; postCount: number; postId: number; userId: number; accountType?: string }
+    {
+      avatar?: string | null;
+      postCount: number;
+      postId: number;
+      userId: number;
+      accountType?: string;
+      badgeColor?: string | null;
+      hasCac?: boolean;
+      verified?: boolean;
+    }
   >();
   for (const post of posts) {
     const name = authorName(post);
@@ -79,6 +96,9 @@ export function searchFeed(
         postId: Number(post.post_id || post.id || 0),
         userId: authorId(post),
         accountType: post.author?.account_type,
+        badgeColor: post.author?.badge_color,
+        hasCac: Boolean(post.author?.has_cac || post.author?.cac_verified),
+        verified: Boolean(post.author?.verified),
       });
     }
   }
@@ -96,6 +116,9 @@ export function searchFeed(
       avatar: info.avatar,
       postId: info.postId,
       accountType: info.accountType,
+      badgeColor: info.badgeColor,
+      hasCac: info.hasCac,
+      verified: info.verified,
     });
   }
 
@@ -115,6 +138,13 @@ export function searchFeed(
       avatar: person.user_picture,
       postId: authored ? Number(authored.post_id || authored.id || 0) : undefined,
       accountType: person.account_type,
+      badgeColor: person.badge_color,
+      hasCac: Boolean(person.has_cac || person.cac_verified),
+      verified: Boolean(person.user_verified || person.is_verified),
+      signupIntent: person.signup_intent,
+      agentType: person.agent_type,
+      ninVerified: person.nin_verified,
+      ninNumber: person.nin_number,
     });
   }
 
@@ -257,9 +287,25 @@ export default function FeedSearch({
                 <AvatarCircle name={result.title} uri={result.avatar} size={32} />
               ) : null}
               <View style={styles.copy}>
-                <Text style={styles.title} numberOfLines={1}>
-                  {result.title}
-                </Text>
+                <View style={styles.titleRow}>
+                  <Text style={styles.title} numberOfLines={1}>
+                    {result.title}
+                  </Text>
+                  {result.type === "person" ? (
+                    <BusinessVerifiedBadge
+                      color={result.badgeColor}
+                      hasCac={result.hasCac}
+                      verified={result.verified}
+                      accountType={result.accountType}
+                      signupIntent={result.signupIntent}
+                      agentType={result.agentType}
+                      ninVerified={result.ninVerified}
+                      ninNumber={result.ninNumber}
+                      roleBadge
+                      size={14}
+                    />
+                  ) : null}
+                </View>
                 {result.subtitle ? (
                   <Text style={styles.subtitle} numberOfLines={1}>
                     {result.subtitle}
@@ -353,7 +399,13 @@ function makeStyles(colors: Palette) {
     flex: 1,
     minWidth: 0,
   },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
   title: {
+    flexShrink: 1,
     fontFamily: "Montserrat_600SemiBold",
     fontSize: 14,
     color: colors.text,

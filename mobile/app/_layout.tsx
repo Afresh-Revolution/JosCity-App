@@ -32,6 +32,7 @@ import { clearSession } from "../src/storage/session";
 import { colors } from "../src/theme/colors";
 import { ThemeProvider, useTheme } from "../src/theme/ThemeProvider";
 import { I18nProvider } from "../src/i18n/I18nProvider";
+import { AppDialogHost } from "../src/components/AppDialog";
 import { NoticeHost } from "../src/components/AppNotice";
 import RatingPromptHost from "../src/components/RatingPromptHost";
 import { startScheduledPostNoticeWatcher } from "../src/state/scheduledPostNotice";
@@ -104,6 +105,7 @@ export default function RootLayout() {
             <View style={{ flex: 1, position: "relative" }}>
               <ThemedRoot />
               <NoticeHost />
+              <AppDialogHost />
               <RatingPromptHost />
             </View>
           </I18nProvider>

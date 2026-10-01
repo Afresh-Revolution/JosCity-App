@@ -1,11 +1,11 @@
-import { useCallback, useMemo, useState } from "react";
+import { publicUsername } from "../../utils/accountNames";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import AvatarCircle from "./AvatarCircle";
 import { useI18n } from "../../i18n/I18nProvider";
 import {
-  getAccountType,
-  getUser,
+  getActiveSession,
   isBusinessAccountType,
   isDedicatedAgentAccount,
   pickUserPicture,
@@ -24,22 +24,26 @@ function displayName(user: StoredUser | null): string {
       .filter(Boolean)
       .join(" ")
       .trim() ||
-    String(user.business_name || user.user_name || user.username || "").trim() ||
+    String(user.business_name || publicUsername(user.user_name) || publicUsername(user.username) || "").trim() ||
     "You"
   );
 }
 
-/** Top-left profile entry (photo or initials) for personal chrome. */
+/** Top-left entry for the currently selected account profile. */
 export default function HeaderProfileButton({ size = 32 }: Props) {
   const { t } = useI18n();
   const router = useRouter();
   const [user, setUser] = useState<StoredUser | null>(null);
-  const [accountKind, setAccountKind] = useState<"personal" | "business" | "agent">("personal");
+  const opening = useRef(false);
   const styles = useMemo(
     () =>
       StyleSheet.create({
         btn: {
           borderRadius: size / 2,
+          minWidth: 44,
+          minHeight: 44,
+          alignItems: "center",
+          justifyContent: "center",
         },
       }),
     [size]
@@ -48,12 +52,8 @@ export default function HeaderProfileButton({ size = 32 }: Props) {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      void Promise.all([getUser(), getAccountType()]).then(([nextUser, type]) => {
-        if (!active) return;
-        setUser(nextUser);
-        if (isDedicatedAgentAccount(nextUser, type)) setAccountKind("agent");
-        else if (isBusinessAccountType(type)) setAccountKind("business");
-        else setAccountKind("personal");
+      void getActiveSession().then((session) => {
+        if (active) setUser(session?.user || null);
       });
       return () => {
         active = false;
@@ -61,16 +61,26 @@ export default function HeaderProfileButton({ size = 32 }: Props) {
     }, [])
   );
 
-  const openProfile = () => {
-    if (accountKind === "agent") {
-      router.push("/agents/profile" as never);
-      return;
+  const openProfile = async () => {
+    if (opening.current) return;
+    opening.current = true;
+    try {
+      // Resolve on tap: this header can survive an account switch in the stack.
+      const session = await getActiveSession();
+      if (!session) {
+        router.push("/login");
+        return;
+      }
+      if (isBusinessAccountType(session.accountType)) {
+        router.push("/business/profile");
+      } else if (isDedicatedAgentAccount(session.user, session.accountType)) {
+        router.push("/agents/profile");
+      } else {
+        router.push("/profile");
+      }
+    } finally {
+      opening.current = false;
     }
-    if (accountKind === "business") {
-      router.push("/business/profile" as never);
-      return;
-    }
-    router.push("/profile");
   };
 
   return (
@@ -78,7 +88,7 @@ export default function HeaderProfileButton({ size = 32 }: Props) {
       accessibilityRole="button"
       accessibilityLabel={t("nav.profile")}
       hitSlop={6}
-      onPress={openProfile}
+      onPress={() => void openProfile()}
       style={styles.btn}
     >
       <AvatarCircle name={displayName(user)} uri={pickUserPicture(user)} size={size} />

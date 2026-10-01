@@ -8,7 +8,7 @@ import {
   loadPendingAgentApplication,
   savePendingAgentApplication,
 } from "../storage/pendingAgent";
-import { getAuthToken } from "../storage/session";
+import { getAuthToken, getAccountType } from "../storage/session";
 import { updateAgentPreview } from "./agentPreview";
 import { publicUsername } from "../utils/accountNames";
 
@@ -34,6 +34,7 @@ export function useAgentActivation() {
   const becoming = useRef(false);
   const refresh = useCallback(async () => {
     const token = await getAuthToken();
+    if (await getAccountType() !== "agent") { setAuthenticated(false); return; }
     setAuthenticated(Boolean(token));
     if (!token) {
       setStatus(null);
@@ -48,10 +49,19 @@ export function useAgentActivation() {
     setError("");
     try {
       const me = await agentApi.me();
+      if (await getAuthToken() !== token || await getAccountType() !== "agent") return;
       setProfile(me);
+      updateAgentPreview({
+        firstName: me.user_firstname || "", lastName: me.user_lastname || "",
+        username: publicUsername(me.user_name), email: me.user_email || "",
+        avatar: me.user_picture || "", nin: me.nin_number || "",
+        bio: me.agent_bio || "", category: me.categories?.map((item) => item.name).join(", ") || "",
+        services: me.agent_type === "both" ? ["Help me buy", "Help me deliver"] : me.agent_type === "buy" ? ["Help me buy"] : me.agent_type === "deliver" ? ["Help me deliver"] : [],
+        accepting: Boolean(me.agent_type && me.agent_bio?.trim() && me.categories?.length && me.agent_status === "active" && me.agent_accepting_requests),
+      });
       if (me.agent_type) {
         setStatus(me.agent_status || null);
-        setNeedsDetails(false);
+        setNeedsDetails(!me.agent_bio?.trim() || !me.categories?.length);
         await clearPendingAgentApplication();
         updateAgentPreview({
           firstName: me.user_firstname || "",
@@ -69,7 +79,7 @@ export function useAgentActivation() {
               : me.agent_type === "deliver"
                 ? ["Help me deliver"]
                 : ["Help me buy"],
-          accepting: me.agent_accepting_requests,
+          accepting: Boolean(me.agent_bio?.trim() && me.categories?.length && me.agent_status === "active" && me.agent_accepting_requests),
           requests: [],
         });
         try {
@@ -90,7 +100,7 @@ export function useAgentActivation() {
         return;
       }
       const pending = await loadPendingAgentApplication();
-      if (!pending || (!pending.bio && !pending.category && !pending.nin)) {
+      if (!pending || !pending.bio.trim() || !pending.category.trim() || !pending.services.length || !/^\d{11}$/.test(pending.nin.replace(/\D/g, ""))) {
         setStatus(null);
         setNeedsDetails(true);
         return;
@@ -162,11 +172,17 @@ export function useAgentActivation() {
   };
 
   const setAccepting = async (accepting: boolean) => {
+    if (accepting && (needsDetails || status !== "active" || !profile?.agent_type)) {
+      setError("Complete your agent details and verification before accepting requests.");
+      return;
+    }
+    const previous = profile?.agent_accepting_requests || false;
     updateAgentPreview({ accepting });
     try {
       await agentApi.updateMe({ accepting });
       await refresh();
     } catch (e) {
+      updateAgentPreview({ accepting: previous });
       setError(e instanceof Error ? e.message : "Unable to update availability.");
     }
   };
@@ -176,11 +192,19 @@ export function useAgentActivation() {
     setError("");
     try {
       await savePendingAgentApplication(draft);
-      await agentApi.become(becomePayloadFromSignup(draft));
+      if (!draft.bio.trim() || !draft.category.trim() || !draft.services.length || !/^\d{11}$/.test(draft.nin.replace(/\D/g, ""))) {
+        throw new Error("Complete your agent bio, categories, services and 11-digit NIN before continuing.");
+      }
+      if (profile?.agent_type) {
+        await agentApi.updateMe({ bio: draft.bio.trim(), categories: draft.category.split(/[,/|]/).map((value) => profile.categories?.find((item) => item.name.toLowerCase() === value.trim().toLowerCase())?.slug || value.trim().toLowerCase()).filter(Boolean) });
+      } else {
+        await agentApi.become(becomePayloadFromSignup(draft));
+      }
       await clearPendingAgentApplication();
       setStatus("pending_review");
       setNeedsDetails(false);
       setNotice("Your agent details from signup are now on your account.");
+      await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to save agent details.");
       throw e;

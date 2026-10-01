@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -16,6 +15,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import FadeIn from "../components/FadeIn";
+import { AppAlert } from "../components/AppDialog";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import { CommentThread, commentKey } from "../components/feed/CommentThread";
 import FeedShell from "../components/feed/FeedShell";
@@ -277,7 +277,7 @@ export default function PostCommentsScreen() {
                       if (!ok) {
                         setSaved(!next);
                         setSavedOverride(postId, !next);
-                        Alert.alert(next ? "Could not save this post." : "Could not unsave this post.");
+                        AppAlert.alert(next ? "Could not save this post." : "Could not unsave this post.");
                       }
                     });
                   }}

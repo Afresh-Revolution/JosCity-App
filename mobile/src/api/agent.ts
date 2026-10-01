@@ -6,6 +6,7 @@ export type Category = { slug: string; name: string };
 export type AgentProfile = {
   user_id: number; user_firstname: string; user_lastname: string; user_name?: string | null; user_email?: string | null; user_picture?: string;
   agent_type: 'buy' | 'deliver' | 'both' | null; agent_status?: string;
+  nin_number?: string; nin_verified?: boolean;
   agent_bio?: string; agent_accepting_requests: boolean; agent_rating_avg: number;
   agent_rating_count?: number;
   agent_completed_jobs_count: number; categories?: Category[];

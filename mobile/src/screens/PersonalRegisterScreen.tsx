@@ -162,7 +162,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
       if (firstName.trim().length < 2 || lastName.trim().length < 2) {
         return "Enter your first and last name.";
       }
-      const handleMessage = usernameError(username);
+      const handleMessage = usernameError(username, true);
       if (handleMessage) return handleMessage;
     }
     if (step === 3) {
@@ -415,7 +415,7 @@ export default function PersonalRegisterScreen({ agent = false }: { agent?: bool
                       autoCapitalize="words"
                     />
                     <TextField
-                      label="Username (optional)"
+                      label="Username"
                       labelColor={labelColor}
                       value={username}
                       onChangeText={(value) => setUsername(value.replace(/^@+/, ""))}

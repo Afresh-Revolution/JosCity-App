@@ -81,6 +81,16 @@ function pickNumber(...values: unknown[]): number | undefined {
   return undefined;
 }
 
+function flagOn(value: unknown): boolean {
+  return (
+    value === true ||
+    value === 1 ||
+    value === "1" ||
+    value === "t" ||
+    value === "true"
+  );
+}
+
 function uniqueById<T>(rows: T[], idOf: (row: T) => number): T[] {
   const seen = new Set<number>();
   const out: T[] = [];
@@ -143,7 +153,7 @@ function normalizeConversation(value: unknown): ChatConversation | null {
     ),
     lastMessageSenderId: pickNumber(record.last_message_sender_id, record.lastMessageSenderId),
     unreadCount: pickNumber(record.unread_count, record.unreadCount) || 0,
-    notificationsMuted: record.notifications_muted === true || record.notificationsMuted === true,
+    notificationsMuted: flagOn(record.notifications_muted ?? record.notificationsMuted),
   };
 }
 
@@ -489,10 +499,17 @@ export async function toggleConversationMute(
   try {
     const response = await apiFetch(`/chat/conversations/${conversationId}/mute`, {
       method: "POST",
+      auth: true,
     });
-    const data = await readJson<{ success?: boolean; notificationsMuted?: boolean }>(response);
-    if (!data?.success) return null;
-    return Boolean(data.notificationsMuted);
+    const data = await readJson<{
+      success?: boolean;
+      notificationsMuted?: boolean;
+      notifications_muted?: boolean;
+    }>(response);
+    if (!response.ok || !data?.success) return null;
+    const muted = data.notificationsMuted ?? data.notifications_muted;
+    if (muted == null) return null;
+    return flagOn(muted);
   } catch {
     return null;
   }

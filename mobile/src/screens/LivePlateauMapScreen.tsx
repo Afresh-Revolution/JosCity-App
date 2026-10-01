@@ -1,7 +1,7 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   AppState,
   Dimensions,
   findNodeHandle,
@@ -86,7 +86,7 @@ export default function LivePlateauMapScreen({
       const permission = await requestMapLocationAccess(true);
       if (!permission?.granted) {
         if (permission && !permission.canAskAgain) {
-          Alert.alert("Location access is off", "Enable location access in device settings.", [
+          AppAlert.alert("Location access is off", "Enable location access in device settings.", [
             { text: "Cancel", style: "cancel" },
             { text: "Open settings", onPress: () => void Linking.openSettings() },
           ]);
@@ -466,7 +466,7 @@ export default function LivePlateauMapScreen({
             <Pressable
               disabled={!m.selection || !m.config.listing_price || !label.trim() || m.busy}
               onPress={() =>
-                Alert.alert(
+                AppAlert.alert(
                   "Publish location?",
                   `Charge ₦${m.config.listing_price} from your wallet for “${label.trim()}”? It is not on the map until this payment succeeds.`,
                   [

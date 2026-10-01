@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -20,7 +20,7 @@ import FadeIn from "../components/FadeIn";
 import SoonBadge from "../components/SoonBadge";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
-import { getUserProfile, uploadProfilePicture } from "../api/auth";
+import { getUserProfile, logout, uploadProfilePicture } from "../api/auth";
 import { getSavedPostsCount } from "../api/feed";
 import { getAccount, getPoints, getWallet } from "../api/account";
 import { useAppFeatures } from "../hooks/useAppFeatures";
@@ -247,7 +247,7 @@ export default function ProfileScreen() {
       });
       setUploadingPhoto(false);
       if (!result.success || !result.user_picture) {
-        Alert.alert("Could not update photo", result.message || "Please try again.");
+        AppAlert.alert("Could not update photo", result.message || "Please try again.");
         return;
       }
       await applyPicture(result.user_picture);
@@ -263,7 +263,7 @@ export default function ProfileScreen() {
           ? await ImagePicker.requestCameraPermissionsAsync()
           : await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert(
+        AppAlert.alert(
           "Permission needed",
           source === "camera"
             ? "Allow camera access to take a profile photo."
@@ -289,7 +289,7 @@ export default function ProfileScreen() {
   );
 
   const changePhoto = () => {
-    Alert.alert("Profile photo", "Upload or change your display picture", [
+    AppAlert.alert("Profile photo", "Upload or change your display picture", [
       { text: "Cancel", style: "cancel" },
       { text: "Take photo", onPress: () => void pickPhoto("camera") },
       { text: "Choose from library", onPress: () => void pickPhoto("library") },
@@ -309,7 +309,7 @@ export default function ProfileScreen() {
   const verified = isBusiness ? cacVerified : ninVerified;
   const badgeColor = resolveAccountBadgeColor({
     badge_color: typeof user?.badge_color === "string" ? user.badge_color : null,
-    account_type: isAgent ? "agent" : String(user?.account_type || "personal"),
+    account_type: isAgent ? "agent" : String(accountType || user?.account_type || "personal"),
     signup_intent: typeof user?.signup_intent === "string" ? user.signup_intent : null,
     agent_type: typeof user?.agent_type === "string" ? user.agent_type : null,
     has_cac: Boolean(String(user?.CAC_number || user?.cac_number || "").trim()),
@@ -322,7 +322,7 @@ export default function ProfileScreen() {
   const statusTone = accountStatusTone(statusKind);
   const viewMembershipId = async () => {
     if (!memberId && !numericId) {
-      Alert.alert("Membership ID", "Your member ID is not available yet.");
+      AppAlert.alert("Membership ID", "Your member ID is not available yet.");
       return;
     }
     const lines = [
@@ -331,7 +331,7 @@ export default function ProfileScreen() {
     ]
       .filter(Boolean)
       .join("\n");
-    Alert.alert("Digital membership ID", lines, [
+    AppAlert.alert("Digital membership ID", lines, [
       { text: "Close", style: "cancel" },
       {
         text: "Copy ID",
@@ -392,6 +392,7 @@ export default function ProfileScreen() {
     if (signingOut) return;
     setSigningOut(true);
     await unregisterPushTokenOnLogout();
+    await logout();
     await clearSession();
     setSignOutOpen(false);
     router.replace("/welcome");

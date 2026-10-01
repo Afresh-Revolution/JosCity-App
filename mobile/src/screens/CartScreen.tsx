@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Dimensions,
   findNodeHandle,
   Image,
@@ -17,6 +16,7 @@ import {
   type TextInputFocusEventData,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
+import { AppAlert } from "../components/AppDialog";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import JosCityLoader from "../components/JosCityLoader";
 import AppButton from "../components/AppButton";
@@ -40,6 +40,7 @@ import { useI18n } from "../i18n/I18nProvider";
 import { getUser, type StoredUser } from "../storage/session";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
+import ListingPrice from "../components/marketplace/ListingPrice";
 import { absoluteUrl, formatNaira } from "../utils/format";
 import {
   fieldErrorMap,
@@ -85,8 +86,10 @@ export default function CartScreen() {
   const [stateName, setStateName] = useState("Plateau");
   const [notes, setNotes] = useState("");
   const scrollRef = useRef<ScrollView>(null);
+  const sheetScrollRef = useRef<ScrollView>(null);
   const errorBannerRef = useRef<View>(null);
   const scrollOffset = useRef(0);
+  const sheetScrollOffset = useRef(0);
 
   const clearFieldError = (key: string) => {
     setFieldErrors((current) => {
@@ -124,6 +127,30 @@ export default function CartScreen() {
     setTimeout(lift, Platform.OS === "ios" ? 280 : 160);
   };
 
+  const revealSheetPin = (event?: NativeSyntheticEvent<TextInputFocusEventData>) => {
+    const target = event?.nativeEvent.target;
+    const lift = () => {
+      const handle = typeof target === "number" ? target : target ? findNodeHandle(target) : null;
+      const covered = Math.max(keyboardRef.current.screenCover, keyboardRef.current.keyboardHeight, 280);
+      const limit = Dimensions.get("screen").height - covered - 20;
+      if (!handle) {
+        sheetScrollRef.current?.scrollToEnd({ animated: true });
+        return;
+      }
+      UIManager.measureInWindow(handle, (_x, y, _w, height) => {
+        const bottom = y + height;
+        if (bottom > limit) {
+          sheetScrollRef.current?.scrollTo({
+            y: sheetScrollOffset.current + (bottom - limit),
+            animated: true,
+          });
+        }
+      });
+    };
+    setTimeout(lift, 80);
+    setTimeout(lift, Platform.OS === "ios" ? 320 : 220);
+  };
+
   const load = useCallback(async () => {
     const [cart, user] = await Promise.all([getListingCart(), getUser()]);
     setItems(cart);
@@ -144,7 +171,7 @@ export default function CartScreen() {
   );
 
   const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const goodsOnly = items.every((item) => item.listing.listing_kind !== "service");
+  const needsDelivery = items.some((item) => item.listing.listing_kind !== "service");
 
   const changeQty = (item: ListingCartItem, next: number) => {
     const stock = item.listing.quantity_tracked ? Number(item.listing.stock || 0) : 99;
@@ -174,7 +201,7 @@ export default function CartScreen() {
       { key: "phone", label: t("listing.phone"), ok: !!phone.trim() },
       { key: "email", label: t("listing.email"), ok: !!email.trim() },
     ];
-    if (goodsOnly) {
+    if (needsDelivery) {
       checks.push(
         { key: "address", label: t("listing.address"), ok: !!address.trim() },
         { key: "city", label: t("listing.city"), ok: !!city.trim() },
@@ -258,7 +285,7 @@ export default function CartScreen() {
         const tag = await scan;
         const result = await orderPromise;
         if (!result.success || !result.data?.orders?.length) {
-          Alert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"));
+          AppAlert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"));
           return;
         }
         setTapOrders(result.data.orders);
@@ -277,7 +304,7 @@ export default function CartScreen() {
           setTapOrders(result.data.orders);
           setTapSheet(true);
         } else {
-          Alert.alert(t("listing.payError"), message);
+          AppAlert.alert(t("listing.payError"), message);
         }
       } finally {
         setTapBusy(false);
@@ -287,7 +314,7 @@ export default function CartScreen() {
 
   return (
     <FeedShell
-      tab="explore"
+      tab="market"
       header={
         <View style={styles.topBar}>
           <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn} accessibilityRole="button">
@@ -337,7 +364,14 @@ export default function CartScreen() {
                     {image ? <Image source={{ uri: image }} style={styles.image} /> : <View style={styles.image} />}
                     <View style={styles.meta}>
                       <Text style={styles.name} numberOfLines={2}>{item.listing.title}</Text>
-                      <Text style={styles.price}>{formatNaira(item.price * item.quantity)}</Text>
+                      <ListingPrice
+                        price={(item.list_price ?? item.listing.price) * item.quantity}
+                        salePrice={item.price * item.quantity}
+                        discountPercent={item.discount_percent ?? item.listing.discount_percent}
+                        offerText={item.offer_text || item.listing.offer_text}
+                        colors={colors}
+                        size="sm"
+                      />
                       <View style={styles.qtyRow}>
                         <Pressable onPress={() => changeQty(item, item.quantity - 1)} style={styles.qtyBtn}>
                           <Ionicons name="remove" size={16} color={colors.text} />
@@ -388,7 +422,7 @@ export default function CartScreen() {
                 autoCapitalize="none"
                 onFocus={revealInput}
               />
-              {goodsOnly ? (
+              {needsDelivery ? (
                 <>
                   <TextField
                     label={t("listing.address")}
@@ -431,24 +465,26 @@ export default function CartScreen() {
                 multiline
                 onFocus={revealInput}
               />
-              <AppButton
-                label={tapBusy ? t("explore.cartPaying") : t("explore.cartTap")}
-                onPress={tapPay}
-                loading={tapBusy}
-                disabled={paying || tapBusy}
-                style={styles.tap}
-              />
-              <AppButton
-                label={
-                  paying
-                    ? t("explore.cartPaying")
-                    : t("explore.cartPay", { amount: formatNaira(total) })
-                }
-                onPress={() => void pay()}
-                loading={paying}
-                disabled={paying || tapBusy}
-                style={styles.pay}
-              />
+              <View style={styles.payRow}>
+                <AppButton
+                  label={
+                    paying
+                      ? t("explore.cartPaying")
+                      : t("explore.cartPay", { amount: formatNaira(total) })
+                  }
+                  onPress={() => void pay()}
+                  loading={paying}
+                  disabled={paying || tapBusy}
+                  style={styles.payHalf}
+                />
+                <AppButton
+                  label={tapBusy ? t("explore.cartPaying") : t("explore.cartTap")}
+                  onPress={tapPay}
+                  loading={tapBusy}
+                  disabled={paying || tapBusy}
+                  style={styles.payHalf}
+                />
+              </View>
             </>
           )}
         </ScrollView>
@@ -457,9 +493,28 @@ export default function CartScreen() {
       <Modal visible={tapSheet} animationType="slide" transparent onRequestClose={() => !tapBusy && setTapSheet(false)}>
         <View style={styles.sheetWrap}>
           <Pressable style={styles.sheetDim} onPress={() => !tapBusy && setTapSheet(false)} />
-          <View style={styles.sheet}>
+          <View
+            style={[
+              styles.sheet,
+              keyboard.screenCover > 0
+                ? {
+                    marginBottom: keyboard.screenCover,
+                    maxHeight: Math.max(240, Dimensions.get("screen").height - keyboard.screenCover - 12),
+                  }
+                : null,
+            ]}
+          >
             <Text style={styles.sheetTitle}>{t("explore.cartTap")}</Text>
-            <ScrollView contentContainerStyle={styles.sheetBody} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              ref={sheetScrollRef}
+              style={styles.sheetScroll}
+              contentContainerStyle={styles.sheetBody}
+              keyboardShouldPersistTaps="handled"
+              onScroll={(event) => {
+                sheetScrollOffset.current = event.nativeEvent.contentOffset.y;
+              }}
+              scrollEventThrottle={16}
+            >
               {(tapOrders || []).map((order) => (
                 <View key={order.id} style={styles.orderCard}>
                   {orderStatus[order.id] === "paid" ? (
@@ -470,6 +525,7 @@ export default function CartScreen() {
                       amountNaira={order.totalNaira}
                       disabled={tapBusy}
                       onBusyChange={setTapBusy}
+                      onPinFocus={revealSheetPin}
                       pendingRead={pendingRead}
                       pendingError={pendingError}
                       onPaid={() => {
@@ -528,18 +584,26 @@ function makeStyles(colors: Palette) {
     qty: { fontFamily: "Montserrat_700Bold", fontSize: 14, color: colors.text, minWidth: 16, textAlign: "center" },
     remove: { marginLeft: 8, fontFamily: "Montserrat_600SemiBold", fontSize: 13, color: colors.badge },
     note: { fontFamily: "Montserrat_400Regular", fontSize: 13, lineHeight: 18, color: colors.textMuted },
-    tap: { marginTop: 4 },
-    pay: { marginBottom: 20 },
+    payRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      marginTop: 4,
+      marginBottom: 20,
+    },
+    payHalf: { flex: 1 },
     sheetWrap: { flex: 1, justifyContent: "flex-end" },
     sheetDim: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.45)" },
     sheet: {
       maxHeight: "88%",
+      overflow: "hidden",
       backgroundColor: colors.background,
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       paddingTop: 16,
       paddingHorizontal: 16,
     },
+    sheetScroll: { flexGrow: 0, flexShrink: 1 },
     sheetTitle: { fontFamily: "Montserrat_700Bold", fontSize: 18, color: colors.text, marginBottom: 8 },
     sheetBody: { gap: 12, paddingBottom: 28 },
     orderCard: {

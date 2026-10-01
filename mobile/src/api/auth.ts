@@ -54,6 +54,59 @@ async function parseAuth(response: Response): Promise<AuthResult> {
   };
 }
 
+export async function logout(): Promise<void> {
+  try {
+    await apiFetch("/auth/logout", {
+      method: "POST",
+      auth: true,
+      timeoutMs: 8000,
+      skipUnauthorized: true,
+    });
+  } catch {
+    // Local sign-out still continues when the network call fails.
+  }
+}
+
+export async function createDeviceSession(password: string): Promise<{
+  success: boolean;
+  deviceToken?: string;
+  message?: string;
+}> {
+  try {
+    const response = await apiFetch("/auth/device-session", {
+      method: "POST",
+      auth: true,
+      timeoutMs: 20000,
+      body: JSON.stringify({ password }),
+    });
+    const data = await readJson<ApiMessage & { device_token?: string }>(response);
+    if (!response.ok || !data.device_token) {
+      return {
+        success: false,
+        message: friendlyError(data.message || "Could not turn on biometric sign-in."),
+      };
+    }
+    return { success: true, deviceToken: data.device_token };
+  } catch {
+    return { success: false, message: friendlyError("offline") };
+  }
+}
+
+export async function loginWithDevice(params: {
+  deviceToken: string;
+  accountType: AccountType;
+}): Promise<AuthResult> {
+  const response = await apiFetch("/auth/device-login", {
+    method: "POST",
+    timeoutMs: 30000,
+    body: JSON.stringify({
+      device_token: params.deviceToken,
+      account_type: params.accountType,
+    }),
+  });
+  return parseAuth(response);
+}
+
 export async function loginPersonal(params: {
   email: string;
   password: string;

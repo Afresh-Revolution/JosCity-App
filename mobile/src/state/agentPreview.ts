@@ -4,7 +4,7 @@ export type PreviewRequest = { id: string; title: string; service: string; categ
 let state = {
   requestAlerts: true, jobAlerts: true, messageAlerts: true,
   firstName: "", lastName: "", username: "", phone: "", email: "", gender: "", address: "",
-  avatar: "", nin: "", accepting: true, services: [] as string[], category: "", bio: "", workingAreas: "",
+  avatar: "", nin: "", accepting: false, services: [] as string[], category: "", bio: "", workingAreas: "",
   requests: [] as PreviewRequest[],
 };
 const listeners = new Set<() => void>();

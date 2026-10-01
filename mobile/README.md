@@ -19,7 +19,7 @@ Then open it in Expo Go, an Android emulator, or a development build.
 Copy `.env.example` to `.env` if needed:
 
 ```
-EXPO_PUBLIC_API_BASE_URL=https://api-joscity-com-phqud.ondigitalocean.app/api
+EXPO_PUBLIC_API_BASE_URL=https://api.joscity.com/api
 ```
 
 Do not put database passwords, JWT secrets, or mail keys in this app.

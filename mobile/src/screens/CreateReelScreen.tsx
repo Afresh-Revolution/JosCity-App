@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -17,6 +16,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import FadeIn from "../components/FadeIn";
+import { AppAlert } from "../components/AppDialog";
 import PreviewVideo from "../components/media/PreviewVideo";
 import { showError } from "../components/AppNotice";
 import AvatarCircle from "../components/feed/AvatarCircle";
@@ -69,7 +69,7 @@ export default function CreateReelScreen() {
   const pickFromGallery = useCallback(async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert(t("create.permissionTitle"), t("create.permissionLibrary"));
+      AppAlert.alert(t("create.permissionTitle"), t("create.permissionLibrary"));
       return;
     }
     const picked = await ImagePicker.launchImageLibraryAsync({
@@ -104,14 +104,14 @@ export default function CreateReelScreen() {
         kind: isVideoType(asset.mimeType, asset.name, asset.uri) ? "video" : "photo",
       });
     } catch {
-      Alert.alert(t("create.permissionTitle"), t("reels.permissionFiles"));
+      AppAlert.alert(t("create.permissionTitle"), t("reels.permissionFiles"));
     }
   }, [t]);
 
   const pickFromCamera = useCallback(async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert(t("create.permissionTitle"), t("reels.permissionCamera"));
+      AppAlert.alert(t("create.permissionTitle"), t("reels.permissionCamera"));
       return;
     }
     const picked = await ImagePicker.launchCameraAsync({
@@ -160,7 +160,7 @@ export default function CreateReelScreen() {
 
   const onPost = async () => {
     if (!media) {
-      Alert.alert(t("reels.needMedia"));
+      AppAlert.alert(t("reels.needMedia"));
       return;
     }
     setPosting(true);

@@ -11,6 +11,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AvatarCircle from "./AvatarCircle";
+import BusinessVerifiedBadge from "../BusinessVerifiedBadge";
 import { personName } from "./PeopleRow";
 import { getApprovedUsers, searchUsers, type DirectoryUser } from "../../api/social";
 import type { Palette } from "../../theme/colors";
@@ -73,6 +74,7 @@ export default function CollaboratorPickerSheet({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.root}>
       <Pressable style={styles.backdrop} onPress={onClose} />
       <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
         <View style={styles.handle} />
@@ -118,6 +120,7 @@ export default function CollaboratorPickerSheet({
           renderItem={({ item }) => {
             const on = selectedIds.has(Number(item.user_id));
             const full = !on && selected.length >= MAX_COLLABORATORS;
+            const role = accountRoleLabel(item);
             return (
               <Pressable
                 onPress={() => toggle(item)}
@@ -126,11 +129,26 @@ export default function CollaboratorPickerSheet({
               >
                 <AvatarCircle name={personName(item)} uri={item.user_picture} size={40} />
                 <View style={styles.copy}>
-                  <Text style={styles.name} numberOfLines={1}>
-                    {personName(item)}
-                  </Text>
+                  <View style={styles.nameRow}>
+                    <Text style={styles.name} numberOfLines={1}>
+                      {personName(item)}
+                    </Text>
+                    <BusinessVerifiedBadge
+                      color={item.badge_color}
+                      hasCac={Boolean(item.has_cac || item.cac_verified)}
+                      verified={Boolean(item.user_verified || item.is_verified)}
+                      accountType={item.account_type}
+                      signupIntent={item.signup_intent}
+                      agentType={item.agent_type}
+                      ninVerified={item.nin_verified}
+                      ninNumber={item.nin_number}
+                      roleBadge
+                      size={14}
+                    />
+                  </View>
                   <Text style={styles.handle} numberOfLines={1}>
                     @{mentionHandle(item)}
+                    {role ? ` · ${role}` : ""}
                   </Text>
                 </View>
                 <Ionicons
@@ -146,21 +164,46 @@ export default function CollaboratorPickerSheet({
           }
         />
       </View>
+      </View>
     </Modal>
   );
 }
 
+function accountRoleLabel(person: DirectoryUser): string {
+  const type = String(person.account_type || "").toLowerCase();
+  const intent = String(person.signup_intent || "").toLowerCase();
+  const agentType = String(person.agent_type || "").toLowerCase();
+  if (type === "business") return "Business";
+  if (
+    type === "agent" ||
+    intent === "agent" ||
+    intent === "agents" ||
+    agentType === "buy" ||
+    agentType === "deliver" ||
+    agentType === "both"
+  ) {
+    return "Agent";
+  }
+  return "";
+}
+
 function makeStyles(colors: Palette) {
   return StyleSheet.create({
-    backdrop: {
+    root: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.35)",
+      justifyContent: "flex-end",
+    },
+    backdrop: {
+      ...StyleSheet.absoluteFill,
+      backgroundColor: "rgba(0,0,0,0.55)",
     },
     sheet: {
-      backgroundColor: colors.surface,
+      backgroundColor: colors.card,
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
-      maxHeight: "78%",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      height: "72%",
       paddingHorizontal: 16,
       paddingTop: 8,
     },
@@ -229,7 +272,7 @@ function makeStyles(colors: Palette) {
       color: colors.text,
       marginBottom: 8,
     },
-    list: { minHeight: 220 },
+    list: { flex: 1 },
     row: {
       flexDirection: "row",
       alignItems: "center",
@@ -238,7 +281,13 @@ function makeStyles(colors: Palette) {
     },
     rowDisabled: { opacity: 0.45 },
     copy: { flex: 1, minWidth: 0 },
+    nameRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
     name: {
+      flexShrink: 1,
       fontFamily: "Montserrat_600SemiBold",
       fontSize: 15,
       color: colors.text,

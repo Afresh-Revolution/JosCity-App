@@ -159,6 +159,11 @@ export function PersonCard({ person }: { person: DirectoryUser }) {
           hasCac={Boolean(person.cac_verified)}
           verified={Boolean(person.user_verified || person.is_verified)}
           accountType={person.account_type}
+          signupIntent={person.signup_intent}
+          agentType={person.agent_type}
+          ninVerified={person.nin_verified}
+          ninNumber={person.nin_number}
+          roleBadge
           size={14}
         />
       </View>
@@ -215,6 +220,11 @@ export function PersonListRow({ person }: { person: DirectoryUser }) {
             hasCac={Boolean(person.cac_verified)}
             verified={Boolean(person.user_verified || person.is_verified)}
             accountType={person.account_type}
+            signupIntent={person.signup_intent}
+            agentType={person.agent_type}
+            ninVerified={person.nin_verified}
+            ninNumber={person.nin_number}
+            roleBadge
             size={16}
           />
         </View>

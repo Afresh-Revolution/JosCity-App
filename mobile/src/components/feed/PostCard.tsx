@@ -1,6 +1,5 @@
 import { Component, memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -11,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { AppAlert } from "../AppDialog";
 import * as Clipboard from "expo-clipboard";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { showError, showNotice } from "../AppNotice";
@@ -21,8 +21,10 @@ import PostOptionsSheet, { type PostOption } from "./PostOptionsSheet";
 import ReelCommentsSheet from "./ReelCommentsSheet";
 import SaveBookmark from "./SaveBookmark";
 import CollaboratorsSheet from "./CollaboratorsSheet";
+import CollaborationInviteActions from "../notifications/CollaborationInviteActions";
 import {
   deletePost,
+  leaveCollaboration,
   pinPost,
   reactToPost,
   removeReaction,
@@ -37,13 +39,14 @@ import ReportSheet from "../ReportSheet";
 import { checkFriendship, blockUser, unblockUser } from "../../api/social";
 import { removeFriend } from "../../state/friendGraph";
 import { resolveSaved, setSavedOverride } from "../../state/savedPosts";
+import { useI18n } from "../../i18n/I18nProvider";
 import { useTheme } from "../../theme/ThemeProvider";
 import type { Palette } from "../../theme/colors";
 import { createShareLink } from "../../api/share";
 import { handleFromName, postShareUrl } from "../../utils/format";
 import { isSystemUsername, publicUsername } from "../../utils/accountNames";
 import { openMemberProfile } from "../../utils/openProfile";
-import { resolveAccountBadgeColor } from "../../utils/badgeColor";
+import { resolveAccountBadgeColor, resolveSearchBadgeColor } from "../../utils/badgeColor";
 import { sharePostWithLink } from "../../utils/share";
 import { requestHomeRefresh } from "../../state/homeRefresh";
 import { isDedicatedAgentAccount } from "../../storage/session";
@@ -54,6 +57,7 @@ type Props = {
   viewerId?: number;
   onDeleted?: (postId: number) => void;
   onSavedChange?: (postId: number, saved: boolean) => void;
+  onCollaborationLeft?: (postId: number) => void;
 };
 
 async function copyPostLink(postId: number): Promise<void> {
@@ -88,8 +92,9 @@ class PostSafe extends Component<{ children: ReactNode }, { failed: boolean }> {
   }
 }
 
-function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
+function PostCardBody({ post, viewerId, onDeleted, onSavedChange, onCollaborationLeft }: Props) {
   const { colors } = useTheme();
+  const { t } = useI18n();
   const styles = useMemo(() => makePostStyles(colors), [colors]);
   const router = useRouter();
   const postId = Number(post.post_id || post.id || 0);
@@ -112,17 +117,21 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [blockedAuthor, setBlockedAuthor] = useState(false);
   const [collabOpen, setCollabOpen] = useState(false);
+  const [invitePending, setInvitePending] = useState(post.viewer_invite_status === "pending");
+  const [joined, setJoined] = useState(post.viewer_invite_status === "accepted");
+
+  useEffect(() => {
+    setInvitePending(post.viewer_invite_status === "pending");
+    setJoined(post.viewer_invite_status === "accepted");
+  }, [post.viewer_invite_status]);
 
   const name = post.author?.name || "JosCity member";
   const collaborators = (post.collaborators || []).filter(
     (c): c is FeedCollaborator => Boolean(Number(c.id || c.user_id))
   );
   const collabLabel =
-    collaborators.length === 1
-      ? ` and ${collaborators[0].name || "1 other"}`
-      : collaborators.length > 1
-        ? ` & ${collaborators.length} others`
-        : "";
+    collaborators.length > 1 ? ` & ${collaborators.length} others` : "";
+  const collabPartner = collaborators.length === 1 ? collaborators[0] : null;
   const chosenUsername = publicUsername(post.author?.username);
   const businessEmail = String(post.author?.email || "").trim();
   const authorIsBusiness =
@@ -150,7 +159,26 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
       ? quotedEmail
       : handleFromName(quotedName);
   const quotedBadge = resolveAccountBadgeColor(quoted?.author);
-  const badgeColor = resolveAccountBadgeColor(post.author);
+  const badgeColor = resolveSearchBadgeColor({
+    badge_color: post.author?.badge_color,
+    account_type: post.author?.account_type,
+    signup_intent: post.author?.signup_intent,
+    agent_type: post.author?.agent_type,
+    nin_verified: post.author?.nin_verified,
+    nin_number: post.author?.nin_number,
+    has_cac: post.author?.has_cac,
+    cac_verified: post.author?.cac_verified,
+    verified: post.author?.verified,
+  });
+  const partnerBadge = collabPartner
+    ? resolveSearchBadgeColor({
+        badge_color: collabPartner.badge_color,
+        account_type: collabPartner.account_type,
+        signup_intent: collabPartner.signup_intent,
+        agent_type: collabPartner.agent_type,
+        verified: collabPartner.verified,
+      })
+    : null;
   const authorIsAgent = isDedicatedAgentAccount({
     account_type: post.author?.account_type,
   }, post.author?.account_type);
@@ -239,7 +267,7 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
           destructive: true,
           onPress: () => {
             setMenuOpen(false);
-            Alert.alert("Delete post", "This post will be removed.", [
+            AppAlert.alert("Delete post", "This post will be removed.", [
               { text: "Cancel", style: "cancel" },
               {
                 text: "Delete",
@@ -272,6 +300,40 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
             void copyPostLink(postId);
           },
         },
+        ...(joined
+          ? [
+              {
+                key: "cancel-collab",
+                label: t("collab.cancel"),
+                destructive: true,
+                onPress: () => {
+                  setMenuOpen(false);
+                  AppAlert.alert(t("collab.cancel"), t("collab.cancelConfirm"), [
+                    { text: t("collab.keep"), style: "cancel" },
+                    {
+                      text: t("collab.cancel"),
+                      style: "destructive" as const,
+                      onPress: () => {
+                        void leaveCollaboration(postId).then((ok) => {
+                          if (!ok) {
+                            showError(t("collab.cancelFailed"));
+                            return;
+                          }
+                          setJoined(false);
+                          requestHomeRefresh();
+                          onCollaborationLeft?.(postId);
+                          showNotice({
+                            title: t("collab.cancelled"),
+                            tone: "success",
+                          });
+                        });
+                      },
+                    },
+                  ]);
+                },
+              },
+            ]
+          : []),
         ...(authorIsAgent
           ? []
           : [
@@ -281,7 +343,7 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
                 onPress: () => {
                   setMenuOpen(false);
                   if (!authorId) return;
-                  Alert.alert("Unfriend", `Unfriend ${name}?`, [
+                  AppAlert.alert("Unfriend", `Unfriend ${name}?`, [
                     { text: "Cancel", style: "cancel" },
                     {
                       text: "Unfriend",
@@ -329,7 +391,7 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
             setMenuOpen(false);
             if (!authorId) return;
             if (blockedAuthor) {
-              Alert.alert("Unblock user", `Unblock ${name}?`, [
+              AppAlert.alert("Unblock user", `Unblock ${name}?`, [
                 { text: "Cancel", style: "cancel" },
                 {
                   text: "Unblock",
@@ -351,7 +413,7 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
               ]);
               return;
             }
-            Alert.alert("Block user", `Block ${name}? They will not be able to contact you, and you will not see their posts.`, [
+            AppAlert.alert("Block user", `Block ${name}? They will not be able to contact you, and you will not see their posts.`, [
               { text: "Cancel", style: "cancel" },
               {
                 text: "Block",
@@ -394,15 +456,27 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
           >
             <AvatarCircle name={name} uri={post.author?.picture} size={42} />
             <View style={styles.meta}>
-              {collabLabel ? (
+              {collabLabel || collabPartner ? (
                 <Pressable onPress={() => setCollabOpen(true)} hitSlop={4} style={styles.nameRow}>
                   <Text style={styles.name} numberOfLines={1}>
                     {name}
-                    <Text style={styles.collabJoin}>{collabLabel}</Text>
                   </Text>
                   {badgeColor ? (
                     <Ionicons name="checkmark-circle" size={15} color={badgeColor} />
                   ) : null}
+                  {collabPartner ? (
+                    <>
+                      <Text style={styles.collabJoin}> & </Text>
+                      <Text style={styles.name} numberOfLines={1}>
+                        {collabPartner.name || "1 other"}
+                      </Text>
+                      {partnerBadge ? (
+                        <Ionicons name="checkmark-circle" size={15} color={partnerBadge} />
+                      ) : null}
+                    </>
+                  ) : (
+                    <Text style={styles.collabJoin}>{collabLabel}</Text>
+                  )}
                 </Pressable>
               ) : (
                 <View style={styles.nameRow}>
@@ -429,6 +503,22 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
             <Ionicons name="ellipsis-horizontal" size={18} color={colors.textMuted} />
           </Pressable>
         </View>
+
+        {invitePending ? (
+          <View style={styles.inviteBox}>
+            <Text style={styles.inviteText}>{t("collab.onPostInvite")}</Text>
+            <CollaborationInviteActions
+              postId={Number(post.post_id || post.id || 0)}
+              onResolved={(accepted) => {
+                setInvitePending(false);
+                if (accepted) {
+                  setJoined(true);
+                  requestHomeRefresh();
+                }
+              }}
+            />
+          </View>
+        ) : null}
 
         {caption ? <HashtagText value={caption} style={styles.caption} /> : null}
         {isSharePost ? (
@@ -531,7 +621,7 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
             disabled={resharing || (isOwn && !isSharePost)}
             onPress={() => {
               const undo = reshared || (isOwn && isSharePost);
-              Alert.alert(
+              AppAlert.alert(
                 undo ? "Remove reshare?" : "Reshare post?",
                 undo
                   ? "This post will be removed from your profile and the feed."
@@ -593,6 +683,7 @@ function PostCardBody({ post, viewerId, onDeleted, onSavedChange }: Props) {
         authorId={authorId}
         authorAccountType={post.author?.account_type}
         authorPicture={post.author?.picture}
+        authorBadgeColor={badgeColor}
         collaborators={collaborators}
         onClose={() => setCollabOpen(false)}
       />
@@ -663,6 +754,19 @@ function makePostStyles(colors: Palette) {
     alignItems: "center",
     marginBottom: 10,
   },
+  inviteBox: {
+    marginBottom: 10,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: colors.sheet,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  inviteText: {
+    fontFamily: "Montserrat_600SemiBold",
+    fontSize: 13,
+    color: colors.text,
+  },
   headerIdentity: {
     flex: 1,
     flexDirection: "row",
@@ -676,6 +780,7 @@ function makePostStyles(colors: Palette) {
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: 4,
   },
   name: {

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Image,
   Keyboard,
   Platform,
@@ -18,6 +17,7 @@ import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import PreviewVideo from "../components/media/PreviewVideo";
 import FadeIn from "../components/FadeIn";
+import { AppAlert } from "../components/AppDialog";
 import { showError } from "../components/AppNotice";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedShell from "../components/feed/FeedShell";
@@ -100,7 +100,7 @@ export default function CreateStatusScreen() {
       if (type !== "photo" && type !== "video") return false;
       const already = mode === "append" ? items.length : 0;
       if (already >= mediaLimit) {
-        Alert.alert(type === "photo" ? t("status.maxPhotos") : t("status.maxVideos"));
+        AppAlert.alert(type === "photo" ? t("status.maxPhotos") : t("status.maxVideos"));
         return false;
       }
       setPicking(true);
@@ -108,9 +108,9 @@ export default function CreateStatusScreen() {
       setPicking(false);
       if (!result.ok) {
         if (result.reason === "permission") {
-          Alert.alert(t("status.permissionTitle"), t("status.permissionLibrary"));
+          AppAlert.alert(t("status.permissionTitle"), t("status.permissionLibrary"));
         } else if (result.reason === "too-long") {
-          Alert.alert(t("status.videoTooLongTitle"), t("status.videoTooLongBody"));
+          AppAlert.alert(t("status.videoTooLongTitle"), t("status.videoTooLongBody"));
         }
         return false;
       }

@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -73,7 +73,7 @@ export default function ForumThreadScreen() {
 
   const onDelete = () => {
     if (!id || deleting) return;
-    Alert.alert(t("forums.deleteTitle"), t("forums.deleteBody"), [
+    AppAlert.alert(t("forums.deleteTitle"), t("forums.deleteBody"), [
       { text: t("common.cancel"), style: "cancel" },
       {
         text: t("forums.delete"),
@@ -84,7 +84,7 @@ export default function ForumThreadScreen() {
             const result = await deleteForumThread(id);
             setDeleting(false);
             if (!result.success) {
-              Alert.alert(t("forums.delete"), result.message || t("forums.deleteFailed"));
+              AppAlert.alert(t("forums.delete"), result.message || t("forums.deleteFailed"));
               return;
             }
             if (router.canGoBack()) router.back();
@@ -102,7 +102,7 @@ export default function ForumThreadScreen() {
     const result = await replyToForumThread(id, text);
     setSending(false);
     if (!result.success || !result.data) {
-      Alert.alert(t("forums.reply"), result.message || t("forums.replyFailed"));
+      AppAlert.alert(t("forums.reply"), result.message || t("forums.replyFailed"));
       return;
     }
     setDraft("");

@@ -1,6 +1,6 @@
+import { AppAlert } from "./AppDialog";
 import { useMemo, useState } from "react";
 import {
-  Alert,
   Image,
   Linking,
   Modal,
@@ -78,19 +78,19 @@ export default function CacEditPaySheet({
     const started = await startCacEditPaystack();
     if (!started.success || !started.data?.authorization_url) {
       setSubmitting(false);
-      Alert.alert(t("details.cacPayError"), started.message || t("wallet.paystackFailed"));
+      AppAlert.alert(t("details.cacPayError"), started.message || t("wallet.paystackFailed"));
       return;
     }
     await openCheckout(started.data.authorization_url);
     const verified = await verifyCacEditPaystack(started.data.reference);
     setSubmitting(false);
     if (!verified.success) {
-      Alert.alert(t("details.cacPayError"), verified.message || t("wallet.paystackFailed"));
+      AppAlert.alert(t("details.cacPayError"), verified.message || t("wallet.paystackFailed"));
       return;
     }
     await refresh();
     close();
-    Alert.alert(t("details.cacPaySentTitle"), verified.message || t("details.cacPaySentBody"));
+    AppAlert.alert(t("details.cacPaySentTitle"), verified.message || t("details.cacPaySentBody"));
   };
 
   const paySafehaven = async () => {
@@ -98,19 +98,19 @@ export default function CacEditPaySheet({
     const started = await startCacEditSafehaven();
     if (!started.success || !started.data?.authorization_url) {
       setSubmitting(false);
-      Alert.alert(t("details.cacPayError"), started.message || t("wallet.tryAgain"));
+      AppAlert.alert(t("details.cacPayError"), started.message || t("wallet.tryAgain"));
       return;
     }
     await openCheckout(started.data.authorization_url);
     const verified = await verifyCacEditSafehaven(started.data.reference);
     setSubmitting(false);
     if (!verified.success) {
-      Alert.alert(t("details.cacPayError"), verified.message || t("wallet.tryAgain"));
+      AppAlert.alert(t("details.cacPayError"), verified.message || t("wallet.tryAgain"));
       return;
     }
     await refresh();
     close();
-    Alert.alert(t("details.cacPaySentTitle"), verified.message || t("details.cacPaySentBody"));
+    AppAlert.alert(t("details.cacPaySentTitle"), verified.message || t("details.cacPaySentBody"));
   };
 
   const pickProof = async () => {
@@ -126,19 +126,19 @@ export default function CacEditPaySheet({
 
   const submitManual = async () => {
     if (!proofUri) {
-      Alert.alert(t("details.cacPayError"), t("wallet.attachProof"));
+      AppAlert.alert(t("details.cacPayError"), t("wallet.attachProof"));
       return;
     }
     setSubmitting(true);
     const result = await submitCacEditManual({ uri: proofUri });
     setSubmitting(false);
     if (!result.success) {
-      Alert.alert(t("details.cacPayError"), result.message || t("wallet.tryAgain"));
+      AppAlert.alert(t("details.cacPayError"), result.message || t("wallet.tryAgain"));
       return;
     }
     await refresh();
     close();
-    Alert.alert(t("details.cacPaySentTitle"), result.message || t("details.cacPaySentBody"));
+    AppAlert.alert(t("details.cacPaySentTitle"), result.message || t("details.cacPaySentBody"));
   };
 
   return (

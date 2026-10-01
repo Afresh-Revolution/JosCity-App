@@ -23,6 +23,7 @@ import {
   loginBusiness,
   loginPersonal,
   loginAgent,
+  loginWithDevice,
   requestPasswordResetOtp,
   resendActivation,
   resetPasswordWithOtp,
@@ -174,21 +175,28 @@ export default function LoginScreen() {
     setSetupOpen(true);
   };
 
-  const onLogin = async (override?: { email: string; password: string; accountType: LoginAccountType }) => {
+  const onLogin = async (override?: {
+    email: string;
+    password: string;
+    accountType: LoginAccountType;
+    deviceToken?: string;
+  }) => {
     setError(null);
     setMessage(null);
     const loginEmail = (override?.email ?? email).trim();
     const loginPassword = override?.password ?? password;
     const loginType = override?.accountType ?? accountType;
-    if (!loginEmail || !loginPassword.trim()) {
+    const deviceToken = override?.deviceToken;
+    if (!deviceToken && (!loginEmail || !loginPassword.trim())) {
       setError("Enter your email and password.");
       return;
     }
 
     setLoading(true);
     try {
-      let result =
-        loginType === "business"
+      let result = deviceToken
+        ? await loginWithDevice({ deviceToken, accountType: loginType })
+        : loginType === "business"
           ? await loginBusiness({ email: loginEmail, password: loginPassword, activationCode })
           : loginType === "agent"
             ? await loginAgent({
@@ -276,7 +284,12 @@ export default function LoginScreen() {
       }
       setAccountType(unlocked.credentials.accountType);
       setEmail(unlocked.credentials.email);
-      await onLogin(unlocked.credentials);
+      await onLogin({
+        email: unlocked.credentials.email,
+        password: "",
+        accountType: unlocked.credentials.accountType,
+        deviceToken: unlocked.credentials.deviceToken,
+      });
     } finally {
       setBiometricBusy(false);
     }

@@ -2,7 +2,9 @@ import { useMemo } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import AvatarCircle from "./AvatarCircle";
+import { resolveSearchBadgeColor } from "../../utils/badgeColor";
 import type { FeedCollaborator } from "../../api/feed";
 import type { Palette } from "../../theme/colors";
 import { useTheme } from "../../theme/ThemeProvider";
@@ -16,6 +18,7 @@ type Props = {
   authorId?: number;
   authorAccountType?: string | null;
   authorPicture?: string | null;
+  authorBadgeColor?: string | null;
   collaborators: FeedCollaborator[];
   onClose: () => void;
 };
@@ -26,6 +29,7 @@ export default function CollaboratorsSheet({
   authorId,
   authorAccountType,
   authorPicture,
+  authorBadgeColor,
   collaborators,
   onClose,
 }: Props) {
@@ -41,6 +45,7 @@ export default function CollaboratorsSheet({
       picture: authorPicture || null,
       account_type: authorAccountType || "personal",
       username: null as string | null,
+      badge: authorBadgeColor || null,
       isAuthor: true,
     },
     ...collaborators.map((c) => ({
@@ -49,6 +54,11 @@ export default function CollaboratorsSheet({
       picture: c.picture || null,
       account_type: c.account_type || "personal",
       username: publicUsername(c.username),
+      badge: resolveSearchBadgeColor({
+        badge_color: c.badge_color,
+        account_type: c.account_type,
+        verified: c.verified,
+      }),
       isAuthor: false,
     })),
   ].filter((p) => p.id > 0);
@@ -75,9 +85,14 @@ export default function CollaboratorsSheet({
             >
               <AvatarCircle name={person.name} uri={person.picture} size={42} />
               <View style={styles.copy}>
-                <Text style={styles.name} numberOfLines={1}>
-                  {person.name}
-                </Text>
+                <View style={styles.nameRow}>
+                  <Text style={styles.name} numberOfLines={1}>
+                    {person.name}
+                  </Text>
+                  {person.badge ? (
+                    <Ionicons name="checkmark-circle" size={14} color={person.badge} />
+                  ) : null}
+                </View>
                 <Text style={styles.meta} numberOfLines={1}>
                   {person.isAuthor
                     ? t("collab.authorLabel")
@@ -102,7 +117,7 @@ function makeStyles(colors: Palette) {
       justifyContent: "flex-end",
     },
     sheet: {
-      backgroundColor: colors.surface,
+      backgroundColor: colors.card,
       borderTopLeftRadius: 18,
       borderTopRightRadius: 18,
       paddingHorizontal: 16,
@@ -122,7 +137,13 @@ function makeStyles(colors: Palette) {
       paddingVertical: 10,
     },
     copy: { flex: 1, minWidth: 0 },
+    nameRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
     name: {
+      flexShrink: 1,
       fontFamily: "Montserrat_600SemiBold",
       fontSize: 15,
       color: colors.text,

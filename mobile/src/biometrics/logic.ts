@@ -8,7 +8,7 @@ export type BiometricHint = {
 };
 
 export type BiometricCredentials = BiometricHint & {
-  password: string;
+  deviceToken: string;
 };
 
 export const BIOMETRIC_AUTH_TYPES = {
@@ -44,14 +44,14 @@ export function serializeBiometricHint(hint: BiometricHint): string {
 export function parseBiometricCredentials(raw?: string | null): BiometricCredentials | null {
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as Partial<BiometricCredentials>;
+    const parsed = JSON.parse(raw) as Partial<BiometricCredentials> & { password?: string };
     const hint = parseBiometricHint(JSON.stringify({
       email: parsed.email,
       accountType: parsed.accountType,
     }));
-    const password = String(parsed.password || "");
-    if (!hint || !password) return null;
-    return { ...hint, password };
+    const deviceToken = String(parsed.deviceToken || "");
+    if (!hint || !deviceToken || parsed.password) return null;
+    return { ...hint, deviceToken };
   } catch {
     return null;
   }
@@ -61,7 +61,7 @@ export function serializeBiometricCredentials(credentials: BiometricCredentials)
   return JSON.stringify({
     email: credentials.email.trim().toLowerCase(),
     accountType: credentials.accountType,
-    password: credentials.password,
+    deviceToken: credentials.deviceToken,
   });
 }
 

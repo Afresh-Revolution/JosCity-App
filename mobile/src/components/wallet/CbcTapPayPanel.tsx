@@ -123,6 +123,12 @@ export default function CbcTapPayPanel({
 
   useEffect(() => {
     if (phase !== "pin") return undefined;
+    const focusTimer = setTimeout(() => pinRefs.current[0]?.focus(), 50);
+    return () => clearTimeout(focusTimer);
+  }, [phase]);
+
+  useEffect(() => {
+    if (phase !== "pin") return undefined;
     const timer = setInterval(() => {
       setSecondsLeft((current) => current - 1);
     }, 1000);

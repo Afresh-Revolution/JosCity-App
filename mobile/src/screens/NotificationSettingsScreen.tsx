@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useMemo, useCallback, useEffect, useState } from "react";
 import {
-  Alert,
   AppState,
   Pressable,
   ScrollView,
@@ -169,7 +169,7 @@ export default function NotificationSettingsScreen() {
       setSavingKey(null);
       if (!next) {
         setPrefs((current) => ({ ...current, [key]: previous }));
-        Alert.alert("Could not update this setting.");
+        AppAlert.alert("Could not update this setting.");
         return;
       }
       setPrefs(next);

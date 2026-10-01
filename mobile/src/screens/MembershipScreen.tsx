@@ -1,5 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useMemo, useState } from "react";
-import { Alert, Pressable, RefreshControl, Text, View, StyleSheet } from "react-native";
+import { Pressable, RefreshControl, Text, View, StyleSheet } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -84,11 +85,11 @@ export default function MembershipScreen() {
 
   const copyId = async () => {
     if (!memberId) {
-      Alert.alert("Membership ID", "Your member ID is not available yet.");
+      AppAlert.alert("Membership ID", "Your member ID is not available yet.");
       return;
     }
     await Clipboard.setStringAsync(memberId);
-    Alert.alert("Membership ID", memberId, [
+    AppAlert.alert("Membership ID", memberId, [
       { text: "Close", style: "cancel" },
       { text: "Copy ID", onPress: () => void Clipboard.setStringAsync(memberId) },
     ]);

@@ -1,5 +1,6 @@
+import { AppAlert } from "../AppDialog";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text } from "react-native";
+import { Pressable, StyleSheet, Text } from "react-native";
 import JosCityLoader from "../JosCityLoader";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useI18n } from "../../i18n/I18nProvider";
@@ -93,7 +94,7 @@ export default function FriendActionButton({
     setBusy(true);
     const ok = await action();
     setBusy(false);
-    if (!ok) Alert.alert(t(failKey));
+    if (!ok) AppAlert.alert(t(failKey));
   };
 
   const onPress = () => {
@@ -104,7 +105,7 @@ export default function FriendActionButton({
         const ok = await addFriend(userId);
         setBusy(false);
         if (ok) playFriendRequestSound();
-        else Alert.alert(t("friends.addFailed"));
+        else AppAlert.alert(t("friends.addFailed"));
       })();
       return;
     }
@@ -113,7 +114,7 @@ export default function FriendActionButton({
       return;
     }
     if (status === "friends") {
-      Alert.alert(t("friends.unfriendTitle"), t("friends.unfriendBody", { name }), [
+      AppAlert.alert(t("friends.unfriendTitle"), t("friends.unfriendBody", { name }), [
         { text: t("common.cancel"), style: "cancel" },
         {
           text: t("friends.unfriend"),
@@ -123,7 +124,7 @@ export default function FriendActionButton({
       ]);
       return;
     }
-    Alert.alert(t("friends.respondTitle"), t("friends.respondBody", { name }), [
+    AppAlert.alert(t("friends.respondTitle"), t("friends.respondBody", { name }), [
       { text: t("common.close"), style: "cancel" },
       {
         text: t("friends.decline"),

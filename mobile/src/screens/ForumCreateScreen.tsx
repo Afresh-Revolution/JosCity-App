@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -78,7 +78,7 @@ export default function ForumCreateScreen() {
     const result = await createForumCategory(trimmed);
     setAddingCategory(false);
     if (!result.success || !result.data) {
-      Alert.alert(t("forums.addCategory"), result.message || t("forums.categoryFailed"));
+      AppAlert.alert(t("forums.addCategory"), result.message || t("forums.categoryFailed"));
       return null;
     }
     setCategories((current) => {
@@ -129,7 +129,7 @@ export default function ForumCreateScreen() {
       if (committed) next = committed;
     }
     if (!next?.slug) {
-      Alert.alert(t("forums.start"), t("forums.chooseCategory"));
+      AppAlert.alert(t("forums.start"), t("forums.chooseCategory"));
       return;
     }
     setSaving(true);
@@ -141,7 +141,7 @@ export default function ForumCreateScreen() {
     });
     setSaving(false);
     if (!result.success || !result.data) {
-      Alert.alert(t("forums.start"), result.message || t("forums.postFailed"));
+      AppAlert.alert(t("forums.start"), result.message || t("forums.postFailed"));
       return;
     }
     openForumThread(router, result.data, "replace");

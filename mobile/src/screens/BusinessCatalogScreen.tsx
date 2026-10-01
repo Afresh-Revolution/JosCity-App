@@ -11,14 +11,16 @@ import {
 import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { AppAlert } from "../components/AppDialog";
 import FadeIn from "../components/FadeIn";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
-import { getMyListings, type MarketplaceListing } from "../api/marketplace";
+import ListingPrice from "../components/marketplace/ListingPrice";
+import { deleteListing, getMyListings, type MarketplaceListing } from "../api/marketplace";
 import { useRequireBusinessAccount } from "../hooks/useAccountSession";
 import { useI18n } from "../i18n/I18nProvider";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
-import { absoluteUrl, formatNaira } from "../utils/format";
+import { absoluteUrl } from "../utils/format";
 import { openListing } from "../utils/openListing";
 
 export default function BusinessCatalogScreen() {
@@ -48,6 +50,30 @@ export default function BusinessCatalogScreen() {
       void load();
     }, [allowed, load])
   );
+
+  const confirmDelete = (listing: MarketplaceListing) => {
+    AppAlert.alert(
+      t("business.deleteListingTitle"),
+      t("business.deleteListingBody", { title: listing.title }),
+      [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("business.deleteListing"),
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              const result = await deleteListing(listing.id);
+              if (!result.success) {
+                AppAlert.alert(t("business.deleteFailed"), result.message);
+                return;
+              }
+              setListings((current) => current.filter((item) => item.id !== listing.id));
+            })();
+          },
+        },
+      ]
+    );
+  };
 
   if (!allowed) {
     return (
@@ -102,11 +128,7 @@ export default function BusinessCatalogScreen() {
               const image = absoluteUrl(listing.image_url);
               const service = listing.listing_kind === "service";
               return (
-                <Pressable
-                  key={listing.id}
-                  onPress={() => openListing(router, listing.id)}
-                  style={styles.card}
-                >
+                <View key={listing.id} style={styles.card}>
                   {image ? (
                     <Image source={{ uri: image }} style={styles.image} />
                   ) : (
@@ -114,14 +136,25 @@ export default function BusinessCatalogScreen() {
                       <Ionicons name="image-outline" size={22} color={colors.textMuted} />
                     </View>
                   )}
-                  <View style={styles.copy}>
+                  <Pressable
+                    onPress={() => openListing(router, listing.id)}
+                    style={styles.copy}
+                    accessibilityRole="button"
+                  >
                     <Text numberOfLines={1} style={styles.listingTitle}>
                       {listing.title}
                     </Text>
                     {listing.listing_status === "draft" ? (
                       <Text style={styles.draft}>{t("business.draftBadge")}</Text>
                     ) : null}
-                    <Text style={styles.price}>{formatNaira(listing.price)}</Text>
+                    <ListingPrice
+                      price={listing.price}
+                      salePrice={listing.sale_price}
+                      discountPercent={listing.discount_percent}
+                      offerText={listing.offer_text}
+                      colors={colors}
+                      size="sm"
+                    />
                     <Text style={styles.meta}>
                       {service
                         ? [
@@ -140,9 +173,30 @@ export default function BusinessCatalogScreen() {
                               .join(" · ")
                           : listing.unit || listing.category || t("business.untracked")}
                     </Text>
+                  </Pressable>
+                  <View style={styles.actions}>
+                    <Pressable
+                      onPress={() =>
+                        router.push({ pathname: "/business/new-listing", params: { id: listing.id } })
+                      }
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={t("business.editListing")}
+                      style={styles.iconBtn}
+                    >
+                      <Ionicons name="create-outline" size={18} color={colors.text} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => confirmDelete(listing)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={t("business.deleteListing")}
+                      style={styles.iconBtn}
+                    >
+                      <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+                    </Pressable>
                   </View>
-                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-                </Pressable>
+                </View>
               );
             })
           )}
@@ -258,11 +312,15 @@ function makeStyles(colors: Palette) {
       color: colors.textMuted,
       textTransform: "uppercase",
     },
-    price: {
-      marginTop: 2,
-      fontFamily: "Montserrat_600SemiBold",
-      fontSize: 14,
-      color: colors.primary,
+    actions: {
+      gap: 2,
+      marginLeft: 8,
+    },
+    iconBtn: {
+      width: 32,
+      height: 32,
+      alignItems: "center",
+      justifyContent: "center",
     },
     meta: {
       marginTop: 2,

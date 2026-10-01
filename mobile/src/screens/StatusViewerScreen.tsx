@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert,
   TextInput,
   KeyboardAvoidingView,
   Platform,
@@ -273,10 +273,10 @@ export default function StatusViewerScreen() {
       return;
     }
     if (!userId) {
-      Alert.alert(t("status.profileUnavailable"));
+      AppAlert.alert(t("status.profileUnavailable"));
       return;
     }
-    Alert.alert(t("status.viewProfileTitle"), t("status.viewProfileBody", { name }), [
+    AppAlert.alert(t("status.viewProfileTitle"), t("status.viewProfileBody", { name }), [
       {
         text: t("common.cancel"),
         style: "cancel",
@@ -315,7 +315,7 @@ export default function StatusViewerScreen() {
 
   const onDelete = () => {
     if (!story) return;
-    Alert.alert(t("status.deleteTitle"), t("status.deleteBody"), [
+    AppAlert.alert(t("status.deleteTitle"), t("status.deleteBody"), [
       { text: t("common.cancel"), style: "cancel" },
       {
         text: t("status.delete"),

@@ -116,7 +116,11 @@ export default function SwipeableNotification({
       startX.current = currentX.current;
       return;
     }
-    if (state !== State.END && state !== State.CANCELLED) return;
+    if (state === State.CANCELLED || state === State.FAILED) {
+      snapTo(0);
+      return;
+    }
+    if (state !== State.END) return;
 
     const next = Math.min(0, startX.current + translationX);
     if (next < -SCREEN * 0.45 || velocityX < -900) {

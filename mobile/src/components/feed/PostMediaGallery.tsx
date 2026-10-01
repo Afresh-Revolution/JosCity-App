@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  Alert,
   Image,
   Modal,
   Platform,
@@ -13,6 +12,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { FeedPost } from "../../api/feed";
+import { AppAlert } from "../AppDialog";
 import type { Palette } from "../../theme/colors";
 import { useTheme } from "../../theme/ThemeProvider";
 import { saveRemoteImage } from "../../utils/saveImage";
@@ -92,11 +92,11 @@ function ImageStrip({
       setSaving(false);
       if (ok) {
         setMenu(false);
-        Alert.alert("Saved", "Image saved to your photos.");
+        AppAlert.alert("Saved", "Image saved to your photos.");
       }
     } catch {
       setSaving(false);
-      Alert.alert("Could not save", "Please try again.");
+      AppAlert.alert("Could not save", "Please try again.");
     }
   };
 

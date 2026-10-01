@@ -1,3 +1,4 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useMemo, useEffect, useRef } from "react";
 import {
   Animated,
@@ -15,6 +16,7 @@ import { useTheme } from "../../theme/ThemeProvider";
 type Props = {
   visible: boolean;
   saving?: boolean;
+  saved?: boolean;
   embedded?: boolean;
   onSave: () => void;
   onClose: () => void;
@@ -23,6 +25,7 @@ type Props = {
 export default function ImageSaveSheet({
   visible,
   saving,
+  saved = false,
   embedded = false,
   onSave,
   onClose,
@@ -55,6 +58,14 @@ export default function ImageSaveSheet({
     sheet.setValue(280);
   }, [overlay, sheet, visible]);
 
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (!visible || !saved) return;
+    const timer = setTimeout(() => closeRef.current(), 1400);
+    return () => clearTimeout(timer);
+  }, [visible, saved]);
+
   if (!visible && embedded) return null;
 
   const body = (
@@ -72,6 +83,14 @@ export default function ImageSaveSheet({
         ]}
       >
         <View style={styles.handle} />
+        {saved ? (
+          <View style={styles.success} accessibilityRole="alert" accessibilityLiveRegion="polite">
+            <Ionicons name="checkmark-circle" size={28} color={colors.success} />
+            <Text style={styles.save}>Image saved</Text>
+          </View>
+        ) : (
+          <>
+
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Save image"
@@ -90,6 +109,8 @@ export default function ImageSaveSheet({
         >
           <Text style={styles.cancel}>Cancel</Text>
         </Pressable>
+          </>
+        )}
       </Animated.View>
     </View>
   );
@@ -99,7 +120,7 @@ export default function ImageSaveSheet({
   }
 
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="none" onRequestClose={saving ? () => undefined : onClose}>
       {body}
     </Modal>
   );
@@ -107,6 +128,7 @@ export default function ImageSaveSheet({
 
 function makeStyles(colors: Palette) {
   return StyleSheet.create({
+    success: { alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 24 },
     root: {
       ...StyleSheet.absoluteFill,
       justifyContent: "flex-end",

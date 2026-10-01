@@ -37,9 +37,11 @@ export type BadgeAccount = {
 
 function isAgentBadgeAccount(account: BadgeAccount) {
   const type = String(account.account_type || "").toLowerCase();
+  if (type === "business") return false;
+  if (type === "agent") return true;
   const intent = String(account.signup_intent || "").toLowerCase();
   const agentType = String(account.agent_type || "").toLowerCase();
-  return type === "agent" || intent === "agent" || intent === "agents" || ["buy", "deliver", "both"].includes(agentType);
+  return intent === "agent" || intent === "agents" || ["buy", "deliver", "both"].includes(agentType);
 }
 
 function hasVerifiedNin(account: BadgeAccount) {
@@ -54,11 +56,27 @@ function hasVerifiedNin(account: BadgeAccount) {
 export function resolveAccountBadgeColor(account?: BadgeAccount | null): string | null {
   if (!account) return null;
   const assigned = normalizeBadgeColor(account.badge_color);
+  if (isAgentBadgeAccount(account) || assigned === BADGE_AGENT || assigned === BADGE_AGENT_VERIFIED) {
+    return hasVerifiedNin(account) || assigned === BADGE_AGENT_VERIFIED
+      ? BADGE_AGENT_VERIFIED
+      : BADGE_AGENT;
+  }
   if (assigned) return assigned;
 
   const isBusiness = String(account.account_type || "").toLowerCase() === "business";
-  if (isBusiness) return account.cac_verified ? BADGE_CAC : BADGE_NO_CAC;
-  if (isAgentBadgeAccount(account)) return hasVerifiedNin(account) ? BADGE_AGENT_VERIFIED : BADGE_AGENT;
+  if (isBusiness) return account.cac_verified || account.has_cac ? BADGE_CAC : BADGE_NO_CAC;
   if (hasVerifiedNin(account)) return BADGE_VERIFIED;
   return null;
+}
+
+/** Search rows use the role badge so an agent or business is distinct from a personal account with the same name. */
+export function resolveSearchBadgeColor(account?: BadgeAccount | null): string | null {
+  if (!account) return null;
+  if (isAgentBadgeAccount(account)) {
+    return hasVerifiedNin(account) ? BADGE_AGENT_VERIFIED : BADGE_AGENT;
+  }
+  if (String(account.account_type || "").toLowerCase() === "business") {
+    return account.cac_verified || account.has_cac ? BADGE_CAC : BADGE_NO_CAC;
+  }
+  return resolveAccountBadgeColor(account);
 }

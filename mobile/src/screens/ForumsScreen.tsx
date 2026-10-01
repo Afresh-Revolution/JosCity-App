@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -92,7 +92,7 @@ export default function ForumsScreen() {
     const result = await createForumCategory(name);
     setAddingCategory(false);
     if (!result.success || !result.data) {
-      Alert.alert(t("forums.addCategory"), result.message || t("forums.categoryFailed"));
+      AppAlert.alert(t("forums.addCategory"), result.message || t("forums.categoryFailed"));
       return;
     }
     setCategories((current) =>

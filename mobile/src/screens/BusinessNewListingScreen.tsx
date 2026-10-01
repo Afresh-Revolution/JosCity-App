@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { AppAlert } from "../components/AppDialog";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -12,14 +12,20 @@ import {
   View,
 } from "react-native";
 import JosCityLoader from "../components/JosCityLoader";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as ImagePicker from "expo-image-picker";
 import FadeIn from "../components/FadeIn";
 import { ErrorBanner } from "../components/AppNotice";
 import TextField from "../components/TextField";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
-import { createListing, uploadListingMedia, type ListingMediaItem } from "../api/marketplace";
+import {
+  createListing,
+  getListing,
+  updateListing,
+  uploadListingMedia,
+  type ListingMediaItem,
+} from "../api/marketplace";
 import {
   LISTING_CATEGORIES,
   type ListingKind,
@@ -43,10 +49,15 @@ export default function BusinessNewListingScreen() {
   const { t } = useI18n();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
+  const params = useLocalSearchParams<{ id?: string }>();
+  const listingId = String(params.id || "").trim();
+  const editing = Boolean(listingId);
 
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<ListingKind>("goods");
   const [price, setPrice] = useState("");
+  const [discount, setDiscount] = useState("");
+  const [offer, setOffer] = useState("");
   const [stock, setStock] = useState("");
   const [unit, setUnit] = useState("");
   const [duration, setDuration] = useState("");
@@ -59,13 +70,52 @@ export default function BusinessNewListingScreen() {
   const [picker, setPicker] = useState<null | "category">(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState<"draft" | "published" | null>(null);
+  const [loadingListing, setLoadingListing] = useState(editing);
   const [error, setError] = useState<string | null>(null);
   const [errorRequired, setErrorRequired] = useState<string[]>([]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const scrollRef = useRef<ScrollView>(null);
   const errorBannerRef = useRef<View>(null);
 
-  const busy = uploading || Boolean(saving);
+  const busy = uploading || Boolean(saving) || loadingListing;
+
+  useEffect(() => {
+    if (!listingId || !allowed) return;
+    let cancelled = false;
+    setLoadingListing(true);
+    void (async () => {
+      const listing = await getListing(listingId);
+      if (cancelled) return;
+      if (!listing) {
+        setError(t("listing.loadFailed"));
+        setLoadingListing(false);
+        return;
+      }
+      const nextKind = listing.listing_kind === "service" ? "service" : "goods";
+      setKind(nextKind);
+      setTitle(listing.title || "");
+      setPrice(listing.price ? String(listing.price) : "");
+      setDiscount(listing.discount_percent ? String(listing.discount_percent) : "");
+      setOffer(listing.offer_text || "");
+      setStock(
+        nextKind === "goods" && listing.quantity_tracked && listing.stock != null
+          ? String(listing.stock)
+          : ""
+      );
+      setUnit(listing.unit || "");
+      setDuration(listing.duration_note || "");
+      setServicePlace(listing.service_location || "");
+      setServiceArea(listing.service_area || "");
+      setAvailability(listing.availability_note || "");
+      setCategory(listing.category || "");
+      setDescription(listing.description || "");
+      setMedia(Array.isArray(listing.media) ? listing.media : []);
+      setLoadingListing(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [allowed, listingId, t]);
 
   const clearFieldError = (key: string) => {
     setFieldErrors((current) => {
@@ -87,12 +137,12 @@ export default function BusinessNewListingScreen() {
   const pickPhotos = async () => {
     const room = MAX_PHOTOS - media.length;
     if (room <= 0) {
-      Alert.alert(t("listing.maxPhotos"));
+      AppAlert.alert(t("listing.maxPhotos"));
       return;
     }
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert(t("listing.permissionTitle"), t("listing.permissionLibrary"));
+      AppAlert.alert(t("listing.permissionTitle"), t("listing.permissionLibrary"));
       return;
     }
     let picked: ImagePicker.ImagePickerResult;
@@ -180,6 +230,14 @@ export default function BusinessNewListingScreen() {
         });
       }
     }
+    if (discount.trim()) {
+      const discountValue = Number(discount.replace(/,/g, ""));
+      checks.push({
+        key: "discount",
+        label: t("listing.discount"),
+        ok: Number.isFinite(discountValue) && discountValue > 0 && discountValue <= 100,
+      });
+    }
     const missing = missingFields(checks);
     if (!missing.length) return null;
     return {
@@ -206,7 +264,8 @@ export default function BusinessNewListingScreen() {
     const priceValue = Number(price.replace(/,/g, ""));
     const stockValue = Number(stock);
     const hasStock = !isService && stock.trim() !== "" && Number.isFinite(stockValue);
-    const result = await createListing({
+    const discountValue = Number(discount.replace(/,/g, ""));
+    const payload = {
       title: title.trim(),
       description: description.trim(),
       category,
@@ -220,8 +279,12 @@ export default function BusinessNewListingScreen() {
       serviceArea: isService ? serviceArea.trim() || null : null,
       availabilityNote: isService ? availability.trim() || null : null,
       media,
+      discountPercent:
+        discount.trim() && Number.isFinite(discountValue) && discountValue > 0 ? discountValue : null,
+      offerText: offer.trim() || null,
       status,
-    });
+    };
+    const result = editing ? await updateListing(listingId, payload) : await createListing(payload);
     setSaving(null);
     if (!result.success) {
       setErrorRequired([]);
@@ -232,7 +295,7 @@ export default function BusinessNewListingScreen() {
     router.replace("/business/catalog");
   };
 
-  if (!allowed) {
+  if (!allowed || loadingListing) {
     return (
       <View style={styles.centered}>
         <JosCityLoader color={colors.primary} size="large" />
@@ -256,7 +319,7 @@ export default function BusinessNewListingScreen() {
               <Ionicons name="chevron-back" size={20} color={colors.text} />
             </Pressable>
             <Text style={styles.kicker}>{t("listing.kicker")}</Text>
-            <Text style={styles.title}>{t("listing.title")}</Text>
+            <Text style={styles.title}>{editing ? t("listing.editTitle") : t("listing.title")}</Text>
           </FadeIn>
 
           {error ? (
@@ -391,6 +454,29 @@ export default function BusinessNewListingScreen() {
                 </View>
               )}
             </View>
+            <View style={styles.row}>
+              <View style={styles.half}>
+                <TextField
+                  label={t("listing.discount")}
+                  value={discount}
+                  onChangeText={(value) => {
+                    setDiscount(value);
+                    clearFieldError("discount");
+                  }}
+                  error={fieldErrors.discount}
+                  placeholder={t("listing.discountPlaceholder")}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+            </View>
+            <TextField
+              label={t("listing.offer")}
+              value={offer}
+              onChangeText={setOffer}
+              placeholder={t("listing.offerPlaceholder")}
+              autoCapitalize="sentences"
+              maxLength={160}
+            />
             {isService ? (
               <>
                 <TextField

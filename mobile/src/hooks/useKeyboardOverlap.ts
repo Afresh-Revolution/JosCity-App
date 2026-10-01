@@ -21,6 +21,18 @@ function coveredByKeyboard(event: KeyboardEvent) {
   return height;
 }
 
+/** How far the keyboard covers a full-screen modal, even when the activity window already resized. */
+function coveredOnScreen(event: KeyboardEvent) {
+  const coords = event.endCoordinates;
+  const height = Math.max(0, coords?.height || 0);
+  const screenY = coords?.screenY;
+  const screenH = Dimensions.get("screen").height;
+  if (typeof screenY === "number" && screenY > 0) {
+    return Math.max(height, screenH - screenY);
+  }
+  return height;
+}
+
 /**
  * Android edge-to-edge often overlays the keyboard instead of resizing the
  * window. Return how much to lift bottom UI, or 0 when the window already
@@ -31,6 +43,7 @@ export function useKeyboardOverlap() {
   const [frameH, setFrameH] = useState(windowHeight);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [overlap, setOverlap] = useState(0);
+  const [screenCover, setScreenCover] = useState(0);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -42,10 +55,12 @@ export function useKeyboardOverlap() {
       const resized = restH.current - windowHeight() > 80;
       setKeyboardHeight(height);
       setOverlap(resized ? 0 : covered > 24 ? covered : height);
+      setScreenCover(coveredOnScreen(event));
     };
     const applyHide = () => {
       setKeyboardHeight(0);
       setOverlap(0);
+      setScreenCover(0);
       restH.current = windowHeight();
     };
 
@@ -71,6 +86,7 @@ export function useKeyboardOverlap() {
   return {
     keyboardHeight,
     overlap,
+    screenCover,
     frameH,
     windowResized: overlap === 0 && keyboardHeight > 0,
     onContainerLayout,

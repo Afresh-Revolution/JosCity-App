@@ -1,6 +1,6 @@
+import { AppAlert } from "../AppDialog";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -161,19 +161,19 @@ export default function AgentSourcedCatalogue({
   const save = async () => {
     const price = Number(String(draft.productPrice).replace(/,/g, ""));
     if (!draft.title.trim()) {
-      Alert.alert("Add a product", "Enter the product name.");
+      AppAlert.alert("Add a product", "Enter the product name.");
       return;
     }
     if (!Number.isFinite(price) || price <= 0) {
-      Alert.alert("Add a product", "Enter a valid product price.");
+      AppAlert.alert("Add a product", "Enter a valid product price.");
       return;
     }
     if (draft.sourceKind === "joscity" && !draft.listingId) {
-      Alert.alert("JosCity listing", "Search and select a product from a JosCity business.");
+      AppAlert.alert("JosCity listing", "Search and select a product from a JosCity business.");
       return;
     }
     if (draft.sourceKind === "external" && !draft.sourceName.trim()) {
-      Alert.alert("External shop", "Name the shop or market this product comes from.");
+      AppAlert.alert("External shop", "Name the shop or market this product comes from.");
       return;
     }
     setSaving(true);
@@ -194,14 +194,14 @@ export default function AgentSourcedCatalogue({
       setEditorOpen(false);
       await load();
     } catch (err) {
-      Alert.alert("Could not save", err instanceof Error ? err.message : "Try again.");
+      AppAlert.alert("Could not save", err instanceof Error ? err.message : "Try again.");
     } finally {
       setSaving(false);
     }
   };
 
   const remove = (item: CatalogueItem) => {
-    Alert.alert("Remove product", `Remove ${item.title} from your catalogue?`, [
+    AppAlert.alert("Remove product", `Remove ${item.title} from your catalogue?`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove",
@@ -210,7 +210,7 @@ export default function AgentSourcedCatalogue({
           void agentApi
             .deleteCatalogue(item.item_id)
             .then(load)
-            .catch((err) => Alert.alert("Could not remove", err instanceof Error ? err.message : "Try again."));
+            .catch((err) => AppAlert.alert("Could not remove", err instanceof Error ? err.message : "Try again."));
         },
       },
     ]);
@@ -320,15 +320,26 @@ export default function AgentSourcedCatalogue({
                 {publicView ? (
                   <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                 ) : (
-                <Pressable
-                  onPress={() => remove(item)}
-                  hitSlop={10}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Remove ${item.title}`}
-                  style={styles.trash}
-                >
-                  <Ionicons name="trash-outline" size={16} color={colors.textMuted} />
-                </Pressable>
+                <View style={styles.itemActions}>
+                  <Pressable
+                    onPress={() => openEdit(item)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Edit ${item.title}`}
+                    style={styles.trash}
+                  >
+                    <Ionicons name="create-outline" size={16} color={colors.text} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => remove(item)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${item.title}`}
+                    style={styles.trash}
+                  >
+                    <Ionicons name="trash-outline" size={16} color={colors.textMuted} />
+                  </Pressable>
+                </View>
                 )}
               </Pressable>
             );
@@ -513,6 +524,7 @@ function makeStyles(c: Palette) {
     itemTitle: { fontFamily: "Montserrat_700Bold", fontSize: 15, color: c.text },
     itemMeta: { fontFamily: "Montserrat_400Regular", fontSize: 12, color: c.textMuted },
     price: { fontFamily: "Montserrat_700Bold", fontSize: 14, color: c.primary, marginTop: 2 },
+    itemActions: { gap: 2 },
     trash: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
     modal: { flex: 1, backgroundColor: c.background },
     modalKicker: {

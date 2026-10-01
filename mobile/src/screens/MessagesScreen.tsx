@@ -97,6 +97,8 @@ export default function MessagesScreen() {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [typingByChat, setTypingByChat] = useState<Record<number, string>>({});
   const peerIdsRef = useRef<number[]>([]);
+  const pendingMutes = useRef(new Set<number>());
+  const muteSticky = useRef(new Map<number, boolean>());
 
   const load = useCallback(async () => {
     const [me, accountType] = await Promise.all([getUser(), getAccountType()]);
@@ -263,9 +265,31 @@ export default function MessagesScreen() {
           (contact) => contact.kind === "business" && !isAlreadyChatting(contact)
         );
 
-    setChats(chatsWithHistory.filter((chat, index, list) =>
-      list.findIndex((row) => row.conversationId === chat.conversationId) === index
-    ));
+    const nextChats = chatsWithHistory.filter(
+      (chat, index, list) =>
+        list.findIndex((row) => row.conversationId === chat.conversationId) === index
+    );
+    for (const chat of nextChats) {
+      const forced = muteSticky.current.get(chat.conversationId);
+      if (
+        forced !== undefined &&
+        Boolean(chat.notificationsMuted) === forced &&
+        !pendingMutes.current.has(chat.conversationId)
+      ) {
+        muteSticky.current.delete(chat.conversationId);
+      }
+    }
+    setChats((current) =>
+      nextChats.map((chat) => {
+        if (pendingMutes.current.has(chat.conversationId)) {
+          const local = current.find((row) => row.conversationId === chat.conversationId);
+          if (local) return { ...chat, notificationsMuted: Boolean(local.notificationsMuted) };
+        }
+        const forced = muteSticky.current.get(chat.conversationId);
+        if (forced === undefined || Boolean(chat.notificationsMuted) === forced) return chat;
+        return { ...chat, notificationsMuted: forced };
+      })
+    );
     setFriends(nextFriends);
     setFollowing(nextFollowing);
     setIncoming(requests.incoming);
@@ -386,24 +410,32 @@ export default function MessagesScreen() {
   };
 
   const muteChat = (conversationId: number) => {
+    if (pendingMutes.current.has(conversationId)) return;
+    const previousMuted = Boolean(chats.find((chat) => chat.conversationId === conversationId)?.notificationsMuted);
+    const nextMuted = !previousMuted;
+    pendingMutes.current.add(conversationId);
+    muteSticky.current.set(conversationId, nextMuted);
     setChats((current) =>
       current.map((chat) =>
         chat.conversationId === conversationId
-          ? { ...chat, notificationsMuted: !chat.notificationsMuted }
+          ? { ...chat, notificationsMuted: nextMuted }
           : chat
       )
     );
     void toggleConversationMute(conversationId).then((muted) => {
+      pendingMutes.current.delete(conversationId);
       if (muted == null) {
+        muteSticky.current.set(conversationId, previousMuted);
         setChats((current) =>
           current.map((chat) =>
             chat.conversationId === conversationId
-              ? { ...chat, notificationsMuted: !chat.notificationsMuted }
+              ? { ...chat, notificationsMuted: previousMuted }
               : chat
           )
         );
         return;
       }
+      muteSticky.current.set(conversationId, muted);
       setChats((current) =>
         current.map((chat) =>
           chat.conversationId === conversationId ? { ...chat, notificationsMuted: muted } : chat
@@ -681,9 +713,6 @@ export default function MessagesScreen() {
                           <Text style={styles.name} numberOfLines={1}>
                             {name}
                           </Text>
-                          {chat.notificationsMuted ? (
-                            <Ionicons name="notifications-off" size={14} color={colors.textMuted} />
-                          ) : null}
                           {peerId > 0 ? (
                             <Text style={online ? styles.online : styles.offline}>
                               {online ? t("messages.online") : t("messages.offline")}
@@ -713,6 +742,11 @@ export default function MessagesScreen() {
                               t("messages.empty")}
                           </Text>
                         )}
+                        {chat.notificationsMuted ? (
+                          <View style={styles.mutedIndicator} accessible accessibilityLabel={t("messages.muted")}>
+                            <Ionicons name="notifications-off" size={18} color={colors.textMuted} />
+                          </View>
+                        ) : null}
                         {unread > 0 && !typingName ? (
                           <View style={styles.badge}>
                             <Text style={styles.badgeText}>{unread > 99 ? "99+" : String(unread)}</Text>
@@ -974,6 +1008,12 @@ function makeStyles(colors: Palette) {
     fontFamily: "Montserrat_400Regular",
     fontSize: 12,
     color: colors.textMuted,
+  },
+  mutedIndicator: {
+    flexShrink: 0,
+    width: 24,
+    alignItems: "center",
+    justifyContent: "center",
   },
   preview: {
     flex: 1,

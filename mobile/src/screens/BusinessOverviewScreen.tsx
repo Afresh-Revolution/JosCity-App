@@ -126,7 +126,13 @@ export default function BusinessOverviewScreen() {
       unreadCount={unread}
       header={
         <View style={styles.header}>
-          <View style={styles.headerLeft}>
+          <Pressable
+            style={styles.headerLeft}
+            onPress={() => router.push("/business/profile")}
+            accessibilityRole="button"
+            accessibilityLabel={t("nav.profile")}
+            hitSlop={6}
+          >
             <AvatarCircle
               name={data?.profile.name}
               uri={data?.profile.picture}
@@ -138,7 +144,7 @@ export default function BusinessOverviewScreen() {
                 {data?.profile.name || t("business.fallbackName")}
               </Text>
             </View>
-          </View>
+          </Pressable>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t("common.notifications")}
@@ -461,6 +467,7 @@ function makeStyles(colors: Palette) {
       paddingBottom: 10,
     },
     headerLeft: {
+      minHeight: 44,
       flexDirection: "row",
       alignItems: "center",
       flex: 1,

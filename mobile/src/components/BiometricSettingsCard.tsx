@@ -1,5 +1,6 @@
+import { AppAlert } from "./AppDialog";
 import { useCallback, useState } from "react";
-import { Alert, Platform, Switch, Text, View } from "react-native";
+import { Platform, Switch, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import TextField from "./TextField";
 import { useSettingsStyles } from "./SettingsPage";
@@ -47,7 +48,7 @@ export default function BiometricSettingsCard({ email, accountType }: Props) {
       const result = await disableBiometricLogin({ confirm: true });
       setBusy(false);
       if (!result.success) {
-        Alert.alert(copy.noun, result.message || "Could not turn off biometric sign-in.");
+        AppAlert.alert(copy.noun, result.message || "Could not turn off biometric sign-in.");
         return;
       }
       setPassword("");
@@ -55,15 +56,15 @@ export default function BiometricSettingsCard({ email, accountType }: Props) {
       return;
     }
     if (!email?.includes("@")) {
-      Alert.alert(copy.noun, "Your account email is needed before turning this on.");
+      AppAlert.alert(copy.noun, "Your account email is needed before turning this on.");
       return;
     }
     if (!password.trim()) {
-      Alert.alert(copy.noun, `Enter your password to turn on ${copy.noun}.`);
+      AppAlert.alert(copy.noun, `Enter your password to turn on ${copy.noun}.`);
       return;
     }
     if (!status.enrolled) {
-      Alert.alert(copy.noun, `Set up ${copy.noun} in your device settings first.`);
+      AppAlert.alert(copy.noun, `Set up ${copy.noun} in your device settings first.`);
       return;
     }
     setBusy(true);
@@ -74,7 +75,7 @@ export default function BiometricSettingsCard({ email, accountType }: Props) {
     });
     setBusy(false);
     if (!result.success) {
-      Alert.alert(copy.noun, result.message || "Could not turn on biometric sign-in.");
+      AppAlert.alert(copy.noun, result.message || "Could not turn on biometric sign-in.");
       return;
     }
     setPassword("");

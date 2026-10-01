@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import AvatarCircle from "./AvatarCircle";
+import BusinessVerifiedBadge from "../BusinessVerifiedBadge";
 import { personName } from "./PeopleRow";
 import type { DirectoryUser } from "../../api/social";
 import type { Palette } from "../../theme/colors";
@@ -28,9 +29,23 @@ export default function MentionSuggestList({ people, onSelect, max = 6 }: Props)
         >
           <AvatarCircle name={personName(person)} uri={person.user_picture} size={32} />
           <View style={styles.copy}>
-            <Text style={styles.name} numberOfLines={1}>
-              {personName(person)}
-            </Text>
+            <View style={styles.nameRow}>
+              <Text style={styles.name} numberOfLines={1}>
+                {personName(person)}
+              </Text>
+              <BusinessVerifiedBadge
+                color={person.badge_color}
+                hasCac={Boolean(person.has_cac || person.cac_verified)}
+                verified={Boolean(person.user_verified || person.is_verified)}
+                accountType={person.account_type}
+                signupIntent={person.signup_intent}
+                agentType={person.agent_type}
+                ninVerified={person.nin_verified}
+                ninNumber={person.nin_number}
+                roleBadge
+                size={14}
+              />
+            </View>
             <Text style={styles.handle} numberOfLines={1}>
               @{mentionHandle(person)}
             </Text>
@@ -48,7 +63,7 @@ function makeStyles(colors: Palette) {
       borderRadius: 14,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.card,
       overflow: "hidden",
     },
     row: {
@@ -61,7 +76,13 @@ function makeStyles(colors: Palette) {
       borderBottomColor: colors.border,
     },
     copy: { flex: 1, minWidth: 0 },
+    nameRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
     name: {
+      flexShrink: 1,
       fontFamily: "Montserrat_600SemiBold",
       fontSize: 14,
       color: colors.text,

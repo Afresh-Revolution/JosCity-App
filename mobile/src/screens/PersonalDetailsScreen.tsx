@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -272,7 +272,7 @@ export default function PersonalDetailsScreen() {
           ? await ImagePicker.requestCameraPermissionsAsync()
           : await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert(
+        AppAlert.alert(
           "Permission needed",
           source === "camera"
             ? "Allow camera access to take a photo."
@@ -334,7 +334,7 @@ export default function PersonalDetailsScreen() {
   );
 
   const choosePhoto = (kind: "avatar" | "cover") => {
-    Alert.alert(
+    AppAlert.alert(
       kind === "cover" ? "Cover photo" : "Profile photo",
       kind === "cover"
         ? "Add a banner people see at the top of your profile"

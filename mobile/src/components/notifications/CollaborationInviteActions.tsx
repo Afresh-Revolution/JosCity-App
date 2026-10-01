@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { AppAlert } from "../AppDialog";
 import JosCityLoader from "../JosCityLoader";
 import {
   acceptCollaboration,
@@ -36,7 +37,7 @@ export default function CollaborationInviteActions({ postId, onResolved }: Props
         : await declineCollaboration(postId);
     setBusy(null);
     if (!ok) {
-      Alert.alert(
+      AppAlert.alert(
         kind === "accept" ? t("collab.acceptFailed") : t("collab.declineFailed")
       );
       return;

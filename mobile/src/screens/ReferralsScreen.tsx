@@ -1,5 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useMemo, useCallback, useState } from "react";
-import { Alert, Pressable, Share, Text, View, StyleSheet } from "react-native";
+import { Pressable, Share, Text, View, StyleSheet } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -50,7 +51,7 @@ export default function ReferralsScreen() {
   const copyLink = async () => {
     if (!shareUrl) return;
     await Clipboard.setStringAsync(shareUrl);
-    Alert.alert("Copied", "Invite link copied.");
+    AppAlert.alert("Copied", "Invite link copied.");
   };
 
   const shareInvite = async () => {

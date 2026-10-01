@@ -15,7 +15,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { ErrorBanner } from "./AppNotice";
 import { friendlyError } from "../utils/errors";
 import { isStoreReviewEmail } from "../utils/storeReviewAccounts";
-import { checkActivationRequired, loginAgent, loginBusiness, loginPersonal } from "../api/auth";
+import { checkActivationRequired, loginAgent, loginBusiness, loginPersonal, loginWithDevice } from "../api/auth";
 import { useI18n } from "../i18n/I18nProvider";
 import {
   loginMatchesAccount,
@@ -104,14 +104,15 @@ export default function BusinessAccountSheet({
     return () => clearTimeout(timer);
   }, [email, mode, visible]);
 
-  const finishLogin = async (params: { email: string; password: string }) => {
+  const finishLogin = async (params: { email: string; password: string; deviceToken?: string }) => {
     setError(null);
-    if (!params.email.trim() || !params.password.trim()) {
+    if (!params.deviceToken && (!params.email.trim() || !params.password.trim())) {
       setError(t(mode === "business" ? "profile.businessLoginMissing" : mode === "agent" ? "profile.agentLoginMissing" : "profile.personalLoginMissing"));
       return false;
     }
-    const result =
-      mode === "business"
+    const result = params.deviceToken
+      ? await loginWithDevice({ deviceToken: params.deviceToken, accountType: mode })
+      : mode === "business"
         ? await loginBusiness({ email: params.email, password: params.password, activationCode })
         : mode === "agent"
           ? await loginAgent({
@@ -173,7 +174,11 @@ export default function BusinessAccountSheet({
         return;
       }
       setEmail(unlocked.credentials.email);
-      await finishLogin({ email: unlocked.credentials.email, password: unlocked.credentials.password });
+      await finishLogin({
+        email: unlocked.credentials.email,
+        password: "",
+        deviceToken: unlocked.credentials.deviceToken,
+      });
     } catch {
       setError(t("profile.personalLoginNetwork"));
     } finally {

@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -71,7 +71,7 @@ export default function EventDetailScreen() {
   const copy = async (value?: string | null, label?: string) => {
     if (!value) return;
     await Clipboard.setStringAsync(value);
-    Alert.alert(t("explore.copied"), label || value);
+    AppAlert.alert(t("explore.copied"), label || value);
   };
 
   const onPay = async () => {
@@ -80,10 +80,10 @@ export default function EventDetailScreen() {
     const result = await submitEventPaymentRequest(id, accountName.trim());
     setSaving(false);
     if (!result.success) {
-      Alert.alert(t("explore.eventsTitle"), result.message || t("explore.payError"));
+      AppAlert.alert(t("explore.eventsTitle"), result.message || t("explore.payError"));
       return;
     }
-    Alert.alert(t("explore.eventsTitle"), result.message || t("explore.paySent"));
+    AppAlert.alert(t("explore.eventsTitle"), result.message || t("explore.paySent"));
     setAccountName("");
     void load();
   };

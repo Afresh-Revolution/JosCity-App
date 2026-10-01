@@ -20,11 +20,14 @@ export function isAgentAccountType(value?: string | null): boolean {
 }
 
 export function isDedicatedAgentAccount(user?: AccountUser | null, accountType?: string | null): boolean {
-  if (isBusinessAccountType(String(user?.account_type || accountType || ""))) return false;
+  // Explicit session mode wins over eligibility and historical signup metadata.
+  const selected = String(accountType || user?.account_type || "").trim().toLowerCase();
+  if (["personal", "business", "agent"].includes(selected)) return selected === "agent";
+  if (isBusinessAccountType(String(accountType || user?.account_type || ""))) return false;
   const intent = String(user?.signup_intent || "").trim().toLowerCase();
   const agentType = String(user?.agent_type || "").trim().toLowerCase();
   return (
-    isAgentAccountType(String(user?.account_type || accountType || "")) ||
+    isAgentAccountType(String(accountType || user?.account_type || "")) ||
     intent === "agent" ||
     intent === "agents" ||
     agentType === "buy" ||
@@ -34,7 +37,7 @@ export function isDedicatedAgentAccount(user?: AccountUser | null, accountType?:
 }
 
 export function loginKindForUser(user?: AccountUser | null, accountType?: string | null): AccountType {
-  if (isBusinessAccountType(String(user?.account_type || accountType || ""))) return "business";
+  if (isBusinessAccountType(String(accountType || user?.account_type || ""))) return "business";
   if (isDedicatedAgentAccount(user, accountType)) return "agent";
   return "personal";
 }
@@ -44,7 +47,8 @@ export function loginMatchesAccount(
   user?: AccountUser | null,
   accountType?: string | null
 ): boolean {
-  return loginKindForUser(user, accountType) === intended;
+  const business = isBusinessAccountType(String(accountType || user?.account_type || ""));
+  return intended === "business" ? business : !business;
 }
 
 export function friendshipAllowed(

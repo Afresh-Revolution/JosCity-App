@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { memo, useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -197,17 +197,17 @@ export default function BusinessScheduledScreen() {
     async (kind: "photo" | "video") => {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert(t("create.permissionTitle"), t("create.permissionLibrary"));
+        AppAlert.alert(t("create.permissionTitle"), t("create.permissionLibrary"));
         return;
       }
       const photos = media.filter((item) => item.kind === "photo").length;
       const videos = media.filter((item) => item.kind === "video").length;
       if (kind === "photo" && photos >= MAX_PHOTOS) {
-        Alert.alert(t("create.maxPhotos"));
+        AppAlert.alert(t("create.maxPhotos"));
         return;
       }
       if (kind === "video" && videos >= MAX_VIDEOS) {
-        Alert.alert(t("create.maxVideos"));
+        AppAlert.alert(t("create.maxVideos"));
         return;
       }
       const picked = await ImagePicker.launchImageLibraryAsync({
@@ -267,7 +267,7 @@ export default function BusinessScheduledScreen() {
   };
 
   const onCancel = (item: ScheduledPost) => {
-    Alert.alert(t("scheduled.cancelTitle"), t("scheduled.cancelBody"), [
+    AppAlert.alert(t("scheduled.cancelTitle"), t("scheduled.cancelBody"), [
       { text: t("common.close"), style: "cancel" },
       {
         text: t("scheduled.cancel"),

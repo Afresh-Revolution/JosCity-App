@@ -1,6 +1,6 @@
+import { AppAlert } from "../AppDialog";
 import { useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -88,7 +88,7 @@ export default function WalletFundingModal({ visible, onClose, onSuccess }: Prop
 
   const continueFunding = () => {
     if (!Number.isFinite(amount) || amount < minFund) {
-      Alert.alert(t("wallet.amountTitle"), t("wallet.amountBody"));
+      AppAlert.alert(t("wallet.amountTitle"), t("wallet.amountBody"));
       return;
     }
     setPaystackFailed(false);
@@ -101,7 +101,7 @@ export default function WalletFundingModal({ visible, onClose, onSuccess }: Prop
     if (!started.success || !started.data?.authorization_url) {
       setSubmitting(false);
       setPaystackFailed(true);
-      Alert.alert(t("wallet.fundError"), started.message || t("wallet.paystackFailed"));
+      AppAlert.alert(t("wallet.fundError"), started.message || t("wallet.paystackFailed"));
       return;
     }
     await openCheckout(started.data.authorization_url);
@@ -109,11 +109,11 @@ export default function WalletFundingModal({ visible, onClose, onSuccess }: Prop
     setSubmitting(false);
     if (!verified.success) {
       setPaystackFailed(true);
-      Alert.alert(t("wallet.fundError"), verified.message || t("wallet.paystackFailed"));
+      AppAlert.alert(t("wallet.fundError"), verified.message || t("wallet.paystackFailed"));
       return;
     }
     onClose();
-    Alert.alert(t("wallet.fundSuccess"), t("wallet.fundSuccessBody", { amount: formatNaira(amount) }));
+    AppAlert.alert(t("wallet.fundSuccess"), t("wallet.fundSuccessBody", { amount: formatNaira(amount) }));
     await onSuccess();
   };
 
@@ -122,18 +122,18 @@ export default function WalletFundingModal({ visible, onClose, onSuccess }: Prop
     const started = await startSafehavenFunding(amount);
     if (!started.success || !started.data?.authorization_url) {
       setSubmitting(false);
-      Alert.alert(t("wallet.fundError"), started.message || t("wallet.tryAgain"));
+      AppAlert.alert(t("wallet.fundError"), started.message || t("wallet.tryAgain"));
       return;
     }
     await openCheckout(started.data.authorization_url);
     const verified = await verifySafehavenFunding(started.data.reference);
     setSubmitting(false);
     if (!verified.success) {
-      Alert.alert(t("wallet.fundError"), verified.message || t("wallet.tryAgain"));
+      AppAlert.alert(t("wallet.fundError"), verified.message || t("wallet.tryAgain"));
       return;
     }
     onClose();
-    Alert.alert(t("wallet.fundSuccess"), t("wallet.fundSuccessBody", { amount: formatNaira(amount) }));
+    AppAlert.alert(t("wallet.fundSuccess"), t("wallet.fundSuccessBody", { amount: formatNaira(amount) }));
     await onSuccess();
   };
 
@@ -151,7 +151,7 @@ export default function WalletFundingModal({ visible, onClose, onSuccess }: Prop
 
   const submitManual = async () => {
     if (!proofUri) {
-      Alert.alert(t("wallet.fundError"), t("wallet.proofNeeded"));
+      AppAlert.alert(t("wallet.fundError"), t("wallet.proofNeeded"));
       return;
     }
     setSubmitting(true);
@@ -161,11 +161,11 @@ export default function WalletFundingModal({ visible, onClose, onSuccess }: Prop
     });
     setSubmitting(false);
     if (!result.success) {
-      Alert.alert(t("wallet.fundError"), result.message || t("wallet.tryAgain"));
+      AppAlert.alert(t("wallet.fundError"), result.message || t("wallet.tryAgain"));
       return;
     }
     onClose();
-    Alert.alert(t("wallet.submitted"), t("wallet.submittedBody"));
+    AppAlert.alert(t("wallet.submitted"), t("wallet.submittedBody"));
     await onSuccess();
   };
 

@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
+import { createDeviceSession } from "../api/auth";
 import {
   biometricCopy,
   kindFromAuthTypes,
@@ -17,6 +18,11 @@ import {
 const ENABLED_KEY = "joscity.biometrics.enabled";
 const HINT_KEY = "joscity.biometrics.hint";
 const SECRET_KEY = "joscity.biometrics.secret";
+
+const secretOptions = {
+  requireAuthentication: true,
+  authenticationPrompt: "Unlock JOSCITY",
+} as const;
 
 export type BiometricStatus = {
   available: boolean;
@@ -72,7 +78,11 @@ export async function authenticateBiometrics(prompt: string): Promise<boolean> {
   }
 }
 
-export async function enableBiometricLogin(credentials: BiometricCredentials): Promise<{
+export async function enableBiometricLogin(input: {
+  email: string;
+  accountType: BiometricAccountType;
+  password: string;
+}): Promise<{
   success: boolean;
   message?: string;
 }> {
@@ -85,8 +95,17 @@ export async function enableBiometricLogin(credentials: BiometricCredentials): P
   }
   const ok = await authenticateBiometrics(`Turn on ${biometricCopy(status.kind, Platform.OS).noun} for JOSCITY`);
   if (!ok) return { success: false, message: "Biometric confirmation was cancelled." };
+  const minted = await createDeviceSession(input.password);
+  if (!minted.success || !minted.deviceToken) {
+    return { success: false, message: minted.message || "Could not turn on biometric sign-in." };
+  }
+  const credentials: BiometricCredentials = {
+    email: input.email,
+    accountType: input.accountType,
+    deviceToken: minted.deviceToken,
+  };
   try {
-    await SecureStore.setItemAsync(SECRET_KEY, serializeBiometricCredentials(credentials));
+    await SecureStore.setItemAsync(SECRET_KEY, serializeBiometricCredentials(credentials), secretOptions);
     await SecureStore.setItemAsync(HINT_KEY, serializeBiometricHint(credentials));
     await SecureStore.setItemAsync(ENABLED_KEY, "1");
     return { success: true };
@@ -101,14 +120,14 @@ export async function updateBiometricPassword(
 ): Promise<void> {
   const status = await getBiometricStatus();
   if (!status.enabled || !status.hint) return;
-  const secret = await readKey(SECRET_KEY);
-  const current = parseBiometricCredentials(secret);
+  const minted = await createDeviceSession(password);
+  if (!minted.success || !minted.deviceToken) return;
   const next: BiometricCredentials = {
     email: status.hint.email,
-    accountType: accountType || current?.accountType || status.hint.accountType,
-    password,
+    accountType: accountType || status.hint.accountType,
+    deviceToken: minted.deviceToken,
   };
-  await SecureStore.setItemAsync(SECRET_KEY, serializeBiometricCredentials(next));
+  await SecureStore.setItemAsync(SECRET_KEY, serializeBiometricCredentials(next), secretOptions);
   await SecureStore.setItemAsync(HINT_KEY, serializeBiometricHint(next));
 }
 
@@ -143,9 +162,15 @@ export async function unlockBiometricCredentials(): Promise<{
   if (!status.available || !status.enrolled) {
     return { success: false, message: `Set up ${biometricCopy(status.kind, Platform.OS).noun} on this device first.` };
   }
-  const ok = await authenticateBiometrics(biometricCopy(status.kind, Platform.OS).action);
-  if (!ok) return { success: false, message: "Biometric sign-in was cancelled." };
-  const secret = await readKey(SECRET_KEY);
+  let secret: string | null = null;
+  try {
+    secret = await SecureStore.getItemAsync(SECRET_KEY, {
+      ...secretOptions,
+      authenticationPrompt: biometricCopy(status.kind, Platform.OS).action,
+    });
+  } catch {
+    return { success: false, message: "Biometric sign-in was cancelled." };
+  }
   const credentials = parseBiometricCredentials(secret);
   if (!credentials) {
     await disableBiometricLogin();

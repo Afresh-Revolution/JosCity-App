@@ -1,5 +1,6 @@
+import { AppAlert } from "../AppDialog";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text } from "react-native";
+import { Pressable, StyleSheet, Text } from "react-native";
 import JosCityLoader from "../JosCityLoader";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { toggleBusinessFollow } from "../../api/marketplace";
@@ -38,7 +39,7 @@ export default function FollowBusinessButton({
     const next = await toggleBusinessFollow(userId);
     setBusy(false);
     if (next == null) {
-      Alert.alert(t("business.followFailed"));
+      AppAlert.alert(t("business.followFailed"));
       return;
     }
     setIsFollowing(next);
@@ -48,7 +49,7 @@ export default function FollowBusinessButton({
   const onPress = () => {
     if (busy) return;
     if (isFollowing) {
-      Alert.alert(t("business.unfollowTitle"), t("business.unfollowBody", { name }), [
+      AppAlert.alert(t("business.unfollowTitle"), t("business.unfollowBody", { name }), [
         { text: t("common.cancel"), style: "cancel" },
         {
           text: t("business.unfollow"),

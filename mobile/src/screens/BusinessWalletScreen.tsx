@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -141,24 +141,24 @@ export default function BusinessWalletScreen() {
   const submitWithdraw = async (method: "paystack" | "manual") => {
     const amount = Number(String(amountText).replace(/,/g, ""));
     if (!Number.isFinite(amount) || amount <= 0) {
-      Alert.alert(t("business.walletAmountTitle"), t("business.walletAmountBody"));
+      AppAlert.alert(t("business.walletAmountTitle"), t("business.walletAmountBody"));
       return;
     }
     if (amount > Number(wallet?.available || 0)) {
-      Alert.alert(t("business.walletInsufficientTitle"), t("business.walletInsufficientBody"));
+      AppAlert.alert(t("business.walletInsufficientTitle"), t("business.walletInsufficientBody"));
       return;
     }
     setSubmitting(true);
     const result = await withdrawBusinessWallet(amount, method);
     setSubmitting(false);
     if (!result.success) {
-      Alert.alert(t("business.walletWithdrawError"), result.message || t("business.walletTryAgain"));
+      AppAlert.alert(t("business.walletWithdrawError"), result.message || t("business.walletTryAgain"));
       return;
     }
     if (result.data) setWallet(result.data);
     setSheet(null);
     setAmountText("");
-    Alert.alert(
+    AppAlert.alert(
       method === "paystack" ? t("wallet.withdrawSent") : t("business.walletWithdrawSubmitted"),
       method === "paystack" ? t("wallet.withdrawSentBody") : t("business.walletWithdrawReview")
     );
@@ -170,7 +170,7 @@ export default function BusinessWalletScreen() {
     const holder = accountName.trim();
     const number = accountNumber.replace(/\s+/g, "");
     if (!name || !holder || number.length < 8) {
-      Alert.alert(t("business.walletPayoutNeeded"), t("business.walletPayoutNeededBody"));
+      AppAlert.alert(t("business.walletPayoutNeeded"), t("business.walletPayoutNeededBody"));
       return;
     }
     setSubmitting(true);
@@ -181,7 +181,7 @@ export default function BusinessWalletScreen() {
     });
     setSubmitting(false);
     if (!result.success || !result.data) {
-      Alert.alert(t("business.walletPayoutError"), result.message || t("business.walletTryAgain"));
+      AppAlert.alert(t("business.walletPayoutError"), result.message || t("business.walletTryAgain"));
       return;
     }
     setWallet(result.data);

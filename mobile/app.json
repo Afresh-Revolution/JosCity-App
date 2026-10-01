@@ -2,7 +2,7 @@
   "expo": {
     "name": "JosCity",
     "slug": "joscity",
-    "version": "1.0.5",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "joscity",
@@ -22,7 +22,6 @@
       "entitlements": {
         "com.apple.developer.nfc.readersession.formats": ["TAG"]
       },
-      "associatedDomains": ["applinks:joscity.com", "applinks:www.joscity.com"],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NFCReaderUsageDescription": "JosCity uses NFC only while you tap your CBrilliance card to pay for a marketplace order. The card tag is sent to JosCity to verify the payment. JosCity does not store your card number or PIN on this device.",

@@ -1,4 +1,5 @@
-import { Alert, Linking } from "react-native";
+import { AppAlert } from "../components/AppDialog";
+import { Linking } from "react-native";
 import { useRouter } from "expo-router";
 import {
   eventId,
@@ -19,7 +20,7 @@ export async function openExploreEvent(
     try {
       await Linking.openURL(url);
     } catch {
-      Alert.alert("Gatewav", "Could not open this event.");
+      AppAlert.alert("Gatewav", "Could not open this event.");
     }
     return;
   }

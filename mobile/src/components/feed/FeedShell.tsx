@@ -32,6 +32,7 @@ function toBusinessTab(tab: FeedTab): BusinessTab {
   if (tab === "overview") return "overview";
   if (tab === "manage") return "manage";
   if (tab === "messages") return "messages";
+  if (tab === "market") return "market";
   if (tab === "profile") return "business";
   return "feed";
 }
@@ -159,7 +160,7 @@ export default function FeedShell({
               unreadCount={agentFeed ? 0 : unreadCount}
               searchActive={searchActive}
               onSearch={onSearch}
-              profileEntry={mode === "personal"}
+              profileEntry={mode === "personal" || mode === "business"}
               onNotifications={() => router.push((agentFeed || mode === "agent" ? "/agents/notifications" : "/notifications") as never)}
             />
           )}

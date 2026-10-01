@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -331,7 +331,7 @@ export default function MemberProfileScreen() {
     const userId = Number(profile?.user_id || 0);
     if (!userId || blockBusy || owner) return;
     if (blocked) {
-      Alert.alert(t("member.unblockTitle"), t("member.unblockBody", { name: profile?.name || "" }), [
+      AppAlert.alert(t("member.unblockTitle"), t("member.unblockBody", { name: profile?.name || "" }), [
         { text: t("common.cancel"), style: "cancel" },
         {
           text: t("member.unblock"),
@@ -341,7 +341,7 @@ export default function MemberProfileScreen() {
               const result = await unblockUser(userId);
               setBlockBusy(false);
               if (!result.success) {
-                Alert.alert(t("member.unblockFailed"), result.message);
+                AppAlert.alert(t("member.unblockFailed"), result.message);
                 return;
               }
               setBlocked(false);
@@ -352,7 +352,7 @@ export default function MemberProfileScreen() {
       ]);
       return;
     }
-    Alert.alert(t("member.blockTitle"), t("member.blockBody", { name: profile?.name || "" }), [
+    AppAlert.alert(t("member.blockTitle"), t("member.blockBody", { name: profile?.name || "" }), [
       { text: t("common.cancel"), style: "cancel" },
       {
         text: t("member.block"),
@@ -363,7 +363,7 @@ export default function MemberProfileScreen() {
             const result = await blockUser(userId);
             setBlockBusy(false);
             if (!result.success) {
-              Alert.alert(t("member.blockFailed"), result.message);
+              AppAlert.alert(t("member.blockFailed"), result.message);
               return;
             }
             setBlocked(true);
@@ -727,7 +727,13 @@ export default function MemberProfileScreen() {
                       key={post.post_id}
                       post={post as FeedPost}
                       viewerId={viewerId}
-                      onDeleted={(deletedId) =>
+                      onCollaborationLeft={(postId) => {
+                    setData((current) => current && Number(current.profile.user_id) === viewerId
+                      ? { ...current, posts: current.posts.filter((item) => Number(item.post_id) !== postId) }
+                      : current);
+                    void load();
+                  }}
+                  onDeleted={(deletedId) =>
                         setData((current) =>
                           current
                             ? {

@@ -2,7 +2,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MarketplaceListing } from "../../api/marketplace";
 import type { Palette } from "../../theme/colors";
-import { absoluteUrl, formatNaira } from "../../utils/format";
+import { absoluteUrl } from "../../utils/format";
+import ListingPrice from "./ListingPrice";
 import ListingThumb from "./ListingThumb";
 
 type Props = {
@@ -69,7 +70,14 @@ export default function ListingCard({
         <Text style={styles.title} numberOfLines={2}>
           {item.title}
         </Text>
-        <Text style={styles.price}>{formatNaira(item.price)}</Text>
+        <ListingPrice
+          price={item.price}
+          salePrice={item.sale_price}
+          discountPercent={item.discount_percent}
+          offerText={item.offer_text}
+          colors={colors}
+          size="sm"
+        />
         <View style={styles.shopRow}>
           <Ionicons name="storefront-outline" size={12} color={colors.textMuted} />
           <Text style={styles.shop} numberOfLines={1}>

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
-  Alert,
   AppState,
   Keyboard,
   KeyboardAvoidingView,
@@ -18,6 +17,7 @@ import {
   ScrollView,
 } from "react-native-gesture-handler";
 import JosCityLoader from "../components/JosCityLoader";
+import { AppAlert } from "../components/AppDialog";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -390,7 +390,7 @@ export default function ChatThreadScreen() {
     async (message: ChatMessage) => {
       const result = await deleteChatMessage(message.messageId);
       if (!result?.isDeleted) {
-        Alert.alert("", t("messages.deleteMessageFailed"));
+        AppAlert.alert(t("messages.deleteMessageFailed"));
         return;
       }
       setMessages((prev) =>
@@ -681,7 +681,7 @@ export default function ChatThreadScreen() {
                     setMenuMessage(null);
                     if (!target) return;
                     setTimeout(() => {
-                      Alert.alert(
+                      AppAlert.alert(
                         t("messages.deleteMessage"),
                         t("messages.deleteMessageConfirm"),
                         [
@@ -801,7 +801,7 @@ function VoiceRecordBar({
       const permission = await requestRecordingPermissionsAsync();
       if (cancelled) return;
       if (!permission.granted) {
-        Alert.alert("", t("messages.voicePermission"));
+        AppAlert.alert(t("messages.voicePermission"));
         onCancelRef.current();
         return;
       }
@@ -813,7 +813,7 @@ function VoiceRecordBar({
         recorder.record();
       } catch {
         if (cancelled) return;
-        Alert.alert("", t("messages.voiceFailed"));
+        AppAlert.alert(t("messages.voiceFailed"));
         onCancelRef.current();
       }
     })();

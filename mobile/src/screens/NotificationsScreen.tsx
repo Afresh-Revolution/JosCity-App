@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -9,14 +8,16 @@ import {
   View,
 } from "react-native";
 import JosCityLoader from "../components/JosCityLoader";
+import { AppAlert } from "../components/AppDialog";
 import { ScrollView as GestureScrollView } from "react-native-gesture-handler";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import FadeIn from "../components/FadeIn";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
 import FriendRequestActions from "../components/notifications/FriendRequestActions";
 import CollaborationInviteActions from "../components/notifications/CollaborationInviteActions";
+import { leaveCollaboration } from "../api/feed";
 import SwipeableNotification from "../components/notifications/SwipeableNotification";
 import {
   deleteAllNotifications,
@@ -28,6 +29,7 @@ import {
   type ApiNotification,
 } from "../api/notifications";
 import { useMembershipSettings } from "../hooks/useMembershipSettings";
+import { useI18n } from "../i18n/I18nProvider";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
 import { ensureFriendGraph } from "../state/friendGraph";
 import type { Palette } from "../theme/colors";
@@ -58,6 +60,7 @@ type SectionKey = "TODAY" | "EARLIER" | "OLDER";
 
 export default function NotificationsScreen() {
   const { colors } = useTheme();
+  const { t } = useI18n();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const allowed = useRequirePersonalAccount();
@@ -71,15 +74,16 @@ export default function NotificationsScreen() {
   const [selected, setSelected] = useState<number[]>([]);
   const [openId, setOpenId] = useState<number | null>(null);
 
-  const load = useCallback(async (mode: "replace" | "refresh" = "replace") => {
+  const loadedOnce = useRef(false);
+  const load = useCallback(async (mode: "replace" | "refresh" | "silent" = "replace") => {
     if (mode === "refresh") setRefreshing(true);
-    else setLoading(true);
+    else if (mode !== "silent") setLoading(true);
     try {
       const rows = await getNotifications();
       setItems(uniqueNotifications(rows));
     } catch {
       if (mode !== "refresh") {
-        Alert.alert("Notifications", "Could not load notifications.");
+        AppAlert.alert("Notifications", "Could not load notifications.");
       }
     } finally {
       setLoading(false);
@@ -87,11 +91,14 @@ export default function NotificationsScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!allowed) return;
-    void load();
-    void ensureFriendGraph();
-  }, [allowed, load]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!allowed) return;
+      void load(loadedOnce.current ? "silent" : "replace");
+      loadedOnce.current = true;
+      void ensureFriendGraph();
+    }, [allowed, load])
+  );
 
   const stacked = useMemo(() => stackMessageNotifications(items), [items]);
   const unreadCount = items.filter((item) => !item.is_read).length;
@@ -127,7 +134,7 @@ export default function NotificationsScreen() {
     removeLocal(ids);
     void (ids.length > 1 ? deleteNotifications(ids) : deleteNotification(id)).then((ok) => {
       if (!ok) {
-        Alert.alert("Could not delete this notification.");
+        AppAlert.alert("Could not delete this notification.");
         void load("refresh");
       }
     });
@@ -220,7 +227,7 @@ export default function NotificationsScreen() {
     setItems((current) => current.map((item) => ({ ...item, is_read: true })));
     void markAllNotificationsRead().then((ok) => {
       if (!ok) {
-        Alert.alert("Could not mark notifications as read.");
+        AppAlert.alert("Could not mark notifications as read.");
         void load("refresh");
       }
     });
@@ -228,7 +235,7 @@ export default function NotificationsScreen() {
 
   const onClearAll = () => {
     if (!items.length) return;
-    Alert.alert("Clear all", "Remove every notification?", [
+    AppAlert.alert("Clear all", "Remove every notification?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Clear all",
@@ -241,7 +248,7 @@ export default function NotificationsScreen() {
           void deleteAllNotifications().then((ok) => {
             if (!ok) {
               setItems(snapshot);
-              Alert.alert("Could not clear notifications.");
+              AppAlert.alert("Could not clear notifications.");
             }
           });
         },
@@ -251,7 +258,7 @@ export default function NotificationsScreen() {
 
   const onDeleteSelected = () => {
     if (!selected.length) return;
-    Alert.alert("Delete", `Delete ${selected.length} notification${selected.length === 1 ? "" : "s"}?`, [
+    AppAlert.alert("Delete", `Delete ${selected.length} notification${selected.length === 1 ? "" : "s"}?`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
@@ -262,7 +269,7 @@ export default function NotificationsScreen() {
           setSelecting(false);
           void deleteNotifications(ids).then((ok) => {
             if (!ok) {
-              Alert.alert("Could not delete the selected notifications.");
+              AppAlert.alert("Could not delete the selected notifications.");
               void load("refresh");
             }
           });
@@ -515,17 +522,55 @@ export default function NotificationsScreen() {
                             <CollaborationInviteActions
                               postId={Number(item.node_id || 0)}
                               onResolved={(accepted) => {
-                                if (!item.is_read) void markNotificationRead(item.id);
-                                if (!accepted) onDeleteOne(item.id);
-                                else {
-                                  setItems((current) =>
-                                    current.map((row) =>
-                                      row.id === item.id ? { ...row, is_read: true } : row
-                                    )
-                                  );
+                                if (!accepted) {
+                                  removeLocal(item.stackIds?.length ? item.stackIds : [item.id]);
+                                  return;
                                 }
+                                const actor = notificationActorName(item) || "Someone";
+                                setItems((current) =>
+                                  current.map((row) =>
+                                    row.id === item.id
+                                      ? {
+                                          ...row,
+                                          is_read: true,
+                                          action: "collaboration_invite_accepted",
+                                          title: t("collab.youAccepted", { name: actor }),
+                                        }
+                                      : row
+                                  )
+                                );
                               }}
                             />
+                          ) : null}
+                          {!selecting &&
+                          String(item.action || "").toLowerCase() === "collaboration_invite_accepted" ? (
+                            <Pressable
+                              onPress={() => {
+                                const postId = Number(item.node_id || 0);
+                                if (!postId) return;
+                                AppAlert.alert(t("collab.cancel"), t("collab.cancelConfirm"), [
+                                  { text: t("collab.keep"), style: "cancel" },
+                                  {
+                                    text: t("collab.cancel"),
+                                    style: "destructive",
+                                    onPress: () => {
+                                      void leaveCollaboration(postId).then((ok) => {
+                                        if (!ok) {
+                                          AppAlert.alert(t("collab.cancelFailed"));
+                                          return;
+                                        }
+                                        removeLocal(item.stackIds?.length ? item.stackIds : [item.id]);
+                                      });
+                                    },
+                                  },
+                                ]);
+                              }}
+                              style={styles.cancelCollab}
+                              accessibilityRole="button"
+                              accessibilityLabel={t("collab.cancel")}
+                            >
+                              <Text style={styles.cancelCollabText}>{t("collab.cancel")}</Text>
+                            </Pressable>
                           ) : null}
                         </View>
                       </View>
@@ -713,6 +758,15 @@ function makeStyles(colors: Palette) {
     fontSize: 13,
     lineHeight: 18,
     color: colors.textMuted,
+  },
+  cancelCollab: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+  },
+  cancelCollabText: {
+    fontFamily: "Montserrat_600SemiBold",
+    fontSize: 13,
+    color: colors.error,
   },
   when: {
     marginTop: 8,

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   BackHandler,
   Dimensions,
   findNodeHandle,
@@ -19,6 +18,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { AppAlert } from "../components/AppDialog";
 import JosCityLoader from "../components/JosCityLoader";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -30,6 +30,7 @@ import CbcTapPayPanel from "../components/wallet/CbcTapPayPanel";
 import { NfcReadError, prepareCardReader, readCardTap, type NfcCardRead } from "../nfc/readCbcCard";
 import { ErrorBanner, showNotice } from "../components/AppNotice";
 import FeedShell, { TAB_BAR_SPACE } from "../components/feed/FeedShell";
+import ListingPrice, { chargedAmount } from "../components/marketplace/ListingPrice";
 import ReportSheet from "../components/ReportSheet";
 import { getWallet, getWalletFunding, type WalletFundingOptions } from "../api/account";
 import {
@@ -84,6 +85,13 @@ function orderPayLabel(order: Pick<ListingCheckoutOrder, "items">) {
   return titles[0] || "Your order";
 }
 
+function listingNavTab(source: string, business: boolean): FeedTab {
+  const key = source.trim().toLowerCase();
+  if (key === "explore" || key === "discover" || key === "feed") return "explore";
+  if (business && (key === "direct" || key === "manage" || key === "catalog" || !key)) return "manage";
+  return "market";
+}
+
 function placeLabel(value?: string | null): string {
   const id = String(value || "").trim();
   return SERVICE_PLACES.find((row) => row.id === id)?.label || id;
@@ -127,7 +135,7 @@ export default function ListingDetailScreen() {
   const source = String(Array.isArray(params.source) ? params.source[0] : params.source || "direct");
 
   const [ready, setReady] = useState(false);
-  const [tab, setTab] = useState<FeedTab>("explore");
+  const [tab, setTab] = useState<FeedTab>(() => listingNavTab(source, false));
   const [isBusiness, setIsBusiness] = useState(false);
   const [userId, setUserId] = useState(0);
   const [user, setUser] = useState<StoredUser | null>(null);
@@ -145,7 +153,7 @@ export default function ListingDetailScreen() {
   const keyboard = useKeyboardOverlap();
   const keyboardRef = useRef(keyboard);
   keyboardRef.current = keyboard;
-  const sheetLift = Platform.OS === "android" ? keyboard.overlap : 0;
+  const sheetLift = keyboard.screenCover;
 
   const revealPin = (event?: NativeSyntheticEvent<TextInputFocusEventData>) => {
     const target = event?.nativeEvent.target;
@@ -157,8 +165,8 @@ export default function ListingDetailScreen() {
       }
       UIManager.measureInWindow(handle, (_x, y, _w, height) => {
         const latest = keyboardRef.current;
-        const covered = Math.max(latest.overlap, latest.keyboardHeight, 280);
-        const limit = Dimensions.get("window").height - covered - 24;
+        const covered = Math.max(latest.screenCover, latest.keyboardHeight, 280);
+        const limit = Dimensions.get("screen").height - covered - 20;
         const bottom = y + height;
         if (bottom > limit) {
           sheetScrollRef.current?.scrollTo({
@@ -222,8 +230,9 @@ export default function ListingDetailScreen() {
         }
         const [type, stored] = await Promise.all([getAccountType(), getUser()]);
         if (cancelled) return;
-        setIsBusiness(isBusinessAccountType(type));
-        setTab(isBusinessAccountType(type) ? "manage" : "explore");
+        const business = isBusinessAccountType(type);
+        setIsBusiness(business);
+        setTab(listingNavTab(source, business));
         setUserId(Number(stored?.user_id || 0));
         setUser(stored);
         setFullName((current) => current || buyerName(stored));
@@ -244,7 +253,7 @@ export default function ListingDetailScreen() {
       return () => {
         cancelled = true;
       };
-    }, [router])
+    }, [router, source])
   );
 
   const load = useCallback(async () => {
@@ -292,7 +301,12 @@ export default function ListingDetailScreen() {
         : t("listing.sessions")
     : t("listing.qty");
   const cta = isService ? t("listing.book") : t("listing.buy");
-  const total = (listing?.price || 0) * qty;
+  const unitPrice = chargedAmount(
+    listing?.price || 0,
+    listing?.sale_price,
+    listing?.discount_percent
+  );
+  const total = unitPrice * qty;
   const sellerName = payeeName(listing, orders?.[0] || null);
 
   const clearFieldError = (key: string) => {
@@ -309,7 +323,7 @@ export default function ListingDetailScreen() {
     const phoneValue = phone.trim() || String(user?.user_phone || user?.phone || "").trim();
     const emailValue = email.trim() || String(user?.user_email || user?.email || "").trim();
     if (!name || !phoneValue || !emailValue) {
-      Alert.alert(
+      AppAlert.alert(
         t("listing.checkoutMissingGuide"),
         "Add your name, phone, and email in your profile, then try again."
       );
@@ -325,11 +339,11 @@ export default function ListingDetailScreen() {
     if (!listing) return;
     if (owner) return;
     if (isBusiness) {
-      Alert.alert(t("listing.personalOnlyTitle"), t("listing.personalOnlyBody"));
+      AppAlert.alert(t("listing.personalOnlyTitle"), t("listing.personalOnlyBody"));
       return;
     }
     if (unavailable) {
-      Alert.alert(t("listing.unavailableTitle"), t("listing.unavailableBody"));
+      AppAlert.alert(t("listing.unavailableTitle"), t("listing.unavailableBody"));
       return;
     }
     setCheckoutIntent(intent);
@@ -342,9 +356,8 @@ export default function ListingDetailScreen() {
     setPreferredAt("");
     setNotes("");
 
-    // Pay-first only for CBC NFC pay on services.
-    if (isService && intent === "tap") {
-      void startServiceTapPay();
+    if (intent === "tap") {
+      startTapPay();
       return;
     }
 
@@ -456,12 +469,12 @@ export default function ListingDetailScreen() {
     const result = await payListingCbcCard(order.id, details);
     setPayBusy(false);
     if (!result.success) {
-      Alert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"));
+      AppAlert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"));
       return;
     }
     markOrderPaid(order);
     if (!isService) {
-      Alert.alert(
+      AppAlert.alert(
         t("listing.paySuccess"),
         result.data?.cbc_amount
           ? t("listing.cbcPaySuccessBody", {
@@ -478,7 +491,7 @@ export default function ListingDetailScreen() {
   const payWithWallet = async (order: ListingCheckoutOrder) => {
     if (payBusy || tapBusy) return;
     if (walletBalance < order.totalNaira) {
-      Alert.alert(t("listing.payError"), t("listing.walletNeedFund"), [
+      AppAlert.alert(t("listing.payError"), t("listing.walletNeedFund"), [
         { text: t("common.cancel"), style: "cancel" },
         { text: t("listing.openWallet"), onPress: () => router.push("/profile/wallet") },
       ]);
@@ -488,7 +501,7 @@ export default function ListingDetailScreen() {
     const result = await payListingWallet(order.id);
     setPayBusy(false);
     if (!result.success) {
-      Alert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"), [
+      AppAlert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"), [
         { text: t("common.cancel"), style: "cancel" },
         { text: t("listing.openWallet"), onPress: () => router.push("/profile/wallet") },
       ]);
@@ -497,7 +510,7 @@ export default function ListingDetailScreen() {
     setWalletBalance((current) => Math.max(0, current - order.totalNaira));
     markOrderPaid(order);
     if (!isService) {
-      Alert.alert(
+      AppAlert.alert(
         t("listing.paySuccess"),
         t("listing.paySuccessBody", { amount: formatNaira(order.totalNaira) })
       );
@@ -510,15 +523,33 @@ export default function ListingDetailScreen() {
     await shareEntity(
       "listing",
       listing.id,
-      `${listing.title} · ${formatNaira(listing.price)}`,
+      `${listing.title} · ${formatNaira(chargedAmount(listing.price, listing.sale_price, listing.discount_percent))}`,
       `https://joscity.com/listing/${listing.id}`
     );
   };
 
-  const startServiceTapPay = () => {
+  const startTapPay = () => {
     if (!listing || saving || readerAway || payBusy || unavailable || owner || isBusiness) return;
     const contact = profileContactReady();
     if (!contact) return;
+    const delivery = isService
+      ? {
+          address: address.trim() || "Service booking",
+          city: city.trim() || "Jos",
+          state: stateName.trim() || "Plateau",
+        }
+      : {
+          address:
+            address.trim() ||
+            String(user?.address || user?.user_address || user?.location || "").trim(),
+          city: city.trim() || String(user?.city || "").trim(),
+          state: stateName.trim() || String(user?.state || "").trim(),
+        };
+    if (!isService && (!delivery.address || !delivery.city || !delivery.state)) {
+      setSheet(true);
+      setFormError(t("listing.checkoutMissingGuide"));
+      return;
+    }
 
     const id = readSerial.current + 1;
     const scan = readCardTap(new AbortController().signal);
@@ -534,18 +565,18 @@ export default function ListingDetailScreen() {
       fullName: contact.fullName,
       phone: contact.phone,
       email: contact.email,
-      address: "Service booking",
-      city: "Jos",
-      state: "Plateau",
-      notes: "",
-      preferredAt: "",
+      address: delivery.address,
+      city: delivery.city,
+      state: delivery.state,
+      notes: notes.trim(),
+      preferredAt: preferredAt.trim(),
     });
     void (async () => {
       try {
         const tag = await scan;
         const result = await orderPromise;
         if (!result.success || !result.data?.orders?.length) {
-          Alert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"));
+          AppAlert.alert(t("listing.payError"), result.message || t("listing.checkoutFailed"));
           return;
         }
         setOrders(result.data.orders);
@@ -561,7 +592,7 @@ export default function ListingDetailScreen() {
               ? caught.message
               : "Could not read the card. Try again.";
         setPendingError({ id, message });
-        Alert.alert(t("explore.cartTap"), message);
+        AppAlert.alert(t("explore.cartTap"), message);
       } finally {
         setReaderAway(false);
         setTapBusy(false);
@@ -570,7 +601,7 @@ export default function ListingDetailScreen() {
   };
 
   const tapFromListing = () => {
-    startServiceTapPay();
+    startTapPay();
   };
 
   if (!ready || (loading && !listing)) {
@@ -620,11 +651,7 @@ export default function ListingDetailScreen() {
           if (!saving && !payBusy && !tapBusy) setSheet(false);
         }}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.sheetWrap}
-          onLayout={keyboard.onContainerLayout}
-        >
+        <KeyboardAvoidingView style={styles.sheetWrap} onLayout={keyboard.onContainerLayout}>
           <Pressable
             style={styles.sheetDim}
             onPress={() => !saving && !payBusy && !tapBusy && setSheet(false)}
@@ -633,7 +660,10 @@ export default function ListingDetailScreen() {
             style={[
               styles.sheet,
               sheetLift > 0
-                ? { marginBottom: sheetLift, maxHeight: Dimensions.get("window").height - sheetLift - 12 }
+                ? {
+                    marginBottom: sheetLift,
+                    maxHeight: Math.max(240, Dimensions.get("screen").height - sheetLift - 12),
+                  }
                 : null,
             ]}
           >
@@ -641,6 +671,7 @@ export default function ListingDetailScreen() {
             {orders?.length ? (
               <ScrollView
                 ref={sheetScrollRef}
+                style={styles.sheetScroll}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.sheetBody}
                 onScroll={(event) => {
@@ -694,7 +725,7 @@ export default function ListingDetailScreen() {
                               amountNaira={order.totalNaira}
                               disabled={payBusy || tapBusy}
                               onBusyChange={setTapBusy}
-                              onPinFocus={() => revealPin()}
+                              onPinFocus={revealPin}
                               onRequestRead={requestCardRead}
                               pendingRead={pendingRead}
                               pendingError={pendingError}
@@ -870,12 +901,25 @@ export default function ListingDetailScreen() {
                     />
                   </>
                 )}
-                <AppButton
-                  label={saving ? t("listing.sending") : `${cta} · ${formatNaira(total)}`}
-                  onPress={() => void submit()}
-                  loading={saving}
-                  disabled={saving}
-                />
+                <View style={styles.payRow}>
+                  <AppButton
+                    style={styles.payHalf}
+                    label={saving ? t("listing.sending") : `${cta} · ${formatNaira(total)}`}
+                    onPress={() => void submit()}
+                    loading={saving}
+                    disabled={saving || tapBusy || readerAway}
+                  />
+                  <AppButton
+                    style={styles.payHalf}
+                    label={tapBusy || readerAway ? t("explore.cartPaying") : t("explore.cartTap")}
+                    onPress={() => {
+                      if (!validateCheckoutForm()) return;
+                      startTapPay();
+                    }}
+                    loading={tapBusy || readerAway}
+                    disabled={saving || tapBusy || readerAway}
+                  />
+                </View>
               </ScrollView>
             )}
           </View>
@@ -906,7 +950,11 @@ export default function ListingDetailScreen() {
                       accessibilityRole="imagebutton"
                       accessibilityLabel={t("listing.openPhoto")}
                     >
-                      <Image source={{ uri }} style={styles.hero} />
+                      <Image
+                        source={{ uri }}
+                        resizeMode="contain"
+                        style={[styles.hero, { width: screenW - 32 }]}
+                      />
                     </Pressable>
                   ))}
                 </ScrollView>
@@ -927,10 +975,14 @@ export default function ListingDetailScreen() {
                 {listing.category ? <Text style={styles.category}>{listing.category}</Text> : null}
               </View>
               <Text style={styles.title}>{listing.title}</Text>
-              <Text style={styles.price}>
-                {formatNaira(listing.price)}
-                {listing.unit ? ` · ${listing.unit}` : ""}
-              </Text>
+              <ListingPrice
+                price={listing.price}
+                salePrice={listing.sale_price}
+                discountPercent={listing.discount_percent}
+                offerText={listing.offer_text}
+                unit={listing.unit}
+                colors={colors}
+              />
               {listing.description ? <Text selectable style={styles.body}>{listing.description}</Text> : null}
             </FadeIn>
 
@@ -1037,37 +1089,28 @@ export default function ListingDetailScreen() {
                 <Text style={styles.total}>
                   {t("listing.total")}: {formatNaira(total)}
                 </Text>
-                {isService ? (
-                  <View style={styles.payRow}>
-                    <AppButton
-                      style={styles.payHalf}
-                      label={
-                        unavailable ? t("listing.unavailable") : cta
-                      }
-                      onPress={() => openCheckout("book")}
-                      disabled={saving || readerAway || tapBusy}
-                    />
-                    <AppButton
-                      style={styles.payHalf}
-                      label={tapBusy || readerAway ? t("explore.cartPaying") : t("explore.cartTap")}
-                      onPress={() => openCheckout("tap")}
-                      loading={tapBusy || readerAway}
-                      disabled={unavailable || saving || readerAway || tapBusy}
-                    />
-                  </View>
-                ) : (
+                <View style={styles.payRow}>
                   <AppButton
+                    style={styles.payHalf}
                     label={
-                      listing.is_sold_out || (listing.quantity_tracked && (listing.stock ?? 0) <= 0)
+                      !isService &&
+                      (listing.is_sold_out || (listing.quantity_tracked && (listing.stock ?? 0) <= 0))
                         ? t("listing.soldOut")
                         : unavailable
                           ? t("listing.unavailable")
                           : cta
                     }
                     onPress={() => openCheckout("book")}
-                    disabled={saving || readerAway || tapBusy}
+                    disabled={unavailable || saving || readerAway || tapBusy}
                   />
-                )}
+                  <AppButton
+                    style={styles.payHalf}
+                    label={tapBusy || readerAway ? t("explore.cartPaying") : t("explore.cartTap")}
+                    onPress={() => openCheckout("tap")}
+                    loading={tapBusy || readerAway}
+                    disabled={unavailable || saving || readerAway || tapBusy}
+                  />
+                </View>
               </FadeIn>
             ) : (
               <FadeIn delay={160}>
@@ -1190,14 +1233,13 @@ function makeStyles(colors: Palette) {
       marginBottom: 16,
     },
     hero: {
-      width: 320,
-      height: 220,
+      aspectRatio: 1,
       borderRadius: 18,
-      marginRight: 10,
       backgroundColor: colors.sheet,
     },
     heroFallback: {
-      height: 180,
+      width: "100%",
+      aspectRatio: 1,
       borderRadius: 18,
       backgroundColor: colors.sheet,
       alignItems: "center",
@@ -1364,6 +1406,7 @@ function makeStyles(colors: Palette) {
       zIndex: 2,
       elevation: 8,
       maxHeight: "88%",
+      overflow: "hidden",
       backgroundColor: colors.background,
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
@@ -1378,6 +1421,7 @@ function makeStyles(colors: Palette) {
       marginTop: 10,
       marginBottom: 8,
     },
+    sheetScroll: { flexGrow: 0, flexShrink: 1 },
     sheetBody: {
       paddingHorizontal: 16,
       paddingBottom: 28,

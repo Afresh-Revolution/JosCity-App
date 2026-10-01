@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Animated,
-  Dimensions,
+  useWindowDimensions,
   Easing,
   Pressable,
   StyleSheet,
@@ -19,7 +19,6 @@ import type { Palette } from "../../theme/colors";
 import { useTheme } from "../../theme/ThemeProvider";
 
 const REVEAL = 88;
-const SCREEN = Dimensions.get("window").width;
 
 type Props = {
   children: ReactNode;
@@ -46,6 +45,7 @@ export default function SwipeableChatRow({
   onDelete,
   onToggleMute,
 }: Props) {
+  const { width: screenWidth } = useWindowDimensions();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -56,18 +56,33 @@ export default function SwipeableChatRow({
   const currentX = useRef(0);
   const rowHeight = useRef(0);
   const deleting = useRef(false);
+  const dragging = useRef(false);
   const muteFired = useRef(false);
+  const enabledRef = useRef(enabled);
+  const screenWidthRef = useRef(screenWidth);
+  const onOpenRef = useRef(onOpen);
+  const onCloseRef = useRef(onClose);
+  const onDeleteRef = useRef(onDelete);
+  const onToggleMuteRef = useRef(onToggleMute);
+  enabledRef.current = enabled;
+  screenWidthRef.current = screenWidth;
+  onOpenRef.current = onOpen;
+  onCloseRef.current = onClose;
+  onDeleteRef.current = onDelete;
+  onToggleMuteRef.current = onToggleMute;
   const [collapsing, setCollapsing] = useState(false);
 
   useEffect(() => {
-    if (!enabled || (!open && currentX.current !== 0 && !deleting.current)) {
+    if (dragging.current || deleting.current) return;
+    if (!enabled || (!open && currentX.current !== 0)) {
       startX.current = 0;
       currentX.current = 0;
+      muteFired.current = false;
       Animated.spring(translateX, {
         toValue: 0,
         useNativeDriver: true,
-        bounciness: 4,
-        speed: 16,
+        bounciness: 0,
+        speed: 20,
       }).start();
     }
   }, [enabled, open, translateX]);
@@ -79,7 +94,7 @@ export default function SwipeableChatRow({
     setCollapsing(true);
     Animated.parallel([
       Animated.timing(translateX, {
-        toValue: -SCREEN,
+        toValue: -screenWidthRef.current,
         duration: 220,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
@@ -95,7 +110,7 @@ export default function SwipeableChatRow({
         easing: Easing.inOut(Easing.cubic),
         useNativeDriver: false,
       }),
-    ]).start(() => onDelete());
+    ]).start(() => onDeleteRef.current());
   };
 
   const snapTo = (value: number) => {
@@ -104,61 +119,85 @@ export default function SwipeableChatRow({
     Animated.spring(translateX, {
       toValue: value,
       useNativeDriver: true,
-      bounciness: 6,
-      speed: 16,
+      bounciness: 0,
+      speed: 20,
     }).start();
-    if (value < 0) onOpen();
-    else onClose();
+    if (value < 0) onOpenRef.current();
+    else onCloseRef.current();
   };
 
-  const fireMuteNow = () => {
-    if (muteFired.current || deleting.current) return;
+  const snapToRef = useRef(snapTo);
+  const animateDeleteRef = useRef(animateDelete);
+  snapToRef.current = snapTo;
+  animateDeleteRef.current = animateDelete;
+  const settled = useRef(false);
+  const lastMuteAt = useRef(0);
+
+  const toggleMuteOnce = useCallback(() => {
+    const now = Date.now();
+    if (now - lastMuteAt.current < 500) return;
+    lastMuteAt.current = now;
     muteFired.current = true;
-    onToggleMute();
-    snapTo(0);
-  };
+    onToggleMuteRef.current();
+  }, []);
 
-  const onGestureEvent = (event: PanGestureHandlerGestureEvent) => {
-    if (!enabled || deleting.current) return;
-    const next = Math.min(REVEAL, Math.max(-SCREEN, startX.current + event.nativeEvent.translationX));
+  const onGestureEvent = useCallback((event: PanGestureHandlerGestureEvent) => {
+    if (!enabledRef.current || deleting.current || settled.current) return;
+    const next = Math.min(
+      REVEAL,
+      Math.max(-screenWidthRef.current, startX.current + event.nativeEvent.translationX)
+    );
     currentX.current = next;
     translateX.setValue(next);
-    // Mute as soon as the right-slide crosses the reveal — no need to release.
-    if (!muteFired.current && next >= REVEAL * 0.55) {
-      fireMuteNow();
-    }
-  };
+    // Mute as soon as the action is uncovered. A short lock stops a second toggle
+    // if this render restarts the gesture before the finger lifts.
+    if (next >= REVEAL * 0.72) toggleMuteOnce();
+  }, [toggleMuteOnce, translateX]);
 
-  const onHandlerStateChange = (event: PanGestureHandlerStateChangeEvent) => {
-    if (!enabled || deleting.current) return;
+  const onHandlerStateChange = useCallback((event: PanGestureHandlerStateChangeEvent) => {
+    if (deleting.current) return;
     const { state, translationX, velocityX } = event.nativeEvent;
     if (state === State.BEGAN) {
-      startX.current = currentX.current;
+      dragging.current = true;
+      settled.current = false;
       muteFired.current = false;
+      translateX.stopAnimation();
+      startX.current = currentX.current;
+      translateX.setValue(startX.current);
       return;
     }
-    if (state !== State.END && state !== State.CANCELLED) return;
+    if (state !== State.END && state !== State.CANCELLED && state !== State.FAILED) return;
+    if (settled.current) return;
+    settled.current = true;
+    dragging.current = false;
 
-    if (muteFired.current) {
-      snapTo(0);
+    const released = Math.min(
+      REVEAL,
+      Math.max(-screenWidthRef.current, startX.current + translationX)
+    );
+
+    // A scroll that steals the touch closes the row and must not mute.
+    if (state === State.CANCELLED || state === State.FAILED || !enabledRef.current) {
+      snapToRef.current(0);
       return;
     }
 
-    const next = Math.min(REVEAL, Math.max(-SCREEN, startX.current + translationX));
-    if (next < -SCREEN * 0.45 || velocityX < -900) {
-      animateDelete();
+    currentX.current = released;
+    if (released < -screenWidthRef.current * 0.45 || (released < -REVEAL && velocityX < -1200)) {
+      animateDeleteRef.current();
       return;
     }
-    if (next > REVEAL * 0.35 || velocityX > 500) {
-      fireMuteNow();
+    if (released >= REVEAL * 0.72) toggleMuteOnce();
+    if (released >= REVEAL * 0.72 || muteFired.current) {
+      snapToRef.current(0);
       return;
     }
-    if (next < -REVEAL * 0.45) {
-      snapTo(-REVEAL);
+    if (released < -REVEAL * 0.45) {
+      snapToRef.current(-REVEAL);
       return;
     }
-    snapTo(0);
-  };
+    snapToRef.current(0);
+  }, [toggleMuteOnce, translateX]);
 
   const deleteShift = translateX.interpolate({
     inputRange: [-REVEAL, 0],
@@ -167,8 +206,8 @@ export default function SwipeableChatRow({
   });
 
   const muteOpacity = translateX.interpolate({
-    inputRange: [0, 8, REVEAL],
-    outputRange: [0, 1, 1],
+    inputRange: [0, REVEAL * 0.18, REVEAL * 0.62],
+    outputRange: [0, 0, 1],
     extrapolate: "clamp",
   });
 
@@ -215,12 +254,12 @@ export default function SwipeableChatRow({
 
         <PanGestureHandler
           enabled={enabled}
-          activeOffsetX={[-12, 12]}
-          failOffsetY={[-14, 14]}
+          activeOffsetX={[-18, 18]}
+          failOffsetY={[-8, 8]}
           onGestureEvent={onGestureEvent}
           onHandlerStateChange={onHandlerStateChange}
         >
-          <Animated.View style={[styles.foreground, { transform: [{ translateX }] }]}>
+          <Animated.View style={[styles.foreground, { transform: [{ translateX }], zIndex: 1 }]}>
             {children}
           </Animated.View>
         </PanGestureHandler>
@@ -241,7 +280,11 @@ function makeStyles(colors: Palette) {
       backgroundColor: colors.background,
     },
     mutePane: {
-      ...StyleSheet.absoluteFill,
+      position: "absolute",
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: REVEAL,
       alignItems: "flex-start",
       justifyContent: "center",
       paddingLeft: 4,

@@ -1,5 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useState } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import AppButton from "../components/AppButton";
 import FadeIn from "../components/FadeIn";
@@ -131,7 +132,7 @@ export default function AccountSettingsScreen() {
 
   const onDeletePress = () => {
     setError(null);
-    Alert.alert(t("account.deleteTitle"), t("account.deleteBody"), [
+    AppAlert.alert(t("account.deleteTitle"), t("account.deleteBody"), [
       { text: t("common.cancel"), style: "cancel" },
       {
         text: t("account.deleteContinue"),
@@ -146,7 +147,7 @@ export default function AccountSettingsScreen() {
 
   const onDeactivatePress = () => {
     setError(null);
-    Alert.alert(t("account.deactivateTitle"), t("account.deactivateBody"), [
+    AppAlert.alert(t("account.deactivateTitle"), t("account.deactivateBody"), [
       { text: t("common.cancel"), style: "cancel" },
       {
         text: t("account.deactivateContinue"),

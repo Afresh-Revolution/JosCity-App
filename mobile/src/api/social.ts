@@ -26,6 +26,8 @@ export type DirectoryUser = {
   is_verified?: boolean;
   user_verified?: boolean;
   badge_color?: string | null;
+  nin_verified?: boolean;
+  nin_number?: string | null;
   mutual_count?: number;
   agent_type?: string | null;
   signup_intent?: string | null;

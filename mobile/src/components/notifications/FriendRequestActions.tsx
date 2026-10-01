@@ -1,5 +1,6 @@
+import { AppAlert } from "../AppDialog";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import JosCityLoader from "../JosCityLoader";
 import { useI18n } from "../../i18n/I18nProvider";
 import {
@@ -67,7 +68,7 @@ export default function FriendRequestActions({
         : await declineIncoming(userId, requestId);
     setBusy(null);
     if (!ok) {
-      Alert.alert(kind === "accept" ? t("friends.acceptFailed") : t("friends.declineFailed"));
+      AppAlert.alert(kind === "accept" ? t("friends.acceptFailed") : t("friends.declineFailed"));
       return;
     }
     setResolved(kind === "accept" ? "accepted" : "declined");

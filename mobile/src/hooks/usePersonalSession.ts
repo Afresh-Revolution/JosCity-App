@@ -7,7 +7,6 @@ function isPersonalAccountSection(path: string) {
     path === "/home" ||
     path === "/explore" ||
     path === "/map" ||
-    path === "/notifications" ||
     path === "/profile"
   );
 }

@@ -1,6 +1,6 @@
+import { AppAlert } from "../components/AppDialog";
 import { useCallback, useMemo, useState, type ComponentProps } from "react";
 import {
-  Alert,
   Modal,
   Pressable,
   StyleSheet,
@@ -95,7 +95,7 @@ export default function HelpSupportScreen() {
       return;
     }
     if (guide?.body) {
-      Alert.alert(guide.title || t("help.guide"), guide.body);
+      AppAlert.alert(guide.title || t("help.guide"), guide.body);
     }
   };
 
@@ -113,7 +113,7 @@ export default function HelpSupportScreen() {
       return;
     }
     setProblem("");
-    Alert.alert(t("help.problemSentTitle"), result.message || t("help.problemSent"));
+    AppAlert.alert(t("help.problemSentTitle"), result.message || t("help.problemSent"));
   };
 
   const onSendFeedback = async () => {
@@ -131,7 +131,7 @@ export default function HelpSupportScreen() {
     }
     setFeedback("");
     setRating(0);
-    Alert.alert(t("help.feedbackSentTitle"), result.message || t("help.feedbackSent"));
+    AppAlert.alert(t("help.feedbackSentTitle"), result.message || t("help.feedbackSent"));
   };
 
   return (

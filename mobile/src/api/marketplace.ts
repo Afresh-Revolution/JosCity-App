@@ -66,6 +66,9 @@ export type MarketplaceListing = {
   title: string;
   description?: string;
   price: number;
+  sale_price?: number | null;
+  discount_percent?: number | null;
+  offer_text?: string | null;
   image_url?: string;
   category?: string;
   unit?: string | null;
@@ -124,6 +127,9 @@ export type ListingCartItem = {
   listing_id: string;
   quantity: number;
   price: number;
+  list_price?: number | null;
+  discount_percent?: number | null;
+  offer_text?: string | null;
   listing: MarketplaceListing;
 };
 
@@ -161,6 +167,8 @@ export type CreateListingInput = {
   serviceArea?: string | null;
   availabilityNote?: string | null;
   media?: ListingMediaItem[];
+  discountPercent?: number | null;
+  offerText?: string | null;
   status: "draft" | "published";
 };
 
@@ -379,8 +387,12 @@ async function fallbackOverview(): Promise<BusinessOverview> {
   return overview;
 }
 
-export async function getPublicListings(): Promise<MarketplaceListing[]> {
-  const result = await readMarketplace<MarketplaceListing[]>("/marketplace/listings");
+export async function getPublicListings(search = ""): Promise<MarketplaceListing[]> {
+  const q = String(search || "").trim();
+  const path = q
+    ? `/marketplace/listings?search=${encodeURIComponent(q)}`
+    : "/marketplace/listings";
+  const result = await readMarketplace<MarketplaceListing[]>(path);
   if (!result.success || !Array.isArray(result.data)) return [];
   return result.data.map((row) => ({
     ...row,
@@ -433,6 +445,9 @@ export async function getListingCart(): Promise<ListingCartItem[]> {
     listing_id: String(row.listing_id),
     quantity: Number(row.quantity) || 1,
     price: Number(row.price) || 0,
+    list_price: row.list_price != null ? Number(row.list_price) : Number(row.listing?.price) || 0,
+    discount_percent: row.discount_percent ?? row.listing?.discount_percent ?? null,
+    offer_text: row.offer_text || row.listing?.offer_text || null,
     listing: {
       ...row.listing,
       id: String(row.listing?.id || row.listing_id),
@@ -697,6 +712,33 @@ export async function createListing(input: CreateListingInput): Promise<{
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export async function updateListing(
+  listingId: string | number,
+  input: CreateListingInput
+): Promise<{
+  success: boolean;
+  message?: string;
+  data?: MarketplaceListing;
+}> {
+  return marketplaceRequest<MarketplaceListing>(
+    `/marketplace/listings/${encodeURIComponent(String(listingId))}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }
+  );
+}
+
+export async function deleteListing(listingId: string | number): Promise<{
+  success: boolean;
+  message?: string;
+}> {
+  return marketplaceRequest<unknown>(
+    `/marketplace/listings/${encodeURIComponent(String(listingId))}`,
+    { method: "DELETE" }
+  );
 }
 
 export async function getBusinessOverview(): Promise<BusinessOverview> {
@@ -1019,6 +1061,9 @@ export type BusinessPage = {
     title: string;
     description?: string;
     price: number;
+    sale_price?: number | null;
+    discount_percent?: number | null;
+    offer_text?: string | null;
     image_url?: string | null;
     category?: string | null;
     listing_kind?: "goods" | "service";
@@ -1443,6 +1488,9 @@ export type SellerOrderItem = {
   title: string;
   quantity: number;
   unit_price_naira: number;
+  list_price_naira?: number | null;
+  discount_percent?: number | null;
+  offer_text?: string | null;
   listing_id?: number | null;
 };
 

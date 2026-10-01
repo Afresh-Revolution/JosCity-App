@@ -189,6 +189,7 @@ function socialTitle(action: string, name: string): string | null {
   }
   if (key === "new_message") return `${actor} sent you a message`;
   if (key === "collaboration_invite") return `${actor} invited you to collaborate on a post`;
+  if (key === "collaboration_invite_accepted") return `You accepted ${actor}'s collaboration invite`;
   if (key === "collaboration_accepted") return `${actor} accepted your collaboration invite`;
   if (key === "collaboration_declined") return `${actor} declined your collaboration invite`;
   if (raw.toLowerCase().startsWith(`${actor.toLowerCase()} `)) return raw;

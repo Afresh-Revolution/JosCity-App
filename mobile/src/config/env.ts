@@ -8,7 +8,7 @@ function trimSlash(value: string): string {
 }
 
 const PRODUCTION_API =
-  "https://api-joscity-com-phqud.ondigitalocean.app/api";
+  "https://api.joscity.com/api";
 
 function resolveApiBase(): string {
   const raw = trimSlash(

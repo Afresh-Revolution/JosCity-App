@@ -1,4 +1,5 @@
-import { Alert, AppState, Linking, Platform } from "react-native";
+import { AppAlert } from "../components/AppDialog";
+import { AppState, Linking, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
@@ -248,7 +249,7 @@ async function explainThenRequest(): Promise<boolean> {
   const Notifications = await getNotificationsModule();
   if (!Notifications) return false;
   return new Promise((resolve) => {
-    Alert.alert(
+    AppAlert.alert(
       "Stay up to date",
       "JOSCITY uses notifications for messages, orders, payments and account updates, including when the app is closed.",
       [

@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -18,6 +17,7 @@ import * as ImagePicker from "expo-image-picker";
 import FadeIn from "../components/FadeIn";
 import PreviewVideo from "../components/media/PreviewVideo";
 import { showError } from "../components/AppNotice";
+import { AppAlert } from "../components/AppDialog";
 import AvatarCircle from "../components/feed/AvatarCircle";
 import FeedShell from "../components/feed/FeedShell";
 import { createPost, type PostMediaFile } from "../api/feed";
@@ -36,7 +36,7 @@ import {
 } from "../state/pendingPost";
 import { useRequirePersonalAccount } from "../hooks/usePersonalSession";
 import { useI18n } from "../i18n/I18nProvider";
-import { getUser, type StoredUser } from "../storage/session";
+import { getAccountType, getUser, isBusinessAccountType, type StoredUser } from "../storage/session";
 import type { Palette } from "../theme/colors";
 import { useTheme } from "../theme/ThemeProvider";
 import { handleFromName } from "../utils/format";
@@ -77,6 +77,7 @@ export default function CreatePostScreen() {
   const allowed = useRequirePersonalAccount();
   const router = useRouter();
   const [user, setUser] = useState<StoredUser | null>(null);
+  const [accountType, setAccountType] = useState("");
   const [text, setText] = useState("");
   const [media, setMedia] = useState<PostMediaFile[]>([]);
   const [posting, setPosting] = useState(false);
@@ -89,24 +90,27 @@ export default function CreatePostScreen() {
   }, []);
 
   useEffect(() => {
-    void getUser().then(setUser);
+    void Promise.all([getUser(), getAccountType()]).then(([stored, type]) => {
+      setUser(stored);
+      setAccountType(String(type || stored?.account_type || ""));
+    });
   }, []);
 
   const pickMedia = useCallback(
     async (kind: "photo" | "video") => {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert(t("create.permissionTitle"), t("create.permissionLibrary"));
+        AppAlert.alert(t("create.permissionTitle"), t("create.permissionLibrary"));
         return;
       }
       const photos = media.filter((item) => item.kind === "photo").length;
       const videos = media.filter((item) => item.kind === "video").length;
       if (kind === "photo" && photos >= MAX_PHOTOS) {
-        Alert.alert(t("create.maxPhotos"));
+        AppAlert.alert(t("create.maxPhotos"));
         return;
       }
       if (kind === "video" && videos >= MAX_VIDEOS) {
-        Alert.alert(t("create.maxVideos"));
+        AppAlert.alert(t("create.maxVideos"));
         return;
       }
 
@@ -155,12 +159,17 @@ export default function CreatePostScreen() {
     null;
   const canPost = (Boolean(text.trim()) || media.length > 0) && !posting;
 
+  const feedHome = async () => {
+    const type = accountType || String((await getAccountType()) || "");
+    return type.toLowerCase() === "agent" ? "/agents/feed" : "/home";
+  };
+
   const goBack = () => {
     if (router.canGoBack()) {
       router.back();
       return;
     }
-    router.replace("/home");
+    void feedHome().then((path) => router.replace(path));
   };
 
   const onPost = () => {
@@ -173,7 +182,7 @@ export default function CreatePostScreen() {
       collaboratorIds: collaborators.map((person) => Number(person.user_id)).filter(Boolean),
     });
     handle.abort = abort;
-    router.replace("/home");
+    void feedHome().then((path) => router.replace(path));
     void promise.then((result) => {
       clearPendingPost(uploadId);
       if (result.aborted) return;
@@ -240,7 +249,11 @@ export default function CreatePostScreen() {
             <View style={styles.identity}>
               <AvatarCircle name={name} uri={picture} size={48} />
               <View style={styles.identityCopy}>
-                <Text style={styles.kicker}>POSTING AS YOURSELF</Text>
+                <Text style={styles.kicker}>
+                  {isBusinessAccountType(accountType)
+                    ? t("create.postingAsBusiness")
+                    : t("create.postingAs")}
+                </Text>
                 <Text style={styles.name} numberOfLines={1}>
                   {name}
                 </Text>
@@ -478,6 +491,7 @@ function makeStyles(colors: Palette) {
       fontFamily: "Montserrat_600SemiBold",
       fontSize: 11,
       letterSpacing: 0.8,
+      textTransform: "uppercase",
       color: colors.textMuted,
       marginBottom: 2,
     },

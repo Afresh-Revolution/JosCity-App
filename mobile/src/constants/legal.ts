@@ -1,4 +1,5 @@
-import { Alert, Linking } from "react-native";
+import { AppAlert } from "../components/AppDialog";
+import { Linking } from "react-native";
 
 export const LEGAL = {
   site: "https://joscity.com",
@@ -23,11 +24,11 @@ export async function openExternalUrl(url: string) {
   try {
     const allowed = await Linking.canOpenURL(url);
     if (!allowed) {
-      Alert.alert("Could not open link", url);
+      AppAlert.alert("Could not open link", url);
       return;
     }
     await Linking.openURL(url);
   } catch {
-    Alert.alert("Could not open link", url);
+    AppAlert.alert("Could not open link", url);
   }
 }

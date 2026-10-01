@@ -329,9 +329,17 @@ function OrderDetailSheet({
                     <Text style={styles.itemName}>
                       {item.quantity > 1 ? `${item.quantity} × ${item.title}` : item.title}
                     </Text>
-                    <Text style={styles.itemPrice}>
-                      {formatNaira(item.unit_price_naira * Math.max(1, item.quantity || 1))}
-                    </Text>
+                    <View style={styles.itemPriceCol}>
+                      <Text style={styles.itemPrice}>
+                        {formatNaira(item.unit_price_naira * Math.max(1, item.quantity || 1))}
+                      </Text>
+                      {Number(item.discount_percent) > 0 ? (
+                        <Text style={styles.itemOffer}>{item.discount_percent}% off</Text>
+                      ) : null}
+                      {item.offer_text ? (
+                        <Text style={styles.itemOffer}>Offer: {item.offer_text}</Text>
+                      ) : null}
+                    </View>
                   </View>
                 ))}
               </View>
@@ -616,6 +624,18 @@ function makeStyles(colors: Palette) {
       fontFamily: "Montserrat_600SemiBold",
       fontSize: 14,
       color: colors.text,
+      textAlign: "right",
+    },
+    itemPriceCol: {
+      alignItems: "flex-end",
+      gap: 4,
+      maxWidth: "46%",
+    },
+    itemOffer: {
+      fontFamily: "Montserrat_600SemiBold",
+      fontSize: 11,
+      color: colors.primary,
+      textAlign: "right",
     },
     detailRow: {
       marginTop: 12,
